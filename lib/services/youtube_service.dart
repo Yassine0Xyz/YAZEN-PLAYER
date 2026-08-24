@@ -156,22 +156,30 @@ class YoutubeService {
   String? extractVideoId(String input) {
     final value = input.trim();
     if (value.isEmpty) return null;
+    String? valid(String? candidate) {
+      if (candidate == null) return null;
+      return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(candidate)
+          ? candidate
+          : null;
+    }
+
     final uri = Uri.tryParse(value);
     if (uri != null) {
       if (uri.host.contains('youtu.be') && uri.pathSegments.isNotEmpty) {
-        return uri.pathSegments.first;
+        return valid(uri.pathSegments.first);
       }
       if (uri.host.contains('youtube.com')) {
-        final queryId = uri.queryParameters['v'];
-        if (queryId != null && queryId.isNotEmpty) return queryId;
+        final queryId = valid(uri.queryParameters['v']);
+        if (queryId != null) return queryId;
         if (uri.pathSegments.length >= 2 &&
             (uri.pathSegments.first == 'shorts' ||
                 uri.pathSegments.first == 'embed')) {
-          return uri.pathSegments[1];
+          return valid(uri.pathSegments[1]);
         }
       }
     }
-    if (RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(value)) return value;
+    final directId = valid(value);
+    if (directId != null) return directId;
     final match = RegExp(
       r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/|embed/))([A-Za-z0-9_-]{11})',
       caseSensitive: false,
