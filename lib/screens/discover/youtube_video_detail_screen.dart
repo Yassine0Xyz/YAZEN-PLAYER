@@ -41,6 +41,9 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
   bool _loadingMore = false;
   bool _stickyPlayer = false;
   VideoPlayerController? _activeVideoController;
+  final List<YoutubeVideoResult> _videoHistory = <YoutubeVideoResult>[];
+  int _historyIndex = -1;
+  int _relatedGeneration = 0;
   late final ScrollController _scrollController;
 
   @override
@@ -48,6 +51,10 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
     super.initState();
     _scrollController = ScrollController()..addListener(_handleScroll);
     _setCurrent(widget.initialVideo, notify: false);
+    _videoHistory
+      ..clear()
+      ..add(widget.initialVideo);
+    _historyIndex = 0;
   }
 
   @override
@@ -75,49 +82,133 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
     _current = video;
     _track = video.toMediaTrack();
     final service = context.read<HybridMusicController>().youtubeService;
+    final generation = ++_relatedGeneration;
+    _activeVideoController = null;
     _detailsFuture = service.getVideo(video.videoId);
     _streamFuture = service.getVideoStreamUrl(video.videoId);
     _relatedPage = null;
     _relatedItems.clear();
     _relatedHasMore = true;
-    _relatedFuture = service.searchVideosPage(
-      '${video.title} ${video.author}',
-      limit: 42,
-    );
+    _relatedFuture = _loadRelated(video, generation);
     _descriptionExpanded = false;
     if (notify && mounted) setState(() {});
   }
 
+  Future<YoutubeSearchPage> _loadRelated(
+    YoutubeVideoResult video,
+    int generation,
+  ) async {
+    final service = context.read<HybridMusicController>().youtubeService;
+    final page = await service.searchVideosPage(
+      '${video.title} ${video.author}',
+      limit: 42,
+    );
+    if (!mounted || generation != _relatedGeneration) return page;
+    _relatedPage = page;
+    _relatedItems
+      ..clear()
+      ..addAll(page.results.where((item) => item.videoId != _current.videoId));
+    return page;
+  }
+
+  void _openVideo(YoutubeVideoResult video) {
+    if (video.videoId == _current.videoId) return;
+    if (_historyIndex < _videoHistory.length - 1) {
+      _videoHistory.removeRange(_historyIndex + 1, _videoHistory.length);
+    }
+    _videoHistory.add(video);
+    _historyIndex = _videoHistory.length - 1;
+    _setCurrent(video);
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Future<void> _playPreviousVideo() async {
+    if (_historyIndex <= 0) {
+      _showNavigationHint('No previous video');
+      return;
+    }
+    _historyIndex -= 1;
+    _setCurrent(_videoHistory[_historyIndex]);
+    await _scrollToTop();
+  }
+
+  Future<void> _playNextVideo() async {
+    if (_historyIndex + 1 < _videoHistory.length) {
+      _historyIndex += 1;
+      _setCurrent(_videoHistory[_historyIndex]);
+      await _scrollToTop();
+      return;
+    }
+
+    final currentIndex = _relatedItems.indexWhere(
+      (item) => item.videoId == _current.videoId,
+    );
+    final nextIndex = currentIndex < 0 ? 0 : currentIndex + 1;
+    if (nextIndex >= _relatedItems.length && _relatedHasMore) {
+      await _loadMoreRelated();
+    }
+    if (!mounted) return;
+    final refreshedIndex = _relatedItems.indexWhere(
+      (item) => item.videoId == _current.videoId,
+    );
+    final targetIndex = refreshedIndex < 0 ? nextIndex : refreshedIndex + 1;
+    if (targetIndex < _relatedItems.length) {
+      _openVideo(_relatedItems[targetIndex]);
+    } else {
+      _showNavigationHint('No next video loaded yet');
+    }
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _showNavigationHint(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _retryRelated() async {
+    final generation = ++_relatedGeneration;
     setState(() {
       _loadingRelated = true;
       _relatedPage = null;
       _relatedItems.clear();
       _relatedHasMore = true;
+      _relatedFuture = _loadRelated(_current, generation);
     });
     try {
-      final service = context.read<HybridMusicController>().youtubeService;
-      final page = await service.searchVideosPage(
-        '${_current.title} ${_current.author}',
-        limit: 42,
-      );
-      if (!mounted) return;
-      setState(() {
-        _relatedPage = page;
-        _relatedItems.addAll(page.results);
-        _loadingRelated = false;
-      });
+      await _relatedFuture;
+      if (mounted && generation == _relatedGeneration) {
+        setState(() => _loadingRelated = false);
+      }
     } catch (_) {
-      if (mounted) setState(() => _loadingRelated = false);
+      if (mounted && generation == _relatedGeneration) {
+        setState(() => _loadingRelated = false);
+      }
     }
   }
 
   Future<void> _loadMoreRelated() async {
     if (_loadingMore || !_relatedHasMore || _relatedPage == null) return;
+    final generation = _relatedGeneration;
     setState(() => _loadingMore = true);
     try {
       final next = await _relatedPage!.nextPage();
-      if (!mounted) return;
+      if (!mounted || generation != _relatedGeneration) return;
       if (next == null) {
         setState(() {
           _relatedHasMore = false;
@@ -125,7 +216,9 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
         });
         return;
       }
-      final known = _relatedItems.map((item) => item.videoId).toSet();
+      final known =
+          _relatedItems.map((item) => item.videoId).toSet()
+            ..add(_current.videoId);
       final additions = next.results.where((item) => known.add(item.videoId));
       setState(() {
         _relatedPage = next;
@@ -207,16 +300,20 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
                 streamFuture: _streamFuture!,
                 title: _current.title,
                 thumbnail: _current.thumbnailUrl,
-                onControllerReady: (controller) {
-                  if (mounted)
-                    setState(() => _activeVideoController = controller);
+                showVideo: !_stickyPlayer,
+                onPrevious: _playPreviousVideo,
+                onNext: _playNextVideo,
+                onControllerReady: (videoController) {
+                  if (mounted) {
+                    setState(() => _activeVideoController = videoController);
+                  }
                 },
                 onRetry:
-                    () => setState(
-                      () =>
-                          _streamFuture = controller.youtubeService
-                              .getVideoStreamUrl(_current.videoId),
-                    ),
+                    () => setState(() {
+                      _activeVideoController = null;
+                      _streamFuture = controller.youtubeService
+                          .getVideoStreamUrl(_current.videoId);
+                    }),
               ),
               const SizedBox(height: 18),
               FutureBuilder<YoutubeVideoResult>(
@@ -325,12 +422,9 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
                   controller: _activeVideoController!,
                   title: _current.title,
                   compact: true,
-                  onExpand:
-                      () => _scrollController.animateTo(
-                        0,
-                        duration: const Duration(milliseconds: 380),
-                        curve: Curves.easeOutCubic,
-                      ),
+                  onPrevious: _playPreviousVideo,
+                  onNext: _playNextVideo,
+                  onExpand: _scrollToTop,
                 ),
               ),
             ),
@@ -345,6 +439,9 @@ class _OnlinePlayerHeader extends StatelessWidget {
     required this.streamFuture,
     required this.title,
     required this.thumbnail,
+    required this.showVideo,
+    required this.onPrevious,
+    required this.onNext,
     required this.onControllerReady,
     required this.onRetry,
   });
@@ -352,6 +449,9 @@ class _OnlinePlayerHeader extends StatelessWidget {
   final Future<Uri> streamFuture;
   final String title;
   final Uri? thumbnail;
+  final bool showVideo;
+  final Future<void> Function()? onPrevious;
+  final Future<void> Function()? onNext;
   final ValueChanged<VideoPlayerController?> onControllerReady;
   final VoidCallback onRetry;
 
@@ -380,6 +480,9 @@ class _OnlinePlayerHeader extends StatelessWidget {
               key: ValueKey(snapshot.data.toString()),
               streamUri: snapshot.data!,
               title: title,
+              showVideo: showVideo,
+              onPrevious: onPrevious,
+              onNext: onNext,
               onControllerReady: onControllerReady,
             ),
           ),
@@ -393,12 +496,18 @@ class _InlineOnlinePlayer extends StatefulWidget {
   const _InlineOnlinePlayer({
     required this.streamUri,
     required this.title,
+    required this.showVideo,
+    required this.onPrevious,
+    required this.onNext,
     required this.onControllerReady,
     super.key,
   });
 
   final Uri streamUri;
   final String title;
+  final bool showVideo;
+  final Future<void> Function()? onPrevious;
+  final Future<void> Function()? onNext;
   final ValueChanged<VideoPlayerController?> onControllerReady;
 
   @override
@@ -447,7 +556,15 @@ class _InlineOnlinePlayerState extends State<_InlineOnlinePlayer>
             ),
           );
         }
-        return YazenVideoPlayer(controller: _controller, title: widget.title);
+        if (!widget.showVideo) {
+          return const ColoredBox(color: Colors.black);
+        }
+        return YazenVideoPlayer(
+          controller: _controller,
+          title: widget.title,
+          onPrevious: widget.onPrevious,
+          onNext: widget.onNext,
+        );
       },
     );
   }
