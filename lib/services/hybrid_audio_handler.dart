@@ -178,7 +178,29 @@ class HybridAudioHandler extends BaseAudioHandler
     }
     _emitPartyAction(PartyAction.trackChange);
     _persistPlayback();
-    if (autoPlay) await play();
+    if (autoPlay) {
+      await play();
+      if (!track.isLocal) await _confirmYoutubePlayback(track, item);
+    }
+  }
+
+  Future<void> _confirmYoutubePlayback(MediaTrack track, MediaItem item) async {
+    if (_player.playing && _player.processingState == ProcessingState.ready) {
+      return;
+    }
+    try {
+      await _player.playerStateStream
+          .firstWhere(
+            (state) =>
+                state.playing && state.processingState == ProcessingState.ready,
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      await _player.stop();
+      final freshSource = await _resolveSource(track, item);
+      await _player.setAudioSource(freshSource);
+      await play();
+    }
   }
 
   Future<void> playTrackQueue(

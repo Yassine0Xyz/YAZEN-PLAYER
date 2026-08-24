@@ -129,11 +129,17 @@ class YoutubeService {
       final manifest = await _withRetry(
         () => _client.videos.streams.getManifest(normalizedId),
       );
-      final audioStreams = manifest.audioOnly;
+      final audioStreams = manifest.audioOnly.toList();
       if (audioStreams.isEmpty) {
         throw StateError('No audio-only stream was found.');
       }
-      final url = audioStreams.withHighestBitrate().url;
+      audioStreams.sort((a, b) {
+        final aMp4 = a.container == StreamContainer.mp4;
+        final bMp4 = b.container == StreamContainer.mp4;
+        if (aMp4 != bMp4) return aMp4 ? -1 : 1;
+        return b.bitrate.compareTo(a.bitrate);
+      });
+      final url = audioStreams.first.url;
       if (url.scheme != 'http' && url.scheme != 'https') {
         throw StateError('The audio stream URL is invalid.');
       }

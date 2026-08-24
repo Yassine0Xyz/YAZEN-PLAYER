@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -789,7 +791,10 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
               onPlayPause: controller.togglePlayback,
               onPrevious: handler.skipToPrevious,
               onNext: handler.skipToNext,
-              onDismiss: () => setState(() => _dismissedTrackId = item.id),
+              onDismiss: () {
+                setState(() => _dismissedTrackId = item.id);
+                unawaited(handler.stop());
+              },
               onRepeat: controller.toggleRepeat,
               onQueue: () => Navigator.of(context).push(QueueScreen.route()),
               repeatOne: controller.repeatOne,

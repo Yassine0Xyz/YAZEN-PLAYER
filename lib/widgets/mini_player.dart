@@ -180,7 +180,7 @@ class MiniPlayer extends StatelessWidget {
                               onPressed: onNext!,
                             ),
                           _DockAction(
-                            tooltip: 'Hide mini player',
+                            tooltip: 'Stop and close mini player',
                             icon: Icons.close_rounded,
                             color: tokens.textSecondary,
                             onPressed: onDismiss ?? onStop,
