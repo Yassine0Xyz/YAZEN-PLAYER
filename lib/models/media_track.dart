@@ -1,0 +1,138 @@
+import 'package:audio_service/audio_service.dart' show MediaItem;
+import 'package:on_audio_query/on_audio_query.dart';
+
+/// A source-agnostic audio/video item used by the UI and playback layer.
+class MediaTrack {
+  const MediaTrack({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.album,
+    required this.source,
+    this.kind = MediaKind.audio,
+    this.uri,
+    this.artworkUri,
+    this.duration,
+    this.folder,
+    this.youtubeId,
+    this.viewCount,
+    this.channelName,
+  });
+
+  final String id;
+  final String title;
+  final String artist;
+  final String album;
+  final TrackSource source;
+  final MediaKind kind;
+  final Uri? uri;
+  final Uri? artworkUri;
+  final Duration? duration;
+  final String? folder;
+  final String? youtubeId;
+  final int? viewCount;
+  final String? channelName;
+
+  bool get isLocal => source == TrackSource.local;
+  bool get isVideo => kind == MediaKind.video;
+
+  MediaItem toMediaItem() {
+    return MediaItem(
+      id: uri?.toString() ?? id,
+      title: title,
+      artist: artist,
+      album: album,
+      duration: duration,
+      artUri: artworkUri,
+      extras: <String, dynamic>{
+        'trackId': id,
+        'source': source.name,
+        'kind': kind.name,
+        'youtubeId': youtubeId,
+      },
+    );
+  }
+
+  factory MediaTrack.fromSong(SongModel song) {
+    final path = song.data;
+    return MediaTrack(
+      id: song.id.toString(),
+      title: song.title.trim().isEmpty ? 'Unknown title' : song.title,
+      artist:
+          song.artist?.trim().isEmpty ?? true ? 'Unknown artist' : song.artist!,
+      album: song.album?.trim().isEmpty ?? true ? 'Unknown album' : song.album!,
+      source: TrackSource.local,
+      uri: Uri.file(path),
+      artworkUri: Uri.parse(
+        'content://media/external/audio/media/${song.id}/albumart',
+      ),
+      duration:
+          song.duration == null ? null : Duration(milliseconds: song.duration!),
+      folder:
+          path.contains('/') ? path.substring(0, path.lastIndexOf('/')) : null,
+    );
+  }
+
+  factory MediaTrack.fromLocalVideo({
+    required String path,
+    required String title,
+    Duration? duration,
+    String? contentUri,
+  }) {
+    final normalized = contentUri?.trim() ?? '';
+    final uri =
+        normalized.isNotEmpty
+            ? Uri.tryParse(normalized) ?? Uri.file(path)
+            : Uri.file(path);
+    return MediaTrack(
+      id: 'local-video:${uri.toString()}',
+      title: title.trim().isEmpty ? 'Local video' : title.trim(),
+      artist: 'On this device',
+      album: 'Local videos',
+      source: TrackSource.local,
+      kind: MediaKind.video,
+      uri: uri,
+      duration: duration,
+    );
+  }
+
+  factory MediaTrack.fromYoutube({
+    required String id,
+    required String title,
+    required String artist,
+    required Duration? duration,
+    Uri? artworkUri,
+    int? viewCount,
+    String? channelName,
+  }) {
+    return MediaTrack(
+      id: 'youtube:$id',
+      title: title,
+      artist: artist,
+      album: 'YouTube',
+      source: TrackSource.youtube,
+      artworkUri: artworkUri,
+      duration: duration,
+      youtubeId: id,
+      viewCount: viewCount,
+      channelName: channelName ?? artist,
+    );
+  }
+}
+
+enum MediaKind { audio, video }
+
+enum TrackSource { local, youtube }
+
+enum LibraryTab {
+  videos('Local Videos'),
+  onlineVideos('Online Videos'),
+  songs('Songs'),
+  playlists('Playlists'),
+  folders('Folders'),
+  artists('Artists'),
+  albums('Albums');
+
+  const LibraryTab(this.label);
+  final String label;
+}

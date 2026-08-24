@@ -1,0 +1,75 @@
+name: yazen
+description: A high-performance hybrid music player for local audio and YouTube streaming.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Playback and background controls.
+  just_audio: ^0.10.6
+  video_thumbnail: ^0.5.3
+  video_player: ^2.9.2
+  audio_service: ^0.18.19
+  audio_session: ^0.2.2
+
+  # Local media library and YouTube stream discovery.
+  on_audio_query: ^2.9.0
+  youtube_explode_dart: ^3.1.0
+
+  # Lightweight reactive state propagation.
+  provider: ^6.1.5+1
+  rxdart: ^0.28.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.3
+  http: ^1.5.0
+  web_socket_channel: ^3.0.3
+  pusher_channels_flutter: ^2.6.0
+  nsd: ^5.0.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/yazen_app_icon_master.png
+    - assets/yazen_app_icon_source.png
+
+  fonts:
+
+    - family: Plus Jakarta Sans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 200
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 300
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 400
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 500
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 600
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 700
+          style: normal
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+          weight: 800
+          style: normal
+
