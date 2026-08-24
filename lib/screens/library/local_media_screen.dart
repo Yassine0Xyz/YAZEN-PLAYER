@@ -21,19 +21,23 @@ class LocalMediaScreen extends StatelessWidget {
   const LocalMediaScreen({
     required this.selectedTab,
     required this.onTabSelected,
+    this.showTabs = true,
     super.key,
   });
 
   final LibraryTab selectedTab;
   final ValueChanged<LibraryTab> onTabSelected;
+  final bool showTabs;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<HybridMusicController>();
     return Column(
       children: <Widget>[
-        LibraryTabs(selected: selectedTab, onSelected: onTabSelected),
-        const SizedBox(height: 18),
+        if (showTabs) ...<Widget>[
+          LibraryTabs(selected: selectedTab, onSelected: onTabSelected),
+          const SizedBox(height: 18),
+        ],
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
@@ -53,7 +57,7 @@ class LocalMediaScreen extends StatelessWidget {
     if (controller.isLoading) return const LibraryLoadingState();
 
     return switch (selectedTab) {
-      LibraryTab.songs => _SongsView(tracks: controller.localSongs),
+      LibraryTab.songs => _SongsView(tracks: controller.visibleTracks),
       LibraryTab.artists => _ArtistsView(artists: controller.artists),
       LibraryTab.albums => _AlbumsView(albums: controller.albums),
       LibraryTab.folders => _FoldersView(
@@ -61,7 +65,7 @@ class LocalMediaScreen extends StatelessWidget {
         tracks: controller.localSongs,
       ),
       LibraryTab.videos => _VideosView(
-        tracks: controller.localVideos,
+        tracks: controller.visibleTracks,
         online: false,
       ),
       LibraryTab.onlineVideos => _VideosView(

@@ -38,6 +38,7 @@ class HybridMusicController extends ChangeNotifier {
   bool _isLoading = false;
   bool _isSearching = false;
   bool _repeatOne = false;
+  LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
   int _searchGeneration = 0;
 
@@ -52,6 +53,7 @@ class HybridMusicController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isSearching => _isSearching;
   bool get repeatOne => _repeatOne;
+  LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
   HybridAudioHandler get audioHandler => _audioHandler;
@@ -60,21 +62,50 @@ class HybridMusicController extends ChangeNotifier {
   LocalPlaylistManager get playlistManager => _playlistManager;
 
   List<MediaTrack> get visibleTracks {
-    switch (_selectedTab) {
-      case LibraryTab.videos:
-        return _localVideos;
-      case LibraryTab.onlineVideos:
-        return _youtubeResults;
-      case LibraryTab.playlists:
-        return _localSongs;
-      case LibraryTab.folders:
-        return _localSongs;
-      case LibraryTab.artists:
-        return _localSongs;
-      case LibraryTab.albums:
-        return _localSongs;
-      case LibraryTab.songs:
-        return _localSongs;
+    final tracks = switch (_selectedTab) {
+      LibraryTab.videos => _localVideos,
+      LibraryTab.onlineVideos => _youtubeResults,
+      LibraryTab.playlists => _localSongs,
+      LibraryTab.folders => _localSongs,
+      LibraryTab.artists => _localSongs,
+      LibraryTab.albums => _localSongs,
+      LibraryTab.songs => _localSongs,
+    };
+    final sorted = List<MediaTrack>.of(tracks);
+    sorted.sort(_compareTracks);
+    return sorted;
+  }
+
+  void setLibrarySort(LibrarySort sort) {
+    if (_librarySort == sort) return;
+    _librarySort = sort;
+    notifyListeners();
+  }
+
+  int _compareTracks(MediaTrack a, MediaTrack b) {
+    switch (_librarySort) {
+      case LibrarySort.newestFirst:
+        return (b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
+      case LibrarySort.oldestFirst:
+        return (a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
+      case LibrarySort.sizeLowToHigh:
+        return (a.sizeBytes ?? 0).compareTo(b.sizeBytes ?? 0);
+      case LibrarySort.sizeHighToLow:
+        return (b.sizeBytes ?? 0).compareTo(a.sizeBytes ?? 0);
+      case LibrarySort.durationShortToLong:
+        return (a.duration ?? Duration.zero).compareTo(
+          b.duration ?? Duration.zero,
+        );
+      case LibrarySort.durationLongToShort:
+        return (b.duration ?? Duration.zero).compareTo(
+          a.duration ?? Duration.zero,
+        );
+      case LibrarySort.nameAZ:
+        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      case LibrarySort.nameZA:
+        return b.title.toLowerCase().compareTo(a.title.toLowerCase());
     }
   }
 
@@ -223,4 +254,15 @@ class HybridMusicController extends ChangeNotifier {
     _lyricsService.dispose();
     super.dispose();
   }
+}
+
+enum LibrarySort {
+  newestFirst,
+  oldestFirst,
+  sizeLowToHigh,
+  sizeHighToLow,
+  durationShortToLong,
+  durationLongToShort,
+  nameAZ,
+  nameZA,
 }

@@ -17,6 +17,7 @@ import '../../widgets/mini_player.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../player/full_player_screen.dart';
 import '../tube/tube_mode_screen.dart';
+import 'widgets/library_tabs.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,13 +27,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _searchController = TextEditingController();
   int _bottomIndex = 0;
   bool _heroVisible = true;
 
   @override
   void dispose() {
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -73,10 +72,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 15),
                 ],
+                LibraryTabs(
+                  selected: controller.selectedTab,
+                  onSelected: controller.selectTab,
+                ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: LocalMediaScreen(
                     selectedTab: controller.selectedTab,
                     onTabSelected: controller.selectTab,
+                    showTabs: false,
                   ),
                 ),
               ],
@@ -146,21 +151,25 @@ class _HomeScreenState extends State<HomeScreen> {
                 EchoBreathingGlow(
                   color: tokens.accentStrong,
                   radius: 16,
-                  child: Container(
-                    width: compact ? 43 : 48,
-                    height: compact ? 43 : 48,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        colors: <Color>[tokens.accentStrong, tokens.accent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.graphic_eq_rounded,
-                      color: tokens.isLight ? Colors.white : Colors.black,
-                      size: compact ? 23 : 26,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.asset(
+                      'assets/yazen_app_icon_master.png',
+                      width: compact ? 43 : 48,
+                      height: compact ? 43 : 48,
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (context, error, stackTrace) => Container(
+                            width: compact ? 43 : 48,
+                            height: compact ? 43 : 48,
+                            color: tokens.accent,
+                            child: Icon(
+                              Icons.graphic_eq_rounded,
+                              color:
+                                  tokens.isLight ? Colors.white : Colors.black,
+                              size: compact ? 23 : 26,
+                            ),
+                          ),
                     ),
                   ),
                 ),
@@ -196,13 +205,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 _HeaderAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Search local and YouTube media',
+                  onPressed:
+                      () => Navigator.of(
+                        context,
+                      ).push(YoutubeSearchScreen.route()),
+                ),
+                _HeaderAction(
+                  icon: Icons.tune_rounded,
+                  tooltip: 'Filter and sort library',
+                  onPressed: () => _showLibrarySort(context),
+                ),
+                _HeaderAction(
                   icon: Icons.refresh_rounded,
                   tooltip: 'Refresh library',
                   onPressed: controller.loadLibrary,
                 ),
                 if (!compact)
                   _HeaderAction(
-                    icon: Icons.tune_rounded,
+                    icon: Icons.equalizer_rounded,
                     tooltip: 'Equalizer',
                     onPressed:
                         () =>
@@ -276,62 +298,66 @@ class _HomeScreenState extends State<HomeScreen> {
                 context,
               ).textTheme.bodyMedium?.copyWith(color: tokens.textSecondary),
             ),
-            const SizedBox(height: 13),
-            TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: controller.searchYouTube,
-              style: TextStyle(
-                color: tokens.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                hintText: 'Search YouTube or your library',
-
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon:
-                    controller.isSearching
-                        ? const Padding(
-                          padding: EdgeInsets.all(14),
-                          child: SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                        : IconButton(
-                          tooltip: 'Search',
-                          onPressed:
-                              () => controller.searchYouTube(
-                                _searchController.text,
-                              ),
-                          icon: const Icon(Icons.arrow_forward_rounded),
-                        ),
-                filled: true,
-                fillColor: tokens.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide(color: tokens.divider),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide(color: tokens.divider),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide(color: tokens.accent, width: 1.4),
-                ),
-              ),
-            ),
           ],
         );
       },
     );
   }
+
+  Future<void> _showLibrarySort(BuildContext context) async {
+    final controller = context.read<HybridMusicController>();
+    final selected = await showModalBottomSheet<LibrarySort>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final tokens = context.read<ThemeProvider>().tokens;
+        return Container(
+          decoration: BoxDecoration(
+            color: tokens.surfaceElevated,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Sort library',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                ...LibrarySort.values.map(
+                  (sort) => RadioListTile<LibrarySort>(
+                    value: sort,
+                    groupValue: controller.librarySort,
+                    title: Text(_sortLabel(sort)),
+                    activeColor: tokens.accent,
+                    onChanged: (value) => Navigator.of(context).pop(value),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected != null) controller.setLibrarySort(selected);
+  }
+
+  String _sortLabel(LibrarySort sort) => switch (sort) {
+    LibrarySort.newestFirst => 'Newest first',
+    LibrarySort.oldestFirst => 'Oldest first',
+    LibrarySort.sizeLowToHigh => 'Size: low to high',
+    LibrarySort.sizeHighToLow => 'Size: high to low',
+    LibrarySort.durationShortToLong => 'Duration: shortest first',
+    LibrarySort.durationLongToShort => 'Duration: longest first',
+    LibrarySort.nameAZ => 'Name: A–Z',
+    LibrarySort.nameZA => 'Name: Z–A',
+  };
 }
 
 class _EchoSoundHero extends StatefulWidget {
@@ -702,7 +728,7 @@ class _HeaderAction extends StatelessWidget {
         selectedBackgroundColor: (color ?? tokens.accent).withValues(
           alpha: 0.14,
         ),
-        size: 38,
+        size: 34,
       ),
     );
   }

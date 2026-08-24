@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path/path.dart' as p;
@@ -35,7 +37,19 @@ class MediaLibraryService {
       orderType: OrderType.ASC_OR_SMALLER,
       ignoreCase: true,
     );
-    return songs.map(MediaTrack.fromSong).toList(growable: false);
+    final tracks = <MediaTrack>[];
+    for (final song in songs) {
+      final track = MediaTrack.fromSong(song);
+      try {
+        final stat = await File(song.data).stat();
+        tracks.add(
+          track.copyWith(sizeBytes: stat.size, modifiedAt: stat.modified),
+        );
+      } on FileSystemException {
+        tracks.add(track);
+      }
+    }
+    return tracks;
   }
 
   Future<List<ArtistModel>> queryArtists() async {

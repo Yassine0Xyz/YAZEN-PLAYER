@@ -17,6 +17,8 @@ class MediaTrack {
     this.youtubeId,
     this.viewCount,
     this.channelName,
+    this.sizeBytes,
+    this.modifiedAt,
   });
 
   final String id;
@@ -32,6 +34,28 @@ class MediaTrack {
   final String? youtubeId;
   final int? viewCount;
   final String? channelName;
+  final int? sizeBytes;
+  final DateTime? modifiedAt;
+
+  MediaTrack copyWith({int? sizeBytes, DateTime? modifiedAt}) {
+    return MediaTrack(
+      id: id,
+      title: title,
+      artist: artist,
+      album: album,
+      source: source,
+      kind: kind,
+      uri: uri,
+      artworkUri: artworkUri,
+      duration: duration,
+      folder: folder,
+      youtubeId: youtubeId,
+      viewCount: viewCount,
+      channelName: channelName,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      modifiedAt: modifiedAt ?? this.modifiedAt,
+    );
+  }
 
   bool get isLocal => source == TrackSource.local;
   bool get isVideo => kind == MediaKind.video;
