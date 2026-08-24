@@ -53,6 +53,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 15, 20, 0),
                   child: _buildHeader(context),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                  child: _TopQuickNav(
+                    onDiscover:
+                        () => Navigator.of(
+                          context,
+                        ).push(YoutubeSearchScreen.route()),
+                    onTube:
+                        () =>
+                            Navigator.of(context).push(TubeModeScreen.route()),
+                    onParty:
+                        () => Navigator.of(
+                          context,
+                        ).push(HybridPartyScreen.route()),
+                  ),
+                ),
                 if (_heroVisible) ...<Widget>[
                   const SizedBox(height: 15),
                   Padding(
@@ -360,6 +376,102 @@ class _HomeScreenState extends State<HomeScreen> {
     LibrarySort.nameAZ => 'Name: A–Z',
     LibrarySort.nameZA => 'Name: Z–A',
   };
+}
+
+class _TopQuickNav extends StatelessWidget {
+  const _TopQuickNav({
+    required this.onDiscover,
+    required this.onTube,
+    required this.onParty,
+  });
+
+  final VoidCallback onDiscover;
+  final VoidCallback onTube;
+  final VoidCallback onParty;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return SizedBox(
+      height: 34,
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: _QuickNavChip(
+              icon: Icons.search_rounded,
+              label: 'Discover',
+              color: tokens.accent,
+              onTap: onDiscover,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _QuickNavChip(
+              icon: Icons.ondemand_video_rounded,
+              label: 'Tube',
+              color: tokens.accentStrong,
+              onTap: onTube,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _QuickNavChip(
+              icon: Icons.groups_rounded,
+              label: 'Party',
+              color: tokens.accent,
+              onTap: onParty,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickNavChip extends StatelessWidget {
+  const _QuickNavChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Material(
+      color: tokens.surfaceElevated.withValues(alpha: 0.76),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _EchoSoundHero extends StatefulWidget {
