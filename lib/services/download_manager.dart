@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -14,6 +16,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/download_item.dart';
 import '../models/media_track.dart';
 import 'youtube_service.dart';
+
+const _downloadEventsPortName = 'yazen.download.events';
+
+@pragma('vm:entry-point')
+void _yazenDownloadCallback(String id, int status, int progress) {
+  final port = IsolateNameServer.lookupPortByName(_downloadEventsPortName);
+  port?.send(<dynamic>[id, status, progress]);
+}
 
 class DownloadManager extends ChangeNotifier {
   DownloadManager({required YoutubeService youtubeService})
@@ -36,6 +46,8 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, CancelToken> _activeTokens = <String, CancelToken>{};
   final Map<String, String> _backgroundTaskIds = <String, String>{};
   final Set<String> _activeJobs = <String>{};
+  final Set<String> _pausedJobs = <String>{};
+  ReceivePort? _downloadEventsPort;
   Directory? _directory;
   bool _initialized = false;
 
@@ -77,9 +89,214 @@ class DownloadManager extends ChangeNotifier {
       p.join((await getApplicationSupportDirectory()).path, _directoryName),
     );
     if (!await _directory!.exists()) await _directory!.create(recursive: true);
+    await _bindDownloaderEvents();
     await _removeMissingFiles();
+    await _reconcileBackgroundTasks();
     _initialized = true;
     notifyListeners();
+  }
+
+  Future<void> _bindDownloaderEvents() async {
+    if (!FlutterDownloader.initialized) return;
+    IsolateNameServer.removePortNameMapping(_downloadEventsPortName);
+    final port = ReceivePort();
+    IsolateNameServer.registerPortWithName(
+      port.sendPort,
+      _downloadEventsPortName,
+    );
+    _downloadEventsPort = port;
+    port.listen((dynamic message) {
+      if (message is List && message.length >= 3) {
+        unawaited(_handleBackgroundEvent(message));
+      }
+    });
+    await FlutterDownloader.registerCallback(_yazenDownloadCallback, step: 1);
+  }
+
+  Future<void> _handleBackgroundEvent(List<dynamic> message) async {
+    final taskId = message[0]?.toString();
+    final statusValue = message[1];
+    final progressValue = message[2];
+    if (taskId == null || statusValue is! int || progressValue is! int) return;
+    DownloadItem? item;
+    for (final candidate in _items) {
+      if (candidate.backgroundTaskId == taskId) {
+        item = candidate;
+        break;
+      }
+    }
+    if (item == null) return;
+    final status = DownloadTaskStatus.fromInt(statusValue);
+    final mapped = switch (status) {
+      DownloadTaskStatus.enqueued => DownloadStatus.queued,
+      DownloadTaskStatus.running => DownloadStatus.downloading,
+      DownloadTaskStatus.paused => DownloadStatus.paused,
+      DownloadTaskStatus.complete => DownloadStatus.downloading,
+      DownloadTaskStatus.failed => DownloadStatus.failed,
+      DownloadTaskStatus.canceled => DownloadStatus.cancelled,
+      DownloadTaskStatus.undefined => item.status,
+    };
+    final hasKnownTotal = item.totalBytes != null && item.totalBytes! > 0;
+    _replace(
+      item.copyWith(
+        status: mapped,
+        downloadedBytes:
+            hasKnownTotal
+                ? (item.totalBytes! * progressValue / 100).round()
+                : item.downloadedBytes,
+        progressPercent: progressValue.clamp(0, 100),
+        errorMessage:
+            status == DownloadTaskStatus.failed
+                ? 'Background network download failed. Tap Retry.'
+                : null,
+        clearError: status != DownloadTaskStatus.failed,
+      ),
+      persist: status != DownloadTaskStatus.running,
+    );
+  }
+
+  Future<void> _reconcileBackgroundTasks() async {
+    if (!FlutterDownloader.initialized) return;
+    final tasks = await FlutterDownloader.loadTasks() ?? const <DownloadTask>[];
+    final byId = <String, DownloadTask>{
+      for (final task in tasks) task.taskId: task,
+    };
+    for (final item in List<DownloadItem>.of(_items)) {
+      final taskId = item.backgroundTaskId;
+      if (taskId == null || item.kind != DownloadKind.classicAudio) continue;
+      final task = byId[taskId];
+      if (task == null) {
+        if (item.isActive) {
+          _replace(
+            item.copyWith(
+              status: DownloadStatus.failed,
+              errorMessage: 'Background task was lost. Tap Retry.',
+            ),
+          );
+        }
+        continue;
+      }
+      if (task.status == DownloadTaskStatus.complete ||
+          task.status == DownloadTaskStatus.running ||
+          task.status == DownloadTaskStatus.enqueued ||
+          task.status == DownloadTaskStatus.paused) {
+        _backgroundTaskIds[item.id] = taskId;
+        _activeJobs.add(item.id);
+        _replace(
+          item.copyWith(
+            status:
+                task.status == DownloadTaskStatus.paused
+                    ? DownloadStatus.paused
+                    : DownloadStatus.downloading,
+            progressPercent: task.progress.clamp(0, 100),
+          ),
+        );
+        unawaited(_recoverBackgroundItem(item, task));
+      } else if (task.status == DownloadTaskStatus.failed) {
+        _replace(
+          item.copyWith(
+            status: DownloadStatus.failed,
+            errorMessage: 'Background network download failed. Tap Retry.',
+          ),
+        );
+      } else if (task.status == DownloadTaskStatus.canceled) {
+        _replace(item.copyWith(status: DownloadStatus.cancelled));
+      }
+    }
+  }
+
+  Future<void> _recoverBackgroundItem(
+    DownloadItem item,
+    DownloadTask initialTask,
+  ) async {
+    final output = await _fileFor(item);
+    final temporary = File('${output.path}.part');
+    try {
+      while (_activeJobs.contains(item.id)) {
+        final taskId = _backgroundTaskIds[item.id] ?? initialTask.taskId;
+        final tasks =
+            await FlutterDownloader.loadTasks() ?? const <DownloadTask>[];
+        DownloadTask? task;
+        for (final candidate in tasks) {
+          if (candidate.taskId == taskId) {
+            task = candidate;
+            break;
+          }
+        }
+        if (task == null) {
+          _replace(
+            (_find(item.id) ?? item).copyWith(
+              status: DownloadStatus.failed,
+              errorMessage: 'Background task was lost. Tap Retry.',
+            ),
+          );
+          break;
+        }
+        final current = _find(item.id) ?? item;
+        final hasKnownTotal = current.totalBytes != null;
+        if (task.status == DownloadTaskStatus.complete) {
+          if (!await temporary.exists() || await temporary.length() <= 0) {
+            throw StateError('Background download returned an empty file.');
+          }
+          if (await output.exists()) await output.delete();
+          await temporary.rename(output.path);
+          final size = await output.length();
+          _replace(
+            current.copyWith(
+              status: DownloadStatus.completed,
+              filePath: output.path,
+              totalBytes: size,
+              downloadedBytes: size,
+              progressPercent: 100,
+              clearBackgroundTaskId: true,
+              clearError: true,
+            ),
+          );
+          break;
+        }
+        if (task.status == DownloadTaskStatus.failed) {
+          _replace(
+            current.copyWith(
+              status: DownloadStatus.failed,
+              errorMessage: 'Background network download failed. Tap Retry.',
+            ),
+          );
+          break;
+        }
+        if (task.status == DownloadTaskStatus.canceled) {
+          _replace(current.copyWith(status: DownloadStatus.cancelled));
+          break;
+        }
+        final nextStatus =
+            task.status == DownloadTaskStatus.paused
+                ? DownloadStatus.paused
+                : DownloadStatus.downloading;
+        _replace(
+          current.copyWith(
+            status: nextStatus,
+            downloadedBytes:
+                hasKnownTotal
+                    ? (current.totalBytes! * task.progress / 100).round()
+                    : current.downloadedBytes,
+            progressPercent: task.progress.clamp(0, 100),
+          ),
+          persist: false,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 650));
+      }
+    } catch (error) {
+      final current = _find(item.id) ?? item;
+      _replace(
+        current.copyWith(
+          status: DownloadStatus.failed,
+          errorMessage: _friendlyError(error),
+        ),
+      );
+    } finally {
+      _activeJobs.remove(item.id);
+      _backgroundTaskIds.remove(item.id);
+      await _persist();
+    }
   }
 
   Future<void> enqueue({
@@ -143,6 +360,12 @@ class DownloadManager extends ChangeNotifier {
               (received, total) =>
                   _updateProgress(original.id, received, total),
         );
+        _replace(
+          (_find(original.id) ?? original).copyWith(
+            status: DownloadStatus.processing,
+            clearProgressPercent: true,
+          ),
+        );
         final session = await FFmpegKit.executeWithArguments(<String>[
           '-y',
           '-i',
@@ -187,6 +410,12 @@ class DownloadManager extends ChangeNotifier {
                 _knownTotal(videoBytes, total),
               ),
         );
+        _replace(
+          (_find(original.id) ?? original).copyWith(
+            status: DownloadStatus.processing,
+            clearProgressPercent: true,
+          ),
+        );
         final session = await FFmpegKit.executeWithArguments(<String>[
           '-y',
           '-i',
@@ -224,6 +453,9 @@ class DownloadManager extends ChangeNotifier {
         await temporary.rename(output.path);
       }
 
+      if (!await output.exists() || await output.length() <= 0) {
+        throw StateError('Download finished without a playable file.');
+      }
       final size = await output.length();
       _replace(
         original.copyWith(
@@ -247,7 +479,7 @@ class DownloadManager extends ChangeNotifier {
       final current = _find(original.id);
       if (current?.status != DownloadStatus.cancelled) {
         _replace(
-          original.copyWith(
+          (current ?? original).copyWith(
             status: DownloadStatus.failed,
             errorMessage: _friendlyError(error),
           ),
@@ -326,14 +558,25 @@ class DownloadManager extends ChangeNotifier {
       throw StateError('Could not start the background download.');
     }
     _backgroundTaskIds[jobId] = taskId;
+    final current = _find(jobId);
+    if (current != null) {
+      _replace(
+        current.copyWith(
+          backgroundTaskId: taskId,
+          status: DownloadStatus.downloading,
+          clearError: true,
+        ),
+      );
+    }
     try {
       while (_activeJobs.contains(jobId)) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
+        final activeTaskId = _backgroundTaskIds[jobId] ?? taskId;
         final tasks =
             await FlutterDownloader.loadTasks() ?? const <DownloadTask>[];
         DownloadTask? task;
         for (final candidate in tasks) {
-          if (candidate.taskId == taskId) {
+          if (candidate.taskId == activeTaskId) {
             task = candidate;
             break;
           }
@@ -352,6 +595,20 @@ class DownloadManager extends ChangeNotifier {
         }
         if (task.status == DownloadTaskStatus.canceled) {
           throw StateError('Download cancelled.');
+        }
+        if (task.status == DownloadTaskStatus.paused) {
+          final current = _find(jobId);
+          if (current != null) {
+            _replace(
+              current.copyWith(
+                status: DownloadStatus.paused,
+                progressPercent: task.progress.clamp(0, 100),
+              ),
+              persist: false,
+            );
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 650));
+          continue;
         }
         if (task.progress >= 0 && await destination.exists()) {
           onProgress(await destination.length(), null);
@@ -377,7 +634,96 @@ class DownloadManager extends ChangeNotifier {
     );
   }
 
+  Future<void> pause(String id) async {
+    final current = _find(id);
+    final taskId = _backgroundTaskIds[id] ?? current?.backgroundTaskId;
+    if (current == null ||
+        current.kind != DownloadKind.classicAudio ||
+        taskId == null ||
+        !current.isActive) {
+      return;
+    }
+    _pausedJobs.add(id);
+    await FlutterDownloader.pause(taskId: taskId);
+    _replace(current.copyWith(status: DownloadStatus.paused));
+  }
+
+  Future<void> resume(String id) async {
+    final current = _find(id);
+    final taskId = _backgroundTaskIds[id] ?? current?.backgroundTaskId;
+    if (current == null ||
+        taskId == null ||
+        current.status != DownloadStatus.paused) {
+      return;
+    }
+    final replacementTaskId = await FlutterDownloader.resume(taskId: taskId);
+    if (replacementTaskId == null || replacementTaskId.isEmpty) {
+      _replace(
+        current.copyWith(
+          status: DownloadStatus.failed,
+          errorMessage: 'Could not resume this background download. Tap Retry.',
+        ),
+      );
+      return;
+    }
+    _backgroundTaskIds[id] = replacementTaskId;
+    _pausedJobs.remove(id);
+    _activeJobs.add(id);
+    _replace(
+      current.copyWith(
+        status: DownloadStatus.downloading,
+        backgroundTaskId: replacementTaskId,
+        clearError: true,
+      ),
+    );
+  }
+
+  Future<void> retry(String id) async {
+    await initialize();
+    final current = _find(id);
+    if (current == null || _activeJobs.contains(id)) return;
+    final oldTaskId = _backgroundTaskIds.remove(id) ?? current.backgroundTaskId;
+    if (oldTaskId != null && FlutterDownloader.initialized) {
+      await FlutterDownloader.remove(taskId: oldTaskId);
+    }
+    try {
+      final options = await _youtubeService.getDownloadOptions(current.videoId);
+      YoutubeDownloadOption? selected;
+      for (final candidate in options) {
+        if (candidate.kind == current.kind &&
+            candidate.qualityLabel == current.qualityLabel) {
+          selected = candidate;
+          break;
+        }
+      }
+      if (selected == null) {
+        throw StateError(
+          '${current.qualityLabel} is no longer available for this video.',
+        );
+      }
+      final next = current.copyWith(
+        status: DownloadStatus.retrying,
+        downloadedBytes: 0,
+        progressPercent: 0,
+        clearFilePath: true,
+        clearError: true,
+        clearBackgroundTaskId: true,
+      );
+      _replace(next);
+      unawaited(_run(next, selected));
+    } catch (error) {
+      _replace(
+        current.copyWith(
+          status: DownloadStatus.failed,
+          errorMessage: _friendlyError(error),
+          clearBackgroundTaskId: true,
+        ),
+      );
+    }
+  }
+
   Future<void> cancel(String id) async {
+    _pausedJobs.remove(id);
     _activeTokens.remove(id)?.cancel('Cancelled by user');
     final taskId = _backgroundTaskIds.remove(id);
     if (taskId != null) {
@@ -385,7 +731,12 @@ class DownloadManager extends ChangeNotifier {
     }
     final current = _find(id);
     if (current == null || !_activeJobs.contains(id)) return;
-    _replace(current.copyWith(status: DownloadStatus.cancelled));
+    _replace(
+      current.copyWith(
+        status: DownloadStatus.cancelled,
+        clearBackgroundTaskId: true,
+      ),
+    );
   }
 
   Future<YoutubeDownloadOption> _freshOption(
@@ -417,6 +768,11 @@ class DownloadManager extends ChangeNotifier {
       final file = File(current!.filePath!);
       if (await file.exists()) await file.delete();
     }
+    if (taskId != null && FlutterDownloader.initialized) {
+      await FlutterDownloader.remove(taskId: taskId);
+    }
+    _pausedJobs.remove(id);
+    _activeJobs.remove(id);
     _items.removeWhere((item) => item.id == id);
     await _persist();
     notifyListeners();
@@ -499,5 +855,13 @@ class DownloadManager extends ChangeNotifier {
     if (error is HttpException) return 'Network download failed.';
     if (error is SocketException) return 'Connection unavailable.';
     return error.toString().replaceFirst('StateError: ', '');
+  }
+
+  @override
+  void dispose() {
+    _downloadEventsPort?.close();
+    IsolateNameServer.removePortNameMapping(_downloadEventsPortName);
+    _dio.close(force: true);
+    super.dispose();
   }
 }

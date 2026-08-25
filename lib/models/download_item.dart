@@ -1,6 +1,15 @@
 enum DownloadKind { classicAudio, mp3Audio, video }
 
-enum DownloadStatus { queued, downloading, completed, failed, cancelled }
+enum DownloadStatus {
+  queued,
+  downloading,
+  processing,
+  paused,
+  retrying,
+  completed,
+  failed,
+  cancelled,
+}
 
 class DownloadItem {
   const DownloadItem({
@@ -17,6 +26,8 @@ class DownloadItem {
     this.filePath,
     this.totalBytes,
     this.downloadedBytes = 0,
+    this.progressPercent,
+    this.backgroundTaskId,
     this.errorMessage,
   });
 
@@ -33,6 +44,12 @@ class DownloadItem {
   final String? filePath;
   final int? totalBytes;
   final int downloadedBytes;
+
+  /// Percentage reported by Flutter Downloader when the byte total is unknown.
+  /// It is intentionally separate from [downloadedBytes] so UI never treats a
+  /// percentage as a byte count.
+  final int? progressPercent;
+  final String? backgroundTaskId;
   final String? errorMessage;
 
   double? get progress {
@@ -43,6 +60,12 @@ class DownloadItem {
 
   bool get isCompleted =>
       status == DownloadStatus.completed && filePath != null;
+
+  bool get isActive =>
+      status == DownloadStatus.queued ||
+      status == DownloadStatus.downloading ||
+      status == DownloadStatus.processing ||
+      status == DownloadStatus.retrying;
 
   String get typeLabel => switch (kind) {
     DownloadKind.classicAudio => 'Classic audio',
@@ -55,10 +78,14 @@ class DownloadItem {
     String? filePath,
     int? totalBytes,
     int? downloadedBytes,
+    int? progressPercent,
+    String? backgroundTaskId,
     DownloadStatus? status,
     String? errorMessage,
     bool clearFilePath = false,
     bool clearError = false,
+    bool clearProgressPercent = false,
+    bool clearBackgroundTaskId = false,
   }) {
     return DownloadItem(
       id: id,
@@ -74,6 +101,12 @@ class DownloadItem {
       filePath: clearFilePath ? null : filePath ?? this.filePath,
       totalBytes: totalBytes ?? this.totalBytes,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      progressPercent:
+          clearProgressPercent ? null : progressPercent ?? this.progressPercent,
+      backgroundTaskId:
+          clearBackgroundTaskId
+              ? null
+              : backgroundTaskId ?? this.backgroundTaskId,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }
@@ -92,6 +125,8 @@ class DownloadItem {
     'filePath': filePath,
     'totalBytes': totalBytes,
     'downloadedBytes': downloadedBytes,
+    'progressPercent': progressPercent,
+    'backgroundTaskId': backgroundTaskId,
     'errorMessage': errorMessage,
   };
 
@@ -122,6 +157,8 @@ class DownloadItem {
       filePath: json['filePath']?.toString(),
       totalBytes: (json['totalBytes'] as num?)?.toInt(),
       downloadedBytes: (json['downloadedBytes'] as num?)?.toInt() ?? 0,
+      progressPercent: (json['progressPercent'] as num?)?.toInt(),
+      backgroundTaskId: json['backgroundTaskId']?.toString(),
       errorMessage: json['errorMessage']?.toString(),
     );
   }

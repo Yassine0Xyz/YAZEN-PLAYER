@@ -92,9 +92,13 @@ class _DownloadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final manager = context.read<DownloadManager>();
     final tokens = context.read<ThemeProvider>().tokens;
-    final isActive =
-        item.status == DownloadStatus.queued ||
-        item.status == DownloadStatus.downloading;
+    final isActive = item.isActive;
+    final canPauseOrResume =
+        item.kind == DownloadKind.classicAudio &&
+        item.backgroundTaskId != null &&
+        (item.status == DownloadStatus.downloading ||
+            item.status == DownloadStatus.queued ||
+            item.status == DownloadStatus.paused);
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(18),
@@ -123,10 +127,16 @@ class _DownloadTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                   _DownloadStatus(item: item),
-                  if (isActive && item.progress != null) ...<Widget>[
+                  if (isActive &&
+                      (item.progress != null ||
+                          item.progressPercent != null)) ...<Widget>[
                     const SizedBox(height: 5),
                     LinearProgressIndicator(
-                      value: item.progress,
+                      value:
+                          item.progress ??
+                          (item.progressPercent == null
+                              ? null
+                              : item.progressPercent! / 100),
                       minHeight: 3,
                       color: tokens.accent,
                       backgroundColor: tokens.surfaceMuted,
@@ -143,6 +153,12 @@ class _DownloadTile extends StatelessWidget {
                 switch (action) {
                   case _DownloadAction.open:
                     await _open(context, item);
+                  case _DownloadAction.pause:
+                    await manager.pause(item.id);
+                  case _DownloadAction.resume:
+                    await manager.resume(item.id);
+                  case _DownloadAction.retry:
+                    await manager.retry(item.id);
                   case _DownloadAction.cancel:
                     await manager.cancel(item.id);
                   case _DownloadAction.delete:
@@ -156,10 +172,28 @@ class _DownloadTile extends StatelessWidget {
                         value: _DownloadAction.open,
                         child: Text('Open'),
                       ),
-                    if (isActive)
+                    if (canPauseOrResume &&
+                        item.status != DownloadStatus.paused)
+                      const PopupMenuItem(
+                        value: _DownloadAction.pause,
+                        child: Text('Pause'),
+                      ),
+                    if (canPauseOrResume &&
+                        item.status == DownloadStatus.paused)
+                      const PopupMenuItem(
+                        value: _DownloadAction.resume,
+                        child: Text('Resume'),
+                      ),
+                    if (isActive && !canPauseOrResume)
                       const PopupMenuItem(
                         value: _DownloadAction.cancel,
                         child: Text('Cancel'),
+                      ),
+                    if (item.status == DownloadStatus.failed ||
+                        item.status == DownloadStatus.cancelled)
+                      const PopupMenuItem(
+                        value: _DownloadAction.retry,
+                        child: Text('Retry'),
                       ),
                     const PopupMenuItem(
                       value: _DownloadAction.delete,
@@ -200,7 +234,7 @@ class _DownloadTile extends StatelessWidget {
   }
 }
 
-enum _DownloadAction { open, cancel, delete }
+enum _DownloadAction { open, pause, resume, retry, cancel, delete }
 
 class _DownloadStatus extends StatelessWidget {
   const _DownloadStatus({required this.item});
@@ -212,7 +246,10 @@ class _DownloadStatus extends StatelessWidget {
     final tokens = context.read<ThemeProvider>().tokens;
     final label = switch (item.status) {
       DownloadStatus.queued => 'Queued',
-      DownloadStatus.downloading => 'Downloading',
+      DownloadStatus.downloading => _progressLabel(item, 'Downloading'),
+      DownloadStatus.processing => 'Processing final media…',
+      DownloadStatus.paused => _progressLabel(item, 'Paused'),
+      DownloadStatus.retrying => 'Retrying with a fresh stream…',
       DownloadStatus.completed => _sizeLabel(item),
       DownloadStatus.failed => item.errorMessage ?? 'Download failed',
       DownloadStatus.cancelled => 'Cancelled',
@@ -220,6 +257,8 @@ class _DownloadStatus extends StatelessWidget {
     final color = switch (item.status) {
       DownloadStatus.completed => Colors.greenAccent,
       DownloadStatus.failed => Colors.redAccent,
+      DownloadStatus.paused => Colors.amberAccent,
+      DownloadStatus.retrying => tokens.accent,
       _ => tokens.textSecondary,
     };
     return Text(
@@ -228,6 +267,11 @@ class _DownloadStatus extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
     );
+  }
+
+  String _progressLabel(DownloadItem item, String label) {
+    final percent = item.progressPercent;
+    return percent == null ? label : '$label · $percent%';
   }
 
   String _sizeLabel(DownloadItem item) {
