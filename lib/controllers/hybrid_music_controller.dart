@@ -173,8 +173,10 @@ class HybridMusicController extends ChangeNotifier {
 
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 
-  Future<void> toggleFavorite(MediaTrack track) =>
-      _playlistManager.toggleFavorite(track);
+  Future<void> toggleFavorite(MediaTrack track) async {
+    await _playlistManager.toggleFavorite(track);
+    notifyListeners();
+  }
 
   Future<EchoPlaylist> createPlaylist(String name) =>
       _playlistManager.createPlaylist(name);

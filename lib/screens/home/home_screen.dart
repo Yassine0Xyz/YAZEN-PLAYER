@@ -110,13 +110,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller.selectTab(LibraryTab.values[index]),
                     itemBuilder: (context, index) {
                       final tab = LibraryTab.values[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 96),
-                        child: LocalMediaScreen(
-                          selectedTab: tab,
-                          onTabSelected: _selectLibraryTab,
-                          showTabs: false,
-                        ),
+                      return LocalMediaScreen(
+                        selectedTab: tab,
+                        onTabSelected: _selectLibraryTab,
+                        showTabs: false,
                       );
                     },
                   ),
