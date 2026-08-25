@@ -27,16 +27,12 @@ class HybridAudioHandler extends BaseAudioHandler
     PlaybackStateStore? playbackStore,
     AndroidEqualizer? equalizer,
   }) {
+    // AndroidEqualizer is intentionally not attached to the default pipeline.
+    // Some Android/plugin combinations expose a non-null object but crash in
+    // native setBandLevel(), which must never prevent Voice only playback.
     final resolvedEqualizer = equalizer ?? AndroidEqualizer();
     final resolvedPlayer =
-        player ??
-        AudioPlayer(
-          handleInterruptions: false,
-          maxSkipsOnError: 2,
-          audioPipeline: AudioPipeline(
-            androidAudioEffects: <AndroidAudioEffect>[resolvedEqualizer],
-          ),
-        );
+        player ?? AudioPlayer(handleInterruptions: false, maxSkipsOnError: 2);
     return HybridAudioHandler._(
       player: resolvedPlayer,
       youtubeService: youtubeService ?? YoutubeService(client: youtube),
@@ -93,7 +89,9 @@ class HybridAudioHandler extends BaseAudioHandler
   final _partyActions = StreamController<LocalPlaybackAction>.broadcast();
   static const _effectsChannel = MethodChannel('echo/audio_effects');
   bool _threeDSurroundEnabled = false;
-  bool _equalizerAvailable = true;
+  // Kept fail-closed until a device-safe native effects implementation is
+  // explicitly validated. Playback itself must remain effects-free and stable.
+  bool _equalizerAvailable = false;
   bool _interruptedPlayback = false;
 
   MediaTrack? _activeTrack;

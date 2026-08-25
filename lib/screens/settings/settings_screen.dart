@@ -86,9 +86,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _PreferenceSwitch(
                   icon: Icons.equalizer_rounded,
                   title: 'Equalizer',
-                  subtitle: 'Use the active Android audio effect profile',
+                  subtitle:
+                      controller.audioHandler.equalizerAvailable
+                          ? 'Use the active Android audio effect profile'
+                          : 'Unavailable on this device; playback remains stable',
                   value: _equalizerEnabled,
-                  enabled: _preferencesLoaded,
+                  enabled:
+                      _preferencesLoaded &&
+                      controller.audioHandler.equalizerAvailable,
                   onChanged: (value) => _setEqualizer(controller, value),
                 ),
                 Divider(color: tokens.divider, height: 1),
