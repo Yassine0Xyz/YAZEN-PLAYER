@@ -96,10 +96,10 @@ class _DownloadTile extends StatelessWidget {
         item.status == DownloadStatus.queued ||
         item.status == DownloadStatus.downloading;
     return Material(
-      color: tokens.surface,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: <Widget>[
             _DownloadArtwork(item: item),
@@ -138,6 +138,7 @@ class _DownloadTile extends StatelessWidget {
             const SizedBox(width: 4),
             PopupMenuButton<_DownloadAction>(
               tooltip: 'Download actions',
+              icon: Icon(Icons.more_vert_rounded, color: tokens.textSecondary),
               onSelected: (action) async {
                 switch (action) {
                   case _DownloadAction.open:

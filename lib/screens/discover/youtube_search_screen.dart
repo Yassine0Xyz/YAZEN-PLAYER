@@ -249,19 +249,6 @@ class _SearchHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          'Find your next favorite',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900,
-            letterSpacing: -1,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Stream instantly or keep it close for offline listening.',
-          style: TextStyle(color: tokens.textSecondary),
-        ),
-        const SizedBox(height: 20),
         TextField(
           controller: searchController,
           focusNode: focusNode,
@@ -410,130 +397,183 @@ class _YoutubeResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return Container(
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: tokens.divider),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Hero(
-            tag: 'track-art-${track.id}',
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  _Thumbnail(uri: track.artworkUri),
-                  Positioned(
-                    right: 12,
-                    bottom: 12,
-                    child: _DurationBadge(duration: track.duration),
-                  ),
-                  Positioned(left: 12, bottom: 12, child: _YouTubeBadge()),
-                ],
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Hero(
+          tag: 'track-art-${track.id}',
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                _Thumbnail(uri: track.artworkUri),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: _DurationBadge(duration: track.duration),
+                ),
+                Positioned(left: 12, bottom: 12, child: _YouTubeBadge()),
+              ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        track.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          height: 1.2,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      track.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Open video details',
+                    onPressed: onDetails,
+                    icon: const Icon(Icons.open_in_new_rounded),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip:
+                        favorite ? 'Remove from favorites' : 'Add to favorites',
+                    onPressed: onFavorite,
+                    icon: Icon(
+                      favorite
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: favorite ? Colors.redAccent : tokens.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.account_circle_outlined,
+                    size: 17,
+                    color: tokens.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      track.channelName ?? track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (track.viewCount != null)
+                    Text(
+                      _formatViews(track.viewCount!),
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 15),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () => _chooseStream(context),
+                      icon: const Icon(
+                        Icons.play_circle_outline_rounded,
+                        size: 18,
+                      ),
+                      label: const Text('Stream'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: tokens.accentStrong,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 9),
+                  if (MediaQuery.sizeOf(context).width < 500)
+                    _ResultMoreMenu(
+                      queued: queued,
+                      cached: cached,
+                      progress: progress,
+                      onAddToPlaylist: onAddToPlaylist,
+                      onQueue: onQueue,
+                      onCancelCache: onCancelCache,
+                      onCache: onCache,
+                    )
+                  else ...<Widget>[
                     IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: 'Open video details',
-                      onPressed: onDetails,
-                      icon: const Icon(Icons.open_in_new_rounded),
+                      tooltip: 'Add to playlist',
+                      onPressed: onAddToPlaylist,
+                      icon: const Icon(Icons.playlist_add_rounded, size: 19),
                     ),
+                    const SizedBox(width: 9),
                     IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip:
-                          favorite
-                              ? 'Remove from favorites'
-                              : 'Add to favorites',
-                      onPressed: onFavorite,
+                      tooltip: queued ? 'Already queued' : 'Add to queue',
+                      onPressed: queued ? null : onQueue,
                       icon: Icon(
-                        favorite
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        color:
-                            favorite ? Colors.redAccent : tokens.textSecondary,
+                        queued
+                            ? Icons.playlist_add_check_rounded
+                            : Icons.playlist_add_rounded,
+                        size: 19,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: <Widget>[
-                    Icon(
-                      Icons.account_circle_outlined,
-                      size: 17,
-                      color: tokens.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 9),
                     Expanded(
-                      child: Text(
-                        track.channelName ?? track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: tokens.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            progress != null
+                                ? onCancelCache
+                                : cached
+                                ? null
+                                : onCache,
+                        icon:
+                            progress != null
+                                ? SizedBox.square(
+                                  dimension: 17,
+                                  child: CircularProgressIndicator(
+                                    value: progress == 0 ? null : progress,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : Icon(
+                                  cached
+                                      ? Icons.check_rounded
+                                      : Icons.download_for_offline_rounded,
+                                  size: 18,
+                                ),
+                        label: Text(
+                          cached
+                              ? 'Offline ready'
+                              : progress != null
+                              ? 'Cancel'
+                              : 'Download',
                         ),
-                      ),
-                    ),
-                    if (track.viewCount != null)
-                      Text(
-                        _formatViews(track.viewCount!),
-                        style: TextStyle(
-                          color: tokens.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 15),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _chooseStream(context),
-                        icon: const Icon(
-                          Icons.play_circle_outline_rounded,
-                          size: 18,
-                        ),
-                        label: const Text('Stream'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: tokens.accentStrong,
+                        style: OutlinedButton.styleFrom(
                           foregroundColor:
-                              tokens.isLight ? Colors.white : Colors.black,
+                              cached ? Colors.greenAccent : tokens.textPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(15),
@@ -541,94 +581,13 @@ class _YoutubeResultCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 9),
-                    if (MediaQuery.sizeOf(context).width < 500)
-                      _ResultMoreMenu(
-                        queued: queued,
-                        cached: cached,
-                        progress: progress,
-                        onAddToPlaylist: onAddToPlaylist,
-                        onQueue: onQueue,
-                        onCancelCache: onCancelCache,
-                        onCache: onCache,
-                      )
-                    else ...<Widget>[
-                      IconButton.filledTonal(
-                        tooltip: 'Add to playlist',
-                        onPressed: onAddToPlaylist,
-                        icon: const Icon(Icons.playlist_add_rounded, size: 19),
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                          foregroundColor: tokens.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      IconButton.filledTonal(
-                        tooltip: queued ? 'Already queued' : 'Add to queue',
-                        onPressed: queued ? null : onQueue,
-                        icon: Icon(
-                          queued
-                              ? Icons.playlist_add_check_rounded
-                              : Icons.playlist_add_rounded,
-                          size: 19,
-                        ),
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                          foregroundColor:
-                              queued ? Colors.greenAccent : tokens.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed:
-                              progress != null
-                                  ? onCancelCache
-                                  : cached
-                                  ? null
-                                  : onCache,
-                          icon:
-                              progress != null
-                                  ? SizedBox.square(
-                                    dimension: 17,
-                                    child: CircularProgressIndicator(
-                                      value: progress == 0 ? null : progress,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                  : Icon(
-                                    cached
-                                        ? Icons.check_rounded
-                                        : Icons.download_for_offline_rounded,
-                                    size: 18,
-                                  ),
-                          label: Text(
-                            cached
-                                ? 'Offline ready'
-                                : progress != null
-                                ? 'Cancel'
-                                : 'Download',
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor:
-                                cached
-                                    ? Colors.greenAccent
-                                    : tokens.textPrimary,
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

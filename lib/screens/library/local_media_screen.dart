@@ -379,15 +379,10 @@ class _VideosView extends StatelessWidget {
                 : 'Videos on this device will appear here after video permission is granted.',
       );
     }
-    return GridView.builder(
+    return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 320,
-        mainAxisExtent: 258,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 18,
-      ),
       itemCount: tracks.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 24),
       itemBuilder: (context, index) {
         final track = tracks[index];
         return _VideoPreviewCard(
@@ -413,29 +408,59 @@ class _VideoPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
     return InkWell(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(18),
       onTap: onPlay,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Expanded(
+          AspectRatio(
+            aspectRatio: 16 / 9,
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
                 Hero(
                   tag: 'track-art-${track.id}',
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(18),
                     child:
                         track.isVideo
-                            ? VideoThumbnailWidget(track: track, size: 320)
-                            : TrackArtwork(track: track, size: 320),
+                            ? VideoThumbnailWidget(track: track, size: 720)
+                            : TrackArtwork(track: track, size: 720),
                   ),
                 ),
                 Positioned(
-                  right: 10,
-                  bottom: 10,
+                  left: 12,
+                  bottom: 12,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.66),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      child: Text(
+                        track.isOnline ? 'ONLINE' : 'LOCAL',
+                        style: TextStyle(
+                          color:
+                              track.isOnline
+                                  ? tokens.accentStrong
+                                  : tokens.accent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
                   child: _DurationBadge(duration: track.duration),
                 ),
                 const Center(
@@ -445,11 +470,11 @@ class _VideoPreviewCard extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: Padding(
-                      padding: EdgeInsets.all(12),
+                      padding: EdgeInsets.all(10),
                       child: Icon(
                         Icons.play_arrow_rounded,
                         color: Colors.white,
-                        size: 26,
+                        size: 25,
                       ),
                     ),
                   ),
@@ -460,19 +485,20 @@ class _VideoPreviewCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             track.title,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              height: 1.2,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             track.channelName ?? track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: context.read<ThemeProvider>().tokens.textSecondary,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
           ),
         ],
       ),
@@ -767,15 +793,8 @@ class _CategoryEmptyState extends StatelessWidget {
 BoxDecoration _cardDecoration(BuildContext context) {
   final tokens = context.read<ThemeProvider>().tokens;
   return BoxDecoration(
-    color: tokens.surface,
-    borderRadius: BorderRadius.circular(22),
-    border: Border.all(color: tokens.divider),
-    boxShadow: <BoxShadow>[
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.18),
-        blurRadius: 18,
-        offset: const Offset(0, 6),
-      ),
-    ],
+    color: tokens.surface.withValues(alpha: 0.24),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: tokens.divider.withValues(alpha: 0.55)),
   );
 }

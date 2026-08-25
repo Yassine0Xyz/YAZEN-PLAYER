@@ -29,18 +29,18 @@ class TrackListTile extends StatelessWidget {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 470;
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 7),
           child: EchoPressable(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             child: Material(
-              color: tokens.surface.withValues(alpha: 0.76),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
               child: InkWell(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(18),
                 onTap: onTap,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                  padding: const EdgeInsets.fromLTRB(2, 3, 2, 3),
                   child: Row(
                     children: <Widget>[
                       TrackArtwork(track: track, size: compact ? 58 : 64),
@@ -102,20 +102,11 @@ class TrackListTile extends StatelessWidget {
                           color: tokens.textSecondary,
                           onPressed: onAddToPlaylist!,
                         ),
-                      if (onFavorite != null)
+                      if (onFavorite != null && !isFavorite)
                         _SmallAction(
-                          tooltip:
-                              isFavorite
-                                  ? 'Remove from favorites'
-                                  : 'Add to favorites',
-                          icon:
-                              isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                          color:
-                              isFavorite
-                                  ? Colors.redAccent
-                                  : tokens.textSecondary,
+                          tooltip: 'Add to favorites',
+                          icon: Icons.favorite_border_rounded,
+                          color: tokens.textSecondary,
                           onPressed: onFavorite!,
                         ),
                       _SmallAction(

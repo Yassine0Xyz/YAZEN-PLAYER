@@ -158,33 +158,24 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
           children: <Widget>[
-            Text(
-              'A YAZEN-powered video space',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'Browse anonymously, discover freely, and choose audio or video when you press play.',
-              style: TextStyle(color: tokens.textSecondary, height: 1.35),
-            ),
-            const SizedBox(height: 18),
             TextField(
               controller: _searchController,
               onSubmitted: _search,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 hintText: 'Search Tube Mode',
-                prefixIcon: const Icon(Icons.search_rounded),
+                prefixIcon: const Icon(Icons.search_rounded, size: 21),
                 suffixIcon:
                     _searching
                         ? const Padding(
-                          padding: EdgeInsets.all(13),
+                          padding: EdgeInsets.all(12),
                           child: SizedBox.square(
-                            dimension: 18,
+                            dimension: 17,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
@@ -194,7 +185,7 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
                         ),
               ),
             ),
-            const SizedBox(height: 13),
+            const SizedBox(height: 11),
             SizedBox(
               height: 42,
               child: ListView.separated(
@@ -258,35 +249,38 @@ class _Section extends StatelessWidget {
           style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 214,
-          child: FutureBuilder<List<YoutubeVideoResult>>(
-            future: future,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                );
-              }
-              final results = snapshot.data ?? const <YoutubeVideoResult>[];
-              if (results.isEmpty) {
-                return Text(
-                  'No videos available for this section.',
-                  style: TextStyle(color: tokens.textSecondary),
-                );
-              }
-              return ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: results.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 13),
-                itemBuilder:
-                    (context, index) => _TubeCard(
-                      result: results[index],
-                      onTap: () => onOpen(results[index]),
-                    ),
+        FutureBuilder<List<YoutubeVideoResult>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
               );
-            },
-          ),
+            }
+            final results = snapshot.data ?? const <YoutubeVideoResult>[];
+            if (results.isEmpty) {
+              return Text(
+                'No videos available for this section.',
+                style: TextStyle(color: tokens.textSecondary),
+              );
+            }
+            return Column(
+              children: <Widget>[
+                for (
+                  var index = 0;
+                  index < results.length;
+                  index++
+                ) ...<Widget>[
+                  _TubeCard(
+                    result: results[index],
+                    onTap: () => onOpen(results[index]),
+                  ),
+                  if (index != results.length - 1) const SizedBox(height: 22),
+                ],
+              ],
+            );
+          },
         ),
       ],
     );
@@ -302,52 +296,69 @@ class _TubeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return SizedBox(
-      width: 254,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            ClipRRect(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
-              child: SizedBox(
-                height: 142,
-                width: 254,
-                child:
-                    result.thumbnailUrl == null
-                        ? ColoredBox(
-                          color: tokens.surfaceElevated,
-                          child: const Icon(Icons.movie_rounded),
-                        )
-                        : Image.network(
-                          result.thumbnailUrl.toString(),
-                          fit: BoxFit.cover,
-                          errorBuilder:
-                              (_, __, ___) => ColoredBox(
-                                color: tokens.surfaceElevated,
-                                child: const Icon(Icons.movie_rounded),
-                              ),
-                        ),
+              child:
+                  result.thumbnailUrl == null
+                      ? ColoredBox(
+                        color: tokens.surfaceElevated,
+                        child: const Icon(Icons.movie_rounded, size: 42),
+                      )
+                      : Image.network(
+                        result.thumbnailUrl.toString(),
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (_, __, ___) => ColoredBox(
+                              color: tokens.surfaceElevated,
+                              child: const Icon(Icons.movie_rounded, size: 42),
+                            ),
+                      ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      result.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      result.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              result.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              result.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
-            ),
-          ],
-        ),
+              const SizedBox(width: 8),
+              const Icon(Icons.more_vert_rounded, size: 20),
+            ],
+          ),
+        ],
       ),
     );
   }
