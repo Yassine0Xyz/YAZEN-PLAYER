@@ -66,6 +66,9 @@ class HybridAudioHandler extends BaseAudioHandler
     _subscriptions.add(
       _player.currentIndexStream.listen(_onCurrentIndexChanged),
     );
+    _subscriptions.add(
+      _player.processingStateStream.listen(_onProcessingStateChanged),
+    );
     _resumeTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _persistPlayback(),
@@ -79,6 +82,10 @@ class HybridAudioHandler extends BaseAudioHandler
   final AndroidEqualizer _equalizer;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final List<MediaTrack> _queueTracks = <MediaTrack>[];
+  Future<void>? _queuePopulationFuture;
+  List<MediaTrack>? _pendingQueueTracks;
+  int _queueGeneration = 0;
+  bool _autoAdvanceInFlight = false;
   Timer? _resumeTimer;
   Timer? _sleepTimer;
   DateTime? _sleepDeadline;
@@ -159,6 +166,21 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) async {
+    _queueGeneration++;
+    _pendingQueueTracks = null;
+    _queuePopulationFuture = null;
+    await _playTrackInternal(
+      track,
+      autoPlay: autoPlay,
+      generation: _queueGeneration,
+    );
+  }
+
+  Future<void> _playTrackInternal(
+    MediaTrack track, {
+    required int generation,
+    bool autoPlay = true,
+  }) async {
     final item = track.toMediaItem();
     var source = await _resolveSource(track, item);
     _queueTracks
@@ -210,19 +232,35 @@ class HybridAudioHandler extends BaseAudioHandler
     if (tracks.isEmpty) return;
     final safeIndex = initialIndex.clamp(0, tracks.length - 1).toInt();
     final selected = tracks[safeIndex];
-    await playTrack(selected);
-    if (tracks.length > 1) {
-      unawaited(_populateAdjacentQueue(tracks, safeIndex));
+    _queueGeneration++;
+    _pendingQueueTracks = List<MediaTrack>.of(tracks);
+    final generation = _queueGeneration;
+    await _playTrackInternal(selected, generation: generation);
+    if (tracks.length > 1 && generation == _queueGeneration) {
+      final population = _populateAdjacentQueue(tracks, safeIndex, generation);
+      _queuePopulationFuture = population;
+      unawaited(
+        population.whenComplete(() {
+          if (generation == _queueGeneration) {
+            _queuePopulationFuture = null;
+            _pendingQueueTracks = null;
+          }
+        }),
+      );
+    } else {
+      _pendingQueueTracks = null;
     }
   }
 
   Future<void> _populateAdjacentQueue(
     List<MediaTrack> tracks,
     int selectedIndex,
+    int generation,
   ) async {
     // Insert earlier results in reverse order so the final queue preserves the
     // original search ordering while the selected item keeps playing.
     for (var index = selectedIndex - 1; index >= 0; index--) {
+      if (generation != _queueGeneration) return;
       try {
         final track = tracks[index];
         final source = await _resolveSource(track, track.toMediaItem());
@@ -232,6 +270,7 @@ class HybridAudioHandler extends BaseAudioHandler
       } catch (_) {}
     }
     for (var index = selectedIndex + 1; index < tracks.length; index++) {
+      if (generation != _queueGeneration) return;
       try {
         final track = tracks[index];
         final source = await _resolveSource(track, track.toMediaItem());
@@ -410,20 +449,56 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
-    if (_player.hasNext) {
-      await _player.seekToNext();
-      _emitPartyAction(PartyAction.nextTrack);
-    }
+    await _waitForQueuePopulation();
+    if (!_player.hasNext) return;
+    await _player.seekToNext();
+    _emitPartyAction(PartyAction.nextTrack);
   }
 
   @override
   Future<void> skipToPrevious() async {
+    await _waitForQueuePopulation();
     if (_player.hasPrevious) {
       await _player.seekToPrevious();
     } else {
       await _player.seek(Duration.zero);
     }
     _emitPartyAction(PartyAction.previousTrack);
+  }
+
+  Future<void> _waitForQueuePopulation() async {
+    final population = _queuePopulationFuture;
+    if (population == null) return;
+    try {
+      await population.timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // A slow or blocked adjacent stream must not make the current track
+      // unusable. The player keeps the queue entries resolved so far.
+    }
+  }
+
+  void _onProcessingStateChanged(ProcessingState state) {
+    if (state != ProcessingState.completed || _autoAdvanceInFlight) return;
+    _autoAdvanceInFlight = true;
+    unawaited(_advanceAfterCompletion());
+  }
+
+  Future<void> _advanceAfterCompletion() async {
+    try {
+      if (_player.loopMode == LoopMode.one) {
+        await _player.seek(Duration.zero);
+        await play();
+        return;
+      }
+      await _waitForQueuePopulation();
+      if (_player.hasNext) {
+        await _player.seekToNext();
+        await play();
+        _emitPartyAction(PartyAction.nextTrack);
+      }
+    } finally {
+      _autoAdvanceInFlight = false;
+    }
   }
 
   @override
@@ -502,7 +577,11 @@ class HybridAudioHandler extends BaseAudioHandler
     playbackState.add(
       PlaybackState(
         controls: <MediaControl>[
+          MediaControl.skipToPrevious,
+          MediaControl.rewind,
           if (_player.playing) MediaControl.pause else MediaControl.play,
+          MediaControl.fastForward,
+          MediaControl.skipToNext,
           MediaControl.stop,
         ],
         systemActions: const <MediaAction>{
@@ -510,7 +589,7 @@ class HybridAudioHandler extends BaseAudioHandler
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
-        androidCompactActionIndices: const <int>[0],
+        androidCompactActionIndices: const <int>[0, 2, 4],
         processingState: processingState,
         playing: _player.playing,
         updatePosition: _player.position,
