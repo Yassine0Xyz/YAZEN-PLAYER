@@ -491,6 +491,7 @@ class _OnlinePlayerHeader extends StatelessWidget {
               onPrevious: onPrevious,
               onNext: onNext,
               onControllerReady: onControllerReady,
+              onRetry: onRetry,
             ),
           ),
         );
@@ -507,6 +508,7 @@ class _InlineOnlinePlayer extends StatefulWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onControllerReady,
+    required this.onRetry,
     super.key,
   });
 
@@ -516,6 +518,7 @@ class _InlineOnlinePlayer extends StatefulWidget {
   final Future<void> Function()? onPrevious;
   final Future<void> Function()? onNext;
   final ValueChanged<VideoPlayerController?> onControllerReady;
+  final VoidCallback onRetry;
 
   @override
   State<_InlineOnlinePlayer> createState() => _InlineOnlinePlayerState();
@@ -556,11 +559,9 @@ class _InlineOnlinePlayerState extends State<_InlineOnlinePlayer>
           );
         }
         if (snapshot.hasError) {
-          return const Center(
-            child: Text(
-              'Video could not be opened',
-              style: TextStyle(color: Colors.white70),
-            ),
+          return _RetryBanner(
+            message: 'Video could not be opened. Try a fresh stream.',
+            onRetry: widget.onRetry,
           );
         }
         if (!widget.showVideo) {
