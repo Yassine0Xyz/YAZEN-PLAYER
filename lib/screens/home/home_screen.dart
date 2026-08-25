@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
+import '../../models/media_track.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../screens/discover/youtube_search_screen.dart';
 import '../../screens/effects/equalizer_screen.dart';
@@ -29,12 +30,34 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _bottomIndex = 0;
-  bool _heroVisible = true;
+  late final PageController _libraryPageController;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialTab = context.read<HybridMusicController>().selectedTab;
+    _libraryPageController = PageController(
+      initialPage: LibraryTab.values.indexOf(initialTab),
+    );
+  }
 
   @override
   void dispose() {
+    _libraryPageController.dispose();
     super.dispose();
+  }
+
+  void _selectLibraryTab(LibraryTab tab) {
+    final controller = context.read<HybridMusicController>();
+    controller.selectTab(tab);
+    if (!_libraryPageController.hasClients) return;
+    final target = LibraryTab.values.indexOf(tab);
+    if ((_libraryPageController.page ?? target) == target) return;
+    _libraryPageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -69,37 +92,29 @@ class _HomeScreenState extends State<HomeScreen> {
                         ).push(HybridPartyScreen.route()),
                   ),
                 ),
-                if (_heroVisible) ...<Widget>[
-                  const SizedBox(height: 15),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: EchoReveal(
-                      child: _EchoSoundHero(
-                        trackCount: controller.localSongs.length,
-                        onDiscover:
-                            () => Navigator.of(
-                              context,
-                            ).push(YoutubeSearchScreen.route()),
-                        onParty:
-                            () => Navigator.of(
-                              context,
-                            ).push(HybridPartyScreen.route()),
-                        onDismiss: () => setState(() => _heroVisible = false),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                ],
                 LibraryTabs(
                   selected: controller.selectedTab,
-                  onSelected: controller.selectTab,
+                  onSelected: _selectLibraryTab,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Expanded(
-                  child: LocalMediaScreen(
-                    selectedTab: controller.selectedTab,
-                    onTabSelected: controller.selectTab,
-                    showTabs: false,
+                  child: PageView.builder(
+                    controller: _libraryPageController,
+                    itemCount: LibraryTab.values.length,
+                    onPageChanged:
+                        (index) =>
+                            controller.selectTab(LibraryTab.values[index]),
+                    itemBuilder: (context, index) {
+                      final tab = LibraryTab.values[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 96),
+                        child: LocalMediaScreen(
+                          selectedTab: tab,
+                          onTabSelected: _selectLibraryTab,
+                          showTabs: false,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -112,44 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _bottomIndex,
-        onDestinationSelected: (index) {
-          if (index == 1) {
-            Navigator.of(context).push(YoutubeSearchScreen.route());
-            return;
-          }
-          if (index == 2) {
-            Navigator.of(context).push(HybridPartyScreen.route());
-            return;
-          }
-          if (index == 3) {
-            Navigator.of(context).push(TubeModeScreen.route());
-            return;
-          }
-          setState(() => _bottomIndex = index);
-        },
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.search_rounded),
-            label: 'Discover',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.groups_outlined),
-            label: 'Party',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.ondemand_video_outlined),
-            selectedIcon: Icon(Icons.ondemand_video_rounded),
-            label: 'Tube',
-          ),
-        ],
       ),
     );
   }
@@ -204,21 +181,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Row(
-                        children: <Widget>[
-                          _StatusDot(color: tokens.accent),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Your listening space',
-                            style: Theme.of(
-                              context,
-                            ).textTheme.bodySmall?.copyWith(
-                              color: tokens.textSecondary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -271,51 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 19),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    'Your library',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1.2,
-                    ),
-                  ),
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: tokens.accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(
-                      color: tokens.accent.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    child: Text(
-                      '${controller.localSongs.length} tracks',
-                      style: TextStyle(
-                        color: tokens.accent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Local music and the sounds you love online.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: tokens.textSecondary),
-            ),
+            const SizedBox(height: 5),
           ],
         );
       },
