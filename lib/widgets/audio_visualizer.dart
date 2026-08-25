@@ -8,6 +8,7 @@ class AudioVisualizer extends StatefulWidget {
     this.height = 34,
     this.barCount = 28,
     this.color,
+    this.seed,
     super.key,
   });
 
@@ -15,6 +16,7 @@ class AudioVisualizer extends StatefulWidget {
   final double height;
   final int barCount;
   final Color? color;
+  final String? seed;
 
   @override
   State<AudioVisualizer> createState() => _AudioVisualizerState();
@@ -29,7 +31,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1300),
+      duration: const Duration(milliseconds: 1200),
     );
     _sync();
   }
@@ -57,18 +59,26 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.color ?? Theme.of(context).colorScheme.primary;
     return RepaintBoundary(
       child: CustomPaint(
         size: Size(double.infinity, widget.height),
         painter: _VisualizerPainter(
           animation: _controller,
-          color: color,
+          color: widget.color ?? Theme.of(context).colorScheme.primary,
           barCount: widget.barCount,
           active: widget.playing,
+          phaseOffset: _seedValue(widget.seed),
         ),
       ),
     );
+  }
+
+  double _seedValue(String? seed) {
+    var hash = 17;
+    for (final unit in (seed ?? 'yazen').codeUnits) {
+      hash = (hash * 31 + unit) & 0x7fffffff;
+    }
+    return (hash % 360) * math.pi / 180;
   }
 }
 
@@ -78,35 +88,58 @@ class _VisualizerPainter extends CustomPainter {
     required this.color,
     required this.barCount,
     required this.active,
+    required this.phaseOffset,
   }) : super(repaint: animation);
 
   final Animation<double> animation;
   final Color color;
   final int barCount;
   final bool active;
+  final double phaseOffset;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
-    final paint = Paint()..strokeCap = StrokeCap.round;
-    final gap = 4.0;
-    final width = math.max(1.0, (size.width - gap * (barCount - 1)) / barCount);
+    final gap = math.max(2.0, size.width * 0.008);
+    final width = math.max(1.8, (size.width - gap * (barCount - 1)) / barCount);
+    final center = size.width / 2;
     final t = animation.value * math.pi * 2;
+    final baseHsl = HSLColor.fromColor(color);
+    final paint = Paint()..strokeCap = StrokeCap.round;
+
     for (var index = 0; index < barCount; index++) {
-      final normalized = index / math.max(1, barCount - 1);
-      final envelope = 0.35 + 0.65 * math.sin(normalized * math.pi);
-      final wave = active ? 0.5 + 0.5 * math.sin(t * 1.4 + index * 0.74) : 0.18;
+      final x = index * (width + gap) + width / 2;
+      final distance = ((x - center).abs() / math.max(center, 1)).clamp(
+        0.0,
+        1.0,
+      );
+      final mirrored = math.sin((1 - distance) * math.pi);
+      final lowBand = math.sin(t * 0.82 + index * 0.42 + phaseOffset);
+      final midBand = math.sin(t * 1.55 + index * 0.77 + phaseOffset * 1.7);
+      final highBand = math.sin(t * 2.35 + index * 1.21 + phaseOffset * 0.6);
+      final energy =
+          active
+              ? (0.48 + lowBand * 0.20 + midBand * 0.18 + highBand * 0.10)
+              : 0.16;
       final barHeight = math.max(
         3.0,
-        size.height * envelope * (0.28 + wave * 0.72),
+        size.height * (0.18 + mirrored * 0.58) * energy.clamp(0.12, 1.0),
       );
-      final left = index * (width + gap);
+      final hue =
+          (baseHsl.hue + index * 8 + math.sin(t * 0.28 + index) * 18) % 360;
+      final bandColor =
+          HSLColor.fromAHSL(
+            active ? 0.42 + energy.clamp(0.0, 1.0) * 0.48 : 0.22,
+            hue,
+            (baseHsl.lightness + 0.08).clamp(0.28, 0.78),
+            0.78,
+          ).toColor();
       paint
-        ..color = color.withValues(alpha: active ? 0.28 + wave * 0.62 : 0.18)
+        ..color = bandColor
         ..strokeWidth = width;
       canvas.drawLine(
-        Offset(left + width / 2, size.height / 2 - barHeight / 2),
-        Offset(left + width / 2, size.height / 2 + barHeight / 2),
+        Offset(x, size.height / 2 - barHeight / 2),
+        Offset(x, size.height / 2 + barHeight / 2),
         paint,
       );
     }
@@ -116,5 +149,6 @@ class _VisualizerPainter extends CustomPainter {
   bool shouldRepaint(covariant _VisualizerPainter oldDelegate) =>
       oldDelegate.color != color ||
       oldDelegate.barCount != barCount ||
-      oldDelegate.active != active;
+      oldDelegate.active != active ||
+      oldDelegate.phaseOffset != phaseOffset;
 }

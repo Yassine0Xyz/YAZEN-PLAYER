@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LyricLine {
   const LyricLine({required this.timestamp, required this.text});
@@ -19,10 +20,46 @@ class SyncedLyrics {
   final String? plainText;
 
   bool get isSynced => lines.isNotEmpty;
+  bool get isPlain => !isSynced && (plainText?.trim().isNotEmpty ?? false);
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'lines': lines
+        .map(
+          (line) => <String, dynamic>{
+            'timestampMs': line.timestamp.inMilliseconds,
+            'text': line.text,
+          },
+        )
+        .toList(growable: false),
+    'plainText': plainText,
+  };
+
+  factory SyncedLyrics.fromJson(Map<String, dynamic> json) {
+    final rawLines = json['lines'];
+    final lines = <LyricLine>[];
+    if (rawLines is List) {
+      for (final raw in rawLines.whereType<Map>()) {
+        final timestamp = (raw['timestampMs'] as num?)?.toInt();
+        final text = raw['text']?.toString().trim() ?? '';
+        if (timestamp != null && text.isNotEmpty) {
+          lines.add(
+            LyricLine(timestamp: Duration(milliseconds: timestamp), text: text),
+          );
+        }
+      }
+    }
+    return SyncedLyrics(
+      lines: List<LyricLine>.unmodifiable(lines),
+      plainText: json['plainText']?.toString(),
+    );
+  }
 }
 
 class LyricsService {
   LyricsService({http.Client? client}) : _client = client ?? http.Client();
+
+  static const _cachePrefix = 'yazen.lyrics.';
+  static const _requestTimeout = Duration(seconds: 5);
 
   final http.Client _client;
 
@@ -30,39 +67,140 @@ class LyricsService {
     final localLyrics = await _loadAdjacentLrc(item.id);
     if (localLyrics != null) return localLyrics;
 
+    final cached = await _loadCached(item.id);
+    if (cached != null) return cached;
+
     final title = item.title.trim();
     final artist = (item.artist ?? '').trim();
-    if (title.isEmpty || artist.isEmpty) return null;
+    if (title.isEmpty) return null;
 
+    final queries = _queryVariants(title, artist);
+    for (final query in queries) {
+      final exact = await _loadLrclibExact(query.title, query.artist);
+      if (exact != null) {
+        await _saveCached(item.id, exact);
+        return exact;
+      }
+    }
+
+    for (final query in queries.take(2)) {
+      final searched = await _loadLrclibSearch(query.title, query.artist);
+      if (searched != null) {
+        await _saveCached(item.id, searched);
+        return searched;
+      }
+    }
+
+    final plain = await _loadLyricsOvh(title, artist);
+    if (plain != null) {
+      await _saveCached(item.id, plain);
+      return plain;
+    }
+    return null;
+  }
+
+  List<({String title, String artist})> _queryVariants(
+    String title,
+    String artist,
+  ) {
+    final cleanTitle = _normalize(title);
+    final cleanArtist = _normalize(artist);
+    final values = <({String title, String artist})>[
+      (title: title, artist: artist),
+      (title: cleanTitle, artist: cleanArtist),
+      (title: _withoutVersionSuffix(cleanTitle), artist: cleanArtist),
+    ];
+    final seen = <String>{};
+    return values
+        .where((value) {
+          final key =
+              '${value.title.toLowerCase()}|${value.artist.toLowerCase()}';
+          return value.title.isNotEmpty && seen.add(key);
+        })
+        .toList(growable: false);
+  }
+
+  Future<SyncedLyrics?> _loadLrclibExact(String title, String artist) async {
+    if (title.isEmpty) return null;
     final uri = Uri.https('lrclib.net', '/api/get', <String, String>{
       'track_name': title,
-      'artist_name': artist,
+      if (artist.isNotEmpty) 'artist_name': artist,
     });
-    final response = await _client.get(
-      uri,
-      headers: const <String, String>{
-        'Accept': 'application/json',
-        'User-Agent': 'YAZEN/1.0',
-      },
-    );
-    if (response.statusCode != 200) return null;
-
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
-    final synced = payload['syncedLyrics']?.toString();
-    final plain = payload['plainLyrics']?.toString();
-    if (synced != null && synced.trim().isNotEmpty) {
-      return SyncedLyrics(lines: parseLrc(synced), plainText: plain);
+    try {
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(_requestTimeout);
+      if (response.statusCode != 200) return null;
+      return _fromLrclibPayload(jsonDecode(response.body));
+    } catch (_) {
+      return null;
     }
-    if (plain != null && plain.trim().isNotEmpty) {
+  }
+
+  Future<SyncedLyrics?> _loadLrclibSearch(String title, String artist) async {
+    final query = artist.isEmpty ? title : '$artist $title';
+    final uri = Uri.https('lrclib.net', '/api/search', <String, String>{
+      'q': query,
+    });
+    try {
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(_requestTimeout);
+      if (response.statusCode != 200) return null;
+      final payload = jsonDecode(response.body);
+      if (payload is! List) return null;
+      for (final candidate in payload.whereType<Map<String, dynamic>>().take(
+        5,
+      )) {
+        final lyrics = _fromLrclibPayload(candidate);
+        if (lyrics != null) return lyrics;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  Future<SyncedLyrics?> _loadLyricsOvh(String title, String artist) async {
+    if (artist.isEmpty) return null;
+    final uri = Uri.https(
+      'api.lyrics.ovh',
+      '/v1/${Uri.encodeComponent(artist)}/${Uri.encodeComponent(title)}',
+    );
+    try {
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(_requestTimeout);
+      if (response.statusCode != 200) return null;
+      final payload = jsonDecode(response.body);
+      if (payload is! Map<String, dynamic>) return null;
+      final lyrics = payload['lyrics']?.toString().trim();
+      if (lyrics == null || lyrics.isEmpty) return null;
+      return SyncedLyrics(lines: const <LyricLine>[], plainText: lyrics);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  SyncedLyrics? _fromLrclibPayload(Object? payload) {
+    if (payload is! Map<String, dynamic>) return null;
+    final synced = payload['syncedLyrics']?.toString().trim();
+    final plain = payload['plainLyrics']?.toString().trim();
+    if (synced != null && synced.isNotEmpty) {
+      final lines = parseLrc(synced);
+      if (lines.isNotEmpty) {
+        return SyncedLyrics(lines: lines, plainText: plain);
+      }
+    }
+    if (plain != null && plain.isNotEmpty) {
       return SyncedLyrics(lines: const <LyricLine>[], plainText: plain);
     }
     return null;
   }
 
   /// Parses standard LRC timestamps and applies an optional `[offset:...]`
-  /// metadata value. Positive offset moves lines later; negative offset moves
-  /// them earlier. Several timestamps on one line are expanded so karaoke
-  /// files with repeated timestamps remain synchronized.
+  /// metadata value. Positive offset moves lines later; negative moves them
+  /// earlier. Multiple timestamps on a line are expanded and sorted.
   List<LyricLine> parseLrc(String source) {
     final lines = <LyricLine>[];
     final offsetMs = _parseOffsetMilliseconds(source);
@@ -100,7 +238,7 @@ class LyricsService {
       }
     }
     lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    return lines;
+    return List<LyricLine>.unmodifiable(lines);
   }
 
   int _parseOffsetMilliseconds(String source) {
@@ -113,13 +251,74 @@ class LyricsService {
 
   Future<SyncedLyrics?> _loadAdjacentLrc(String id) async {
     if (!id.startsWith('file://')) return null;
-    final audioPath = Uri.parse(id).toFilePath();
-    final lrcPath = p.setExtension(audioPath, '.lrc');
-    final file = File(lrcPath);
-    if (!await file.exists()) return null;
-    final content = await file.readAsString();
-    return SyncedLyrics(lines: parseLrc(content), plainText: content);
+    try {
+      final audioPath = Uri.parse(id).toFilePath();
+      final lrcPath = p.setExtension(audioPath, '.lrc');
+      final file = File(lrcPath);
+      if (!await file.exists()) return null;
+      final content = await file.readAsString();
+      final parsed = parseLrc(content);
+      return SyncedLyrics(
+        lines: parsed,
+        plainText: parsed.isEmpty ? content : null,
+      );
+    } catch (_) {
+      return null;
+    }
   }
+
+  Future<SyncedLyrics?> _loadCached(String id) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final encoded = preferences.getString('$_cachePrefix${_cacheKey(id)}');
+      if (encoded == null || encoded.isEmpty) return null;
+      return SyncedLyrics.fromJson(jsonDecode(encoded) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveCached(String id, SyncedLyrics lyrics) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(
+        '$_cachePrefix${_cacheKey(id)}',
+        jsonEncode(lyrics.toJson()),
+      );
+    } catch (_) {}
+  }
+
+  String _cacheKey(String value) => base64UrlEncode(utf8.encode(value));
+
+  String _normalize(String value) {
+    return value
+        .replaceAll(RegExp(r'\[[^\]]*\]|\([^)]*\)|\{[^}]*\}'), ' ')
+        .replaceAll(
+          RegExp(
+            r'\b(official|video|audio|lyrics|visualizer|remix|slowed|reverb|nightcore|sped up|music)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  String _withoutVersionSuffix(String value) {
+    return value
+        .replaceFirst(
+          RegExp(r'\b(v\d+|part\s+\d+|version\s+\d+)\b', caseSensitive: false),
+          '',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static const _headers = <String, String>{
+    'Accept': 'application/json',
+    'User-Agent': 'YAZEN/1.0',
+  };
 
   void dispose() => _client.close();
 }

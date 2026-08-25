@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
@@ -15,6 +16,8 @@ import '../../widgets/echo_motion.dart';
 import '../../widgets/audio_visualizer.dart';
 import '../../widgets/media_artwork.dart';
 import '../effects/equalizer_screen.dart';
+
+enum AudioArtworkStyle { lark, vinyl }
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({super.key});
@@ -45,11 +48,37 @@ class FullPlayerScreen extends StatefulWidget {
 }
 
 class _FullPlayerScreenState extends State<FullPlayerScreen> {
+  static const _artworkStyleKey = 'yazen.audio_artwork_style';
+
   bool _showLyrics = false;
+  AudioArtworkStyle _artworkStyle = AudioArtworkStyle.lark;
   bool _favoritePulse = false;
   double? _draggedPosition;
   String? _lyricsItemId;
   Future<SyncedLyrics?>? _lyricsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArtworkStyle();
+  }
+
+  Future<void> _loadArtworkStyle() async {
+    final preferences = await SharedPreferences.getInstance();
+    final saved = preferences.getString(_artworkStyleKey);
+    if (!mounted || saved == null) return;
+    final style = AudioArtworkStyle.values.where(
+      (value) => value.name == saved,
+    );
+    if (style.isNotEmpty) setState(() => _artworkStyle = style.first);
+  }
+
+  Future<void> _setArtworkStyle(AudioArtworkStyle style) async {
+    if (_artworkStyle == style) return;
+    setState(() => _artworkStyle = style);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_artworkStyleKey, style.name);
+  }
 
   Future<void> _seekBy(HybridAudioHandler handler, Duration delta) async {
     final duration = handler.player.duration ?? Duration.zero;
@@ -90,7 +119,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _AudioControlsSheet(handler: handler),
+      builder:
+          (_) => _AudioControlsSheet(
+            handler: handler,
+            artworkStyle: _artworkStyle,
+            onArtworkStyleChanged: _setArtworkStyle,
+          ),
     );
   }
 
@@ -108,6 +142,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
           (_) => _LyricsSheet(
             lyricsFuture: _loadLyrics(controller, item),
             positionStream: handler.player.positionStream,
+            onLineTap: handler.seek,
           ),
     );
   }
@@ -199,20 +234,36 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                           ),
                                       child: Hero(
                                         tag: 'track-art-${item.id}',
-                                        child: _AnimatedVinyl(
-                                          key: ValueKey('vinyl-${item.id}'),
-                                          artUri: item.artUri,
-                                          track: activeTrack,
-                                          isPlaying: isPlaying,
-                                          size: recordSize,
-                                        ),
+                                        child:
+                                            _artworkStyle ==
+                                                    AudioArtworkStyle.lark
+                                                ? _LarkArtwork(
+                                                  key: ValueKey(
+                                                    'lark-${item.id}',
+                                                  ),
+                                                  artUri: item.artUri,
+                                                  track: activeTrack,
+                                                  isPlaying: isPlaying,
+                                                  size: recordSize,
+                                                )
+                                                : _AnimatedVinyl(
+                                                  key: ValueKey(
+                                                    'vinyl-${item.id}',
+                                                  ),
+                                                  artUri: item.artUri,
+                                                  track: activeTrack,
+                                                  isPlaying: isPlaying,
+                                                  size: recordSize,
+                                                ),
                                       ),
                                     ),
                                   ),
                                   const SizedBox(height: 14),
                                   AudioVisualizer(
                                     playing: isPlaying,
-                                    height: 30,
+                                    height: 38,
+                                    barCount: 32,
+                                    seed: item.id,
                                     color:
                                         Theme.of(context).colorScheme.primary,
                                   ),
@@ -247,6 +298,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                               ),
                                               positionStream:
                                                   handler.player.positionStream,
+                                              onLineTap: handler.seek,
                                             )
                                             : const SizedBox(
                                               key: ValueKey('empty-lyrics'),
@@ -366,6 +418,55 @@ class _TopBar extends StatelessWidget {
             size: 42,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LarkArtwork extends StatelessWidget {
+  const _LarkArtwork({
+    required this.artUri,
+    required this.track,
+    required this.isPlaying,
+    required this.size,
+    super.key,
+  });
+
+  final Uri? artUri;
+  final MediaTrack? track;
+  final bool isPlaying;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    final artwork =
+        track == null
+            ? _Artwork(uri: artUri)
+            : YazenMediaArtwork(
+              track: track,
+              size: size,
+              borderRadius: BorderRadius.circular(size * 0.16),
+            );
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 420),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.16),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: tokens.accentStrong.withValues(
+              alpha: isPlaying ? 0.34 : 0.14,
+            ),
+            blurRadius: isPlaying ? 34 : 16,
+            spreadRadius: isPlaying ? 3 : 1,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.16),
+        child: artwork,
       ),
     );
   }
@@ -796,9 +897,9 @@ class _TransportControls extends StatelessWidget {
 
   AudioServiceRepeatMode _nextRepeatMode(LoopMode mode) {
     return switch (mode) {
-      LoopMode.off => AudioServiceRepeatMode.all,
-      LoopMode.all => AudioServiceRepeatMode.one,
+      LoopMode.off => AudioServiceRepeatMode.one,
       LoopMode.one => AudioServiceRepeatMode.none,
+      LoopMode.all => AudioServiceRepeatMode.one,
     };
   }
 }
@@ -1110,10 +1211,57 @@ class _QueuePeekSheet extends StatelessWidget {
   }
 }
 
+class _ArtworkStyleSelector extends StatelessWidget {
+  const _ArtworkStyleSelector({required this.value, required this.onChanged});
+
+  final AudioArtworkStyle value;
+  final ValueChanged<AudioArtworkStyle> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Row(
+      children: <Widget>[
+        Icon(Icons.album_rounded, color: tokens.textSecondary),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Text(
+            'Artwork style',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        DropdownButton<AudioArtworkStyle>(
+          value: value,
+          underline: const SizedBox.shrink(),
+          onChanged: (next) {
+            if (next != null) onChanged(next);
+          },
+          items: const <DropdownMenuItem<AudioArtworkStyle>>[
+            DropdownMenuItem(
+              value: AudioArtworkStyle.lark,
+              child: Text('Lark artwork'),
+            ),
+            DropdownMenuItem(
+              value: AudioArtworkStyle.vinyl,
+              child: Text('YAZEN vinyl'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _AudioControlsSheet extends StatefulWidget {
-  const _AudioControlsSheet({required this.handler});
+  const _AudioControlsSheet({
+    required this.handler,
+    required this.artworkStyle,
+    required this.onArtworkStyleChanged,
+  });
 
   final HybridAudioHandler handler;
+  final AudioArtworkStyle artworkStyle;
+  final ValueChanged<AudioArtworkStyle> onArtworkStyleChanged;
 
   @override
   State<_AudioControlsSheet> createState() => _AudioControlsSheetState();
@@ -1137,6 +1285,11 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
       icon: Icons.tune_rounded,
       child: Column(
         children: <Widget>[
+          _ArtworkStyleSelector(
+            value: widget.artworkStyle,
+            onChanged: widget.onArtworkStyleChanged,
+          ),
+          const SizedBox(height: 8),
           _SheetSwitch(
             icon: Icons.equalizer_rounded,
             title: 'Equalizer',
@@ -1300,10 +1453,12 @@ class _LyricsSheet extends StatelessWidget {
   const _LyricsSheet({
     required this.lyricsFuture,
     required this.positionStream,
+    this.onLineTap,
   });
 
   final Future<SyncedLyrics?> lyricsFuture;
   final Stream<Duration> positionStream;
+  final ValueChanged<Duration>? onLineTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1315,6 +1470,7 @@ class _LyricsSheet extends StatelessWidget {
         child: LyricsView(
           lyricsFuture: lyricsFuture,
           positionStream: positionStream,
+          onLineTap: onLineTap,
         ),
       ),
     );

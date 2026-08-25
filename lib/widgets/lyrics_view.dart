@@ -9,12 +9,14 @@ class LyricsView extends StatelessWidget {
     required this.lyricsFuture,
     required this.positionStream,
     this.height = 280,
+    this.onLineTap,
     super.key,
   });
 
   final Future<SyncedLyrics?> lyricsFuture;
   final Stream<Duration> positionStream;
   final double height;
+  final ValueChanged<Duration>? onLineTap;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +59,7 @@ class LyricsView extends StatelessWidget {
               lines: lyrics.lines,
               position: position,
               height: height,
+              onLineTap: onLineTap,
             );
           },
         );
@@ -68,6 +71,7 @@ class LyricsView extends StatelessWidget {
     required BuildContext context,
     required Future<SyncedLyrics?> lyricsFuture,
     required Stream<Duration> positionStream,
+    ValueChanged<Duration>? onLineTap,
     String title = 'Lyrics',
   }) {
     final tokens = context.read<ThemeProvider>().tokens;
@@ -106,6 +110,7 @@ class LyricsView extends StatelessWidget {
                         lyricsFuture: lyricsFuture,
                         positionStream: positionStream,
                         height: double.infinity,
+                        onLineTap: onLineTap,
                       ),
                     ),
                   ),
@@ -122,11 +127,13 @@ class _SyncedLyricsPanel extends StatefulWidget {
     required this.lines,
     required this.position,
     required this.height,
+    this.onLineTap,
   });
 
   final List<LyricLine> lines;
   final Duration position;
   final double height;
+  final ValueChanged<Duration>? onLineTap;
 
   @override
   State<_SyncedLyricsPanel> createState() => _SyncedLyricsPanelState();
@@ -208,9 +215,23 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 9),
-              child: Text(
-                widget.lines[index].text,
-                textAlign: TextAlign.center,
+              child: InkWell(
+                onTap:
+                    widget.onLineTap == null
+                        ? null
+                        : () =>
+                            widget.onLineTap!(widget.lines[index].timestamp),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  child: Text(
+                    widget.lines[index].text,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
             ),
           );
