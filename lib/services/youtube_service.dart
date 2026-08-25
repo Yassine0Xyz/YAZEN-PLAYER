@@ -5,7 +5,36 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../models/download_item.dart';
 import '../models/media_track.dart';
+
+class YoutubeDownloadOption {
+  const YoutubeDownloadOption({
+    required this.id,
+    required this.kind,
+    required this.qualityLabel,
+    required this.container,
+    required this.primaryUri,
+    required this.sizeBytes,
+    this.exactSize = true,
+    this.bitrateKbps,
+    this.audioUri,
+    this.videoUri,
+  });
+
+  final String id;
+  final DownloadKind kind;
+  final String qualityLabel;
+  final String container;
+  final Uri primaryUri;
+  final int? sizeBytes;
+  final bool exactSize;
+  final int? bitrateKbps;
+  final Uri? audioUri;
+  final Uri? videoUri;
+
+  bool get requiresMuxing => audioUri != null && videoUri != null;
+}
 
 class YoutubeVideoResult {
   const YoutubeVideoResult({
@@ -186,6 +215,123 @@ class YoutubeService {
     ).firstMatch(value);
     return match?.group(1);
   }
+
+  Future<List<YoutubeDownloadOption>> getDownloadOptions(
+    String videoId, {
+    Duration? duration,
+  }) async {
+    _ensureOpen();
+    final normalizedId = extractVideoId(videoId) ?? videoId.trim();
+    if (normalizedId.isEmpty) {
+      throw const FormatException('A YouTube video ID is required.');
+    }
+
+    final manifest = await _withRetry(
+      () => _client.videos.streams.getManifest(normalizedId),
+    );
+    final audio =
+        manifest.audioOnly.toList()..sort((a, b) {
+          final aMp4 = a.container == StreamContainer.mp4;
+          final bMp4 = b.container == StreamContainer.mp4;
+          if (aMp4 != bMp4) return aMp4 ? -1 : 1;
+          return b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond);
+        });
+    if (audio.isEmpty) {
+      throw StateError('No audio-only stream was found.');
+    }
+
+    final bestAudio = audio.first;
+    final bestAudioSize = _knownBytes(bestAudio.size.totalBytes);
+    final options = <YoutubeDownloadOption>[
+      YoutubeDownloadOption(
+        id: '$normalizedId-classic',
+        kind: DownloadKind.classicAudio,
+        qualityLabel: 'Original audio',
+        container: bestAudio.container.name,
+        primaryUri: bestAudio.url,
+        sizeBytes: bestAudioSize,
+        bitrateKbps: (bestAudio.bitrate.bitsPerSecond / 1000).round(),
+      ),
+      YoutubeDownloadOption(
+        id: '$normalizedId-mp3',
+        kind: DownloadKind.mp3Audio,
+        qualityLabel: 'MP3 · best bitrate',
+        container: 'mp3',
+        primaryUri: bestAudio.url,
+        sizeBytes: duration == null ? null : _estimateMp3Bytes(duration),
+        exactSize: false,
+        bitrateKbps: 320,
+      ),
+    ];
+
+    final audioForMux = audio.firstWhere(
+      (stream) => stream.container == StreamContainer.mp4,
+      orElse: () => bestAudio,
+    );
+    final byHeight = <int, YoutubeDownloadOption>{};
+    for (final stream in manifest.muxed) {
+      if (stream.container != StreamContainer.mp4) continue;
+      _addVideoOption(
+        byHeight,
+        YoutubeDownloadOption(
+          id: '$normalizedId-video-${stream.videoResolution.height}-muxed',
+          kind: DownloadKind.video,
+          qualityLabel: '${stream.videoResolution.height}p',
+          container: 'mp4',
+          primaryUri: stream.url,
+          sizeBytes: _knownBytes(stream.size.totalBytes),
+        ),
+      );
+    }
+    for (final stream in manifest.videoOnly) {
+      if (stream.container != StreamContainer.mp4) continue;
+      final videoBytes = _knownBytes(stream.size.totalBytes);
+      final audioBytes = _knownBytes(audioForMux.size.totalBytes);
+      _addVideoOption(
+        byHeight,
+        YoutubeDownloadOption(
+          id: '$normalizedId-video-${stream.videoResolution.height}-adaptive',
+          kind: DownloadKind.video,
+          qualityLabel: '${stream.videoResolution.height}p',
+          container: 'mp4',
+          primaryUri: stream.url,
+          videoUri: stream.url,
+          audioUri: audioForMux.url,
+          sizeBytes:
+              videoBytes != null && audioBytes != null
+                  ? videoBytes + audioBytes
+                  : null,
+          exactSize: false,
+        ),
+      );
+    }
+    options.addAll(
+      byHeight.values.toList()..sort((a, b) {
+        final aHeight = int.tryParse(a.qualityLabel.replaceAll('p', '')) ?? 0;
+        final bHeight = int.tryParse(b.qualityLabel.replaceAll('p', '')) ?? 0;
+        return aHeight.compareTo(bHeight);
+      }),
+    );
+    return options;
+  }
+
+  void _addVideoOption(
+    Map<int, YoutubeDownloadOption> options,
+    YoutubeDownloadOption candidate,
+  ) {
+    final height = int.tryParse(candidate.qualityLabel.replaceAll('p', ''));
+    if (height == null) return;
+    final existing = options[height];
+    if (existing == null ||
+        (existing.requiresMuxing && !candidate.requiresMuxing)) {
+      options[height] = candidate;
+    }
+  }
+
+  int? _knownBytes(int bytes) => bytes > 0 ? bytes : null;
+
+  int _estimateMp3Bytes(Duration duration) =>
+      ((duration.inMilliseconds / 1000) * 320000 / 8).ceil();
 
   Future<Uri> getVideoStreamUrl(String videoId) async {
     _ensureOpen();

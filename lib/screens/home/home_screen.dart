@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
+import '../../screens/downloads/downloads_screen.dart';
 import '../../models/media_track.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../screens/discover/youtube_search_screen.dart';
@@ -90,6 +91,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         () => Navigator.of(
                           context,
                         ).push(HybridPartyScreen.route()),
+                    onDownloads:
+                        () =>
+                            Navigator.of(context).push(DownloadsScreen.route()),
                   ),
                 ),
                 LibraryTabs(
@@ -301,11 +305,13 @@ class _TopQuickNav extends StatelessWidget {
     required this.onDiscover,
     required this.onTube,
     required this.onParty,
+    required this.onDownloads,
   });
 
   final VoidCallback onDiscover;
   final VoidCallback onTube;
   final VoidCallback onParty;
+  final VoidCallback onDownloads;
 
   @override
   Widget build(BuildContext context) {
@@ -338,6 +344,15 @@ class _TopQuickNav extends StatelessWidget {
               label: 'Party',
               color: tokens.accent,
               onTap: onParty,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _QuickNavChip(
+              icon: Icons.download_rounded,
+              label: 'Downloads',
+              color: tokens.accent,
+              onTap: onDownloads,
             ),
           ),
         ],

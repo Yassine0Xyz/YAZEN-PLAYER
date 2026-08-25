@@ -7,6 +7,7 @@ import 'package:provider/single_child_widget.dart';
 import 'controllers/hybrid_music_controller.dart';
 import 'core/theme/theme_provider.dart';
 import 'screens/home/home_screen.dart';
+import 'services/download_manager.dart';
 import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
@@ -33,6 +34,10 @@ Future<void> main() async {
   await themeProvider.load();
   final playlistManager = LocalPlaylistManager();
   await playlistManager.initialize();
+  final downloadManager = DownloadManager(
+    youtubeService: audioHandler.youtubeService,
+  );
+  await downloadManager.initialize();
   await audioHandler.restoreLastPlayback();
 
   runApp(
@@ -40,6 +45,7 @@ Future<void> main() async {
       audioHandler: audioHandler,
       themeProvider: themeProvider,
       playlistManager: playlistManager,
+      downloadManager: downloadManager,
     ),
   );
 }
@@ -49,12 +55,14 @@ class HybridMusicApp extends StatelessWidget {
     required this.audioHandler,
     required this.themeProvider,
     required this.playlistManager,
+    required this.downloadManager,
     super.key,
   });
 
   final HybridAudioHandler audioHandler;
   final ThemeProvider themeProvider;
   final LocalPlaylistManager playlistManager;
+  final DownloadManager downloadManager;
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +72,7 @@ class HybridMusicApp extends StatelessWidget {
         ChangeNotifierProvider<LocalPlaylistManager>.value(
           value: playlistManager,
         ),
+        ChangeNotifierProvider<DownloadManager>.value(value: downloadManager),
         ChangeNotifierProvider<HybridMusicController>(
           create:
               (context) => HybridMusicController(
@@ -76,7 +85,7 @@ class HybridMusicApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeState, _) {
           return MaterialApp(
-            title: 'Echo',
+            title: 'YAZEN',
             debugShowCheckedModeBanner: false,
             theme: themeState.theme,
             builder:

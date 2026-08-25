@@ -5,6 +5,7 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/youtube_service.dart';
+import '../../widgets/download_picker_sheet.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/shimmer_skeleton.dart';
 import '../../widgets/playlist_picker_sheet.dart';
@@ -138,7 +139,7 @@ class _YoutubeSearchScreenState extends State<YoutubeSearchScreen> {
                           onStream: () => _playSearchQueue(index),
                           onQueue: () => _queueTrack(track),
                           onCancelCache: () => _cancelCache(track),
-                          onCache: () => _cacheTrack(track),
+                          onCache: () => showDownloadPicker(context, track),
                         ),
                       ),
                     );
