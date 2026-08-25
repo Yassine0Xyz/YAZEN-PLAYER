@@ -227,6 +227,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     return LayoutBuilder(
       builder: (context, constraints) {
         final playerSize = Size(constraints.maxWidth, constraints.maxHeight);
+        final bottomInset = MediaQuery.of(context).padding.bottom;
         return Stack(
           fit: StackFit.expand,
           children: <Widget>[
@@ -391,7 +392,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                         Positioned(
                           left: 12,
                           right: 12,
-                          bottom: 12,
+                          bottom: bottomInset + 8,
                           child: _GlassBar(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -451,6 +452,11 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                                       icon: const Icon(Icons.skip_next_rounded),
                                     ),
                                     IconButton(
+                                      tooltip: 'Stop',
+                                      onPressed: _stopVideo,
+                                      icon: const Icon(Icons.stop_rounded),
+                                    ),
+                                    IconButton(
                                       tooltip: 'Forward 10 seconds',
                                       onPressed:
                                           () => _seekBy(
@@ -484,6 +490,23 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                           ),
                         ),
                     ],
+                  ),
+                ),
+              ),
+            if (!_locked && !_hudVisible)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: bottomInset + 2,
+                child: IgnorePointer(
+                  child: VideoProgressIndicator(
+                    widget.controller,
+                    allowScrubbing: false,
+                    colors: VideoProgressColors(
+                      playedColor: tokens.accent,
+                      bufferedColor: Colors.white54,
+                      backgroundColor: Colors.white24,
+                    ),
                   ),
                 ),
               ),
@@ -642,6 +665,12 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
         ],
       ),
     );
+  }
+
+  Future<void> _stopVideo() async {
+    await widget.controller.pause();
+    await widget.controller.seekTo(Duration.zero);
+    _scheduleHudHide();
   }
 
   Future<void> _showSpeedPicker(BuildContext context) async {

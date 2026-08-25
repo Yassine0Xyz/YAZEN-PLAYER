@@ -585,14 +585,14 @@ class _VideoPreviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           AspectRatio(
-            aspectRatio: 16 / 9,
+            aspectRatio: 1.9,
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
                 Hero(
                   tag: 'track-art-${track.id}',
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(16),
                     child:
                         track.isVideo
                             ? VideoThumbnailWidget(track: track, size: 720)
@@ -659,9 +659,9 @@ class _VideoPreviewCard extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              height: 1.2,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              height: 1.18,
             ),
           ),
           const SizedBox(height: 4),
@@ -669,7 +669,7 @@ class _VideoPreviewCard extends StatelessWidget {
             track.channelName ?? track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 11.5),
           ),
         ],
       ),

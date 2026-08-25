@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
@@ -23,12 +27,7 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
   bool _searching = false;
   String? _error;
 
-  static const _topics = <String>[
-    'Chill electronic mix',
-    'Lo-fi beats',
-    'Late night coding',
-    'Ambient focus',
-  ];
+  static const _interestKey = 'yazen.tube.local_interests.v1';
 
   @override
   void initState() {
@@ -42,25 +41,78 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
     super.dispose();
   }
 
-  void _loadHome() {
+  Future<void> _loadHome() async {
     final service = context.read<HybridMusicController>().youtubeService;
-    _sections
-      ..clear()
-      ..addAll(<String, Future<List<YoutubeVideoResult>>>{
-        'Recommended for you': service.searchVideos(
-          'chill electronic mix',
-          limit: 8,
-        ),
-        'Fresh discoveries': service.searchVideos(
-          'new music discoveries 2026',
-          limit: 8,
-        ),
-        'Late-night sessions': service.searchVideos(
-          'late night lofi ambient',
-          limit: 8,
-        ),
-      });
-    setState(() {});
+    final preferences = await SharedPreferences.getInstance();
+    final interests =
+        preferences.getStringList(_interestKey) ?? const <String>[];
+    final seed = DateTime.now().microsecondsSinceEpoch;
+    final random = Random(seed);
+    final preferred =
+        interests.isEmpty ? 'chill electronic mix' : interests.first;
+    final secondary = interests.length > 1 ? interests[1] : 'ambient focus';
+    final requests = <Future<List<YoutubeVideoResult>>>[
+      service.searchVideos(preferred, limit: 20),
+      service.searchVideos('new $secondary discoveries', limit: 20),
+      service.searchVideos('$preferred late night ambient', limit: 20),
+    ];
+    final groupsFuture = Future.wait(requests).then((pages) {
+      final unique = <String, YoutubeVideoResult>{};
+      for (final page in pages) {
+        for (final result in page) {
+          unique[result.videoId] = result;
+        }
+      }
+      final mixed = unique.values.toList()..shuffle(random);
+      final first = mixed.take(12).toList(growable: false);
+      final second = mixed.skip(12).take(12).toList(growable: false);
+      final third = mixed.skip(24).take(12).toList(growable: false);
+      return <String, List<YoutubeVideoResult>>{
+        'Recommended for you': first,
+        'Fresh discoveries': second,
+        'Late-night sessions': third,
+      };
+    });
+    if (!mounted) return;
+    setState(() {
+      _error = null;
+      _sections
+        ..clear()
+        ..addAll(<String, Future<List<YoutubeVideoResult>>>{
+          for (final title in const <String>[
+            'Recommended for you',
+            'Fresh discoveries',
+            'Late-night sessions',
+          ])
+            title: groupsFuture.then((groups) => groups[title] ?? const []),
+        });
+    });
+    try {
+      await groupsFuture;
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Tube feed could not refresh. Pull to try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _rememberInterest(String value) async {
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) return;
+    final preferences = await SharedPreferences.getInstance();
+    final interests = <String>[
+      ...(preferences.getStringList(_interestKey) ?? const <String>[]),
+    ];
+    interests.removeWhere(
+      (item) => item.toLowerCase() == normalized.toLowerCase(),
+    );
+    interests.insert(0, normalized);
+    await preferences.setStringList(
+      _interestKey,
+      interests.take(8).toList(growable: false),
+    );
   }
 
   Future<void> _search(String value) async {
@@ -74,8 +126,9 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
       _error = null;
     });
     try {
+      await _rememberInterest(query);
       final service = context.read<HybridMusicController>().youtubeService;
-      final results = await service.searchVideos(query, limit: 18);
+      final results = await service.searchVideos(query, limit: 24);
       if (!mounted) return;
       setState(() {
         _sections
@@ -103,6 +156,7 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
       builder: (context) => _PlaybackChoiceSheet(track: track),
     );
     if (!mounted || mode == null) return;
+    unawaited(_rememberInterest(result.author));
     if (mode == _TubePlaybackMode.voice) {
       await context.read<HybridMusicController>().playTrack(track);
       return;
@@ -138,57 +192,41 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
       ),
       body: RefreshIndicator(
         color: tokens.accent,
-        onRefresh: () async => _loadHome(),
+        onRefresh: _loadHome,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
           children: <Widget>[
-            TextField(
-              controller: _searchController,
-              onSubmitted: _search,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                hintText: 'Search Tube Mode',
-                prefixIcon: const Icon(Icons.search_rounded, size: 21),
-                suffixIcon:
-                    _searching
-                        ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: SizedBox.square(
-                            dimension: 17,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 46, maxHeight: 46),
+              child: TextField(
+                controller: _searchController,
+                onSubmitted: _search,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 7,
+                  ),
+                  hintText: 'Search Tube Mode',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                  suffixIcon:
+                      _searching
+                          ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                          : IconButton(
+                            onPressed: () => _search(_searchController.text),
+                            icon: const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 20,
+                            ),
                           ),
-                        )
-                        : IconButton(
-                          onPressed: () => _search(_searchController.text),
-                          icon: const Icon(Icons.arrow_forward_rounded),
-                        ),
-              ),
-            ),
-            const SizedBox(height: 11),
-            SizedBox(
-              height: 42,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: _topics.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder:
-                    (context, index) => ActionChip(
-                      avatar: Icon(
-                        Icons.auto_awesome_rounded,
-                        size: 16,
-                        color: tokens.accent,
-                      ),
-                      label: Text(_topics[index]),
-                      onPressed: () {
-                        _searchController.text = _topics[index];
-                        _search(_topics[index]);
-                      },
-                    ),
+                ),
               ),
             ),
             if (_error != null) ...<Widget>[
@@ -230,7 +268,7 @@ class _Section extends StatelessWidget {
       children: <Widget>[
         Text(
           title,
-          style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 12),
         FutureBuilder<List<YoutubeVideoResult>>(
@@ -260,7 +298,7 @@ class _Section extends StatelessWidget {
                     result: results[index],
                     onTap: () => onOpen(results[index]),
                   ),
-                  if (index != results.length - 1) const SizedBox(height: 22),
+                  if (index != results.length - 1) const SizedBox(height: 15),
                 ],
               ],
             );
@@ -287,9 +325,9 @@ class _TubeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           AspectRatio(
-            aspectRatio: 16 / 9,
+            aspectRatio: 1.9,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               child:
                   result.thumbnailUrl == null
                       ? ColoredBox(
@@ -320,9 +358,9 @@ class _TubeCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        height: 1.2,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        height: 1.18,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -332,7 +370,7 @@ class _TubeCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: tokens.textSecondary,
-                        fontSize: 13,
+                        fontSize: 11.5,
                       ),
                     ),
                   ],

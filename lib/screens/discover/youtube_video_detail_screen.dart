@@ -287,13 +287,6 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
                 surfaceTintColor: Colors.transparent,
                 elevation: 0,
                 title: const SizedBox.shrink(),
-                actions: <Widget>[
-                  IconButton(
-                    tooltip: 'Share video',
-                    onPressed: _copyLink,
-                    icon: const Icon(Icons.share_rounded),
-                  ),
-                ],
               ),
       body: Stack(
         children: <Widget>[
@@ -422,30 +415,6 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
               ),
             ],
           ),
-          if (landscape)
-            Positioned(
-              top: 0,
-              left: 8,
-              right: 8,
-              child: SafeArea(
-                bottom: false,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    IconButton(
-                      tooltip: 'Back',
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
-                    IconButton(
-                      tooltip: 'Share video',
-                      onPressed: _copyLink,
-                      icon: const Icon(Icons.share_rounded),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           if (_stickyPlayer && _activeVideoController != null)
             Positioned(
               top: 0,
