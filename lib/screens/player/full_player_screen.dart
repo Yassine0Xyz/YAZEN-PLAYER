@@ -261,6 +261,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                   const SizedBox(height: 14),
                                   AudioVisualizer(
                                     playing: isPlaying,
+                                    audioSessionId:
+                                        handler.player.androidAudioSessionId,
                                     height: 38,
                                     barCount: 32,
                                     seed: item.id,

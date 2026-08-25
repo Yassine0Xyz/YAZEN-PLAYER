@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -21,6 +22,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : AudioServiceActivity() {
     private val channelName = "yazen/local_media"
+    private var audioVisualizer: Visualizer? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -34,6 +36,19 @@ class MainActivity : AudioServiceActivity() {
                         call.argument<Int>("width") ?: 640,
                         result,
                     )
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "yazen/audio_visualizer")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> startAudioVisualizer(call.argument<Int>("sessionId"), result)
+                    "read" -> readAudioVisualizer(result)
+                    "stop" -> {
+                        stopAudioVisualizer()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -76,6 +91,63 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun startAudioVisualizer(sessionId: Int?, result: MethodChannel.Result) {
+        if (sessionId == null || sessionId <= 0) {
+            result.success(false)
+            return
+        }
+        try {
+            stopAudioVisualizer()
+            audioVisualizer = Visualizer(sessionId).apply {
+                captureSize = Visualizer.getCaptureSizeRange()[1]
+                enabled = true
+            }
+            result.success(true)
+        } catch (_: Throwable) {
+            stopAudioVisualizer()
+            result.success(false)
+        }
+    }
+
+    private fun readAudioVisualizer(result: MethodChannel.Result) {
+        val visualizer = audioVisualizer
+        if (visualizer == null || !visualizer.enabled) {
+            result.success(null)
+            return
+        }
+        try {
+            val waveform = ByteArray(64)
+            if (visualizer.getWaveForm(waveform) != Visualizer.SUCCESS) {
+                result.success(null)
+                return
+            }
+            val levels = waveform.map { sample ->
+                (kotlin.math.abs(sample.toInt()) / 128f).coerceIn(0f, 1f)
+            }
+            result.success(levels)
+        } catch (_: Throwable) {
+            stopAudioVisualizer()
+            result.success(null)
+        }
+    }
+
+    private fun stopAudioVisualizer() {
+        try {
+            audioVisualizer?.enabled = false
+        } catch (_: Throwable) {
+        }
+        try {
+            audioVisualizer?.release()
+        } catch (_: Throwable) {
+        }
+        audioVisualizer = null
+    }
+
+    override fun onDestroy() {
+        stopAudioVisualizer()
+        super.onDestroy()
     }
 
     private fun videoPermission(): String = if (Build.VERSION.SDK_INT >= 33) {

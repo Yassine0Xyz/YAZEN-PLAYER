@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AudioVisualizer extends StatefulWidget {
   const AudioVisualizer({
     required this.playing,
+    this.audioSessionId,
     this.height = 34,
     this.barCount = 28,
     this.color,
@@ -13,6 +16,7 @@ class AudioVisualizer extends StatefulWidget {
   });
 
   final bool playing;
+  final int? audioSessionId;
   final double height;
   final int barCount;
   final Color? color;
@@ -24,50 +28,151 @@ class AudioVisualizer extends StatefulWidget {
 
 class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+  static const _channel = MethodChannel('yazen/audio_visualizer');
+
+  late final AnimationController _fallbackController;
+  Timer? _poller;
+  List<double> _levels = const <double>[];
+  int? _nativeSessionId;
+  bool _nativeSignal = false;
+  bool _syncInFlight = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    _fallbackController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    _sync();
+    _syncPlayback();
   }
 
   @override
   void didUpdateWidget(covariant AudioVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.playing != widget.playing) _sync();
+    if (oldWidget.playing != widget.playing ||
+        oldWidget.audioSessionId != widget.audioSessionId) {
+      _syncPlayback();
+    }
   }
 
-  void _sync() {
+  void _syncPlayback() {
     if (widget.playing) {
-      _controller.repeat();
+      _fallbackController.repeat();
+      unawaited(_startNativeSignal());
     } else {
-      _controller.stop();
-      _controller.value = 0;
+      _fallbackController.stop();
+      _fallbackController.value = 0;
+      unawaited(_stopNativeSignal());
+      if (mounted) {
+        setState(() {
+          _levels = List<double>.filled(widget.barCount, 0);
+          _nativeSignal = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startNativeSignal() async {
+    final sessionId = widget.audioSessionId;
+    if (!widget.playing || sessionId == null || sessionId <= 0) return;
+    if (_nativeSessionId == sessionId && _poller != null) return;
+    if (_syncInFlight) return;
+    _syncInFlight = true;
+    try {
+      final started =
+          await _channel.invokeMethod<bool>('start', <String, Object?>{
+            'sessionId': sessionId,
+          }) ??
+          false;
+      if (!mounted || !widget.playing || widget.audioSessionId != sessionId) {
+        return;
+      }
+      _nativeSessionId = started ? sessionId : null;
+      _nativeSignal = started;
+      _poller?.cancel();
+      _poller =
+          started
+              ? Timer.periodic(const Duration(milliseconds: 72), (_) {
+                unawaited(_readNativeSignal());
+              })
+              : null;
+      setState(() {});
+    } on MissingPluginException {
+      _nativeSignal = false;
+    } on PlatformException {
+      _nativeSignal = false;
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
+  Future<void> _readNativeSignal() async {
+    if (!mounted || !widget.playing || !_nativeSignal) return;
+    try {
+      final raw = await _channel.invokeMethod<List<dynamic>>('read');
+      if (!mounted || raw == null || raw.isEmpty || !widget.playing) return;
+      final samples = raw
+          .map((value) => (value as num).toDouble().clamp(0.0, 1.0))
+          .toList(growable: false);
+      final count = math.max(1, widget.barCount);
+      final previous =
+          _levels.length == count ? _levels : List<double>.filled(count, 0);
+      final next = List<double>.generate(count, (index) {
+        final sourceIndex = ((index * (samples.length - 1)) /
+                math.max(1, count - 1))
+            .round()
+            .clamp(0, samples.length - 1);
+        final target = samples[sourceIndex];
+        final current = previous[index];
+        // Fast attack and slower release keeps beats visible without jitter.
+        final smoothing = target > current ? 0.56 : 0.18;
+        return current + (target - current) * smoothing;
+      });
+      if (mounted) setState(() => _levels = next);
+    } on MissingPluginException {
+      await _stopNativeSignal();
+    } on PlatformException {
+      await _stopNativeSignal();
+    }
+  }
+
+  Future<void> _stopNativeSignal() async {
+    _poller?.cancel();
+    _poller = null;
+    _nativeSessionId = null;
+    _nativeSignal = false;
+    try {
+      await _channel.invokeMethod<void>('stop');
+    } on MissingPluginException {
+      // The native bridge is optional on non-Android targets.
+    } on PlatformException {
+      // Some devices deny Visualizer access; the animated fallback remains safe.
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _poller?.cancel();
+    unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
+    _fallbackController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final color = widget.color ?? Theme.of(context).colorScheme.primary;
     return RepaintBoundary(
       child: CustomPaint(
         size: Size(double.infinity, widget.height),
         painter: _VisualizerPainter(
-          animation: _controller,
-          color: widget.color ?? Theme.of(context).colorScheme.primary,
+          animation: _fallbackController,
+          color: color,
           barCount: widget.barCount,
           active: widget.playing,
           phaseOffset: _seedValue(widget.seed),
+          levels: _levels,
+          useAudioSignal: _nativeSignal,
         ),
       ),
     );
@@ -89,6 +194,8 @@ class _VisualizerPainter extends CustomPainter {
     required this.barCount,
     required this.active,
     required this.phaseOffset,
+    required this.levels,
+    required this.useAudioSignal,
   }) : super(repaint: animation);
 
   final Animation<double> animation;
@@ -96,6 +203,8 @@ class _VisualizerPainter extends CustomPainter {
   final int barCount;
   final bool active;
   final double phaseOffset;
+  final List<double> levels;
+  final bool useAudioSignal;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -114,12 +223,14 @@ class _VisualizerPainter extends CustomPainter {
         1.0,
       );
       final mirrored = math.sin((1 - distance) * math.pi);
-      final lowBand = math.sin(t * 0.82 + index * 0.42 + phaseOffset);
-      final midBand = math.sin(t * 1.55 + index * 0.77 + phaseOffset * 1.7);
-      final highBand = math.sin(t * 2.35 + index * 1.21 + phaseOffset * 0.6);
       final energy =
-          active
-              ? (0.48 + lowBand * 0.20 + midBand * 0.18 + highBand * 0.10)
+          useAudioSignal && levels.length == barCount
+              ? levels[index]
+              : active
+              ? (0.48 +
+                  math.sin(t * 0.82 + index * 0.42 + phaseOffset) * 0.20 +
+                  math.sin(t * 1.55 + index * 0.77 + phaseOffset * 1.7) * 0.18 +
+                  math.sin(t * 2.35 + index * 1.21 + phaseOffset * 0.6) * 0.10)
               : 0.16;
       final barHeight = math.max(
         3.0,
@@ -150,5 +261,7 @@ class _VisualizerPainter extends CustomPainter {
       oldDelegate.color != color ||
       oldDelegate.barCount != barCount ||
       oldDelegate.active != active ||
-      oldDelegate.phaseOffset != phaseOffset;
+      oldDelegate.phaseOffset != phaseOffset ||
+      oldDelegate.levels != levels ||
+      oldDelegate.useAudioSignal != useAudioSignal;
 }
