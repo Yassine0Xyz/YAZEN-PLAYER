@@ -327,6 +327,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     isPlaying: isPlaying,
                                     isBuffering: isBuffering,
                                     onPlayPause: controller.togglePlayback,
+                                    onSeekBack:
+                                        () => _seekBy(
+                                          handler,
+                                          const Duration(seconds: -10),
+                                        ),
+                                    onSeekForward:
+                                        () => _seekBy(
+                                          handler,
+                                          const Duration(seconds: 10),
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _PlayerActionDock(
@@ -798,13 +808,16 @@ class _TransportControls extends StatelessWidget {
     required this.isPlaying,
     required this.isBuffering,
     required this.onPlayPause,
+    required this.onSeekBack,
+    required this.onSeekForward,
   });
 
   final HybridAudioHandler handler;
   final bool isPlaying;
   final bool isBuffering;
   final VoidCallback onPlayPause;
-
+  final VoidCallback onSeekBack;
+  final VoidCallback onSeekForward;
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
@@ -816,78 +829,100 @@ class _TransportControls extends StatelessWidget {
           builder: (context, loopSnapshot) {
             final shuffleEnabled = shuffleSnapshot.data ?? false;
             final loopMode = loopSnapshot.data ?? LoopMode.off;
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            return Column(
               children: <Widget>[
-                EchoIconButton(
-                  tooltip: 'Shuffle',
-                  icon: Icons.shuffle_rounded,
-                  selected: shuffleEnabled,
-                  onPressed:
-                      () => handler.setShuffleMode(
-                        shuffleEnabled
-                            ? AudioServiceShuffleMode.none
-                            : AudioServiceShuffleMode.all,
-                      ),
-                  color: tokens.textSecondary,
-                  selectedColor: tokens.accent,
-                  size: 48,
-                ),
-                EchoIconButton(
-                  tooltip: 'Previous track',
-                  icon: Icons.skip_previous_rounded,
-                  onPressed: handler.skipToPrevious,
-                  color: tokens.textPrimary,
-                  size: 48,
-                ),
-                EchoBreathingGlow(
-                  enabled: isPlaying && !isBuffering,
-                  color: tokens.accentStrong,
-                  child: IconButton.filled(
-                    tooltip: isPlaying ? 'Pause' : 'Play',
-                    onPressed: onPlayPause,
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(68, 68),
-                      backgroundColor: tokens.accent,
-                      foregroundColor:
-                          tokens.isLight ? Colors.white : Colors.black,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    EchoIconButton(
+                      tooltip: 'Shuffle',
+                      icon: Icons.shuffle_rounded,
+                      selected: shuffleEnabled,
+                      onPressed:
+                          () => handler.setShuffleMode(
+                            shuffleEnabled
+                                ? AudioServiceShuffleMode.none
+                                : AudioServiceShuffleMode.all,
+                          ),
+                      color: tokens.textSecondary,
+                      selectedColor: tokens.accent,
+                      size: 48,
                     ),
-                    icon:
-                        isBuffering
-                            ? const SizedBox.square(
-                              dimension: 26,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3,
-                                color: Colors.black,
-                              ),
-                            )
-                            : Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              size: 36,
-                            ),
-                  ),
+                    EchoIconButton(
+                      tooltip: 'Previous track',
+                      icon: Icons.skip_previous_rounded,
+                      onPressed: handler.skipToPrevious,
+                      color: tokens.textPrimary,
+                      size: 48,
+                    ),
+                    EchoBreathingGlow(
+                      enabled: isPlaying && !isBuffering,
+                      color: tokens.accentStrong,
+                      child: IconButton.filled(
+                        tooltip: isPlaying ? 'Pause' : 'Play',
+                        onPressed: onPlayPause,
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(68, 68),
+                          backgroundColor: tokens.accent,
+                          foregroundColor:
+                              tokens.isLight ? Colors.white : Colors.black,
+                        ),
+                        icon:
+                            isBuffering
+                                ? const SizedBox.square(
+                                  dimension: 26,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    color: Colors.black,
+                                  ),
+                                )
+                                : Icon(
+                                  isPlaying
+                                      ? Icons.pause_rounded
+                                      : Icons.play_arrow_rounded,
+                                  size: 36,
+                                ),
+                      ),
+                    ),
+                    EchoIconButton(
+                      tooltip: 'Next track',
+                      icon: Icons.skip_next_rounded,
+                      onPressed: handler.skipToNext,
+                      color: tokens.textPrimary,
+                      size: 48,
+                    ),
+                    EchoIconButton(
+                      tooltip: 'Repeat mode',
+                      icon:
+                          loopMode == LoopMode.one
+                              ? Icons.repeat_one_rounded
+                              : Icons.repeat_rounded,
+                      selected: loopMode != LoopMode.off,
+                      onPressed:
+                          () =>
+                              handler.setRepeatMode(_nextRepeatMode(loopMode)),
+                      color: tokens.textSecondary,
+                      selectedColor: tokens.accent,
+                      size: 48,
+                    ),
+                  ],
                 ),
-                EchoIconButton(
-                  tooltip: 'Next track',
-                  icon: Icons.skip_next_rounded,
-                  onPressed: handler.skipToNext,
-                  color: tokens.textPrimary,
-                  size: 48,
-                ),
-                EchoIconButton(
-                  tooltip: 'Repeat mode',
-                  icon:
-                      loopMode == LoopMode.one
-                          ? Icons.repeat_one_rounded
-                          : Icons.repeat_rounded,
-                  selected: loopMode != LoopMode.off,
-                  onPressed:
-                      () => handler.setRepeatMode(_nextRepeatMode(loopMode)),
-                  color: tokens.textSecondary,
-                  selectedColor: tokens.accent,
-                  size: 48,
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    _QuickSeekButton(
+                      label: '−10',
+                      icon: Icons.replay_10_rounded,
+                      onPressed: onSeekBack,
+                    ),
+                    const SizedBox(width: 22),
+                    _QuickSeekButton(
+                      label: '+10',
+                      icon: Icons.forward_10_rounded,
+                      onPressed: onSeekForward,
+                    ),
+                  ],
                 ),
               ],
             );
@@ -903,6 +938,45 @@ class _TransportControls extends StatelessWidget {
       LoopMode.one => AudioServiceRepeatMode.none,
       LoopMode.all => AudioServiceRepeatMode.one,
     };
+  }
+}
+
+class _QuickSeekButton extends StatelessWidget {
+  const _QuickSeekButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return EchoPressable(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 18, color: tokens.textSecondary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
