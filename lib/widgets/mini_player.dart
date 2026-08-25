@@ -45,163 +45,177 @@ class MiniPlayer extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
-        return EchoBreathingGlow(
-          enabled: isPlaying,
-          color: tokens.accentStrong,
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            child: InkWell(
-              onTap: onTap,
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
+            if (velocity.abs() < 280) return;
+            if (velocity < 0) {
+              onNext?.call();
+            } else {
+              onPrevious?.call();
+            }
+          },
+          child: EchoBreathingGlow(
+            enabled: isPlaying,
+            color: tokens.accentStrong,
+            child: Material(
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(24),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  gradient: LinearGradient(
-                    colors: <Color>[tokens.surfaceElevated, tokens.surface],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(
-                    color:
-                        isPlaying
-                            ? tokens.accent.withValues(alpha: 0.42)
-                            : tokens.divider,
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: tokens.accentStrong.withValues(
-                        alpha: isPlaying ? 0.16 : 0.08,
-                      ),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(24),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    gradient: LinearGradient(
+                      colors: <Color>[tokens.surfaceElevated, tokens.surface],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 7),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          _MiniArtwork(item: item),
-                          const SizedBox(width: 11),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  'NOW PLAYING',
-                                  style: TextStyle(
-                                    color: tokens.accent,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.9,
+                    border: Border.all(
+                      color:
+                          isPlaying
+                              ? tokens.accent.withValues(alpha: 0.42)
+                              : tokens.divider,
+                    ),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: tokens.accentStrong.withValues(
+                          alpha: isPlaying ? 0.16 : 0.08,
+                        ),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 8, 7),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            _MiniArtwork(item: item),
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    'NOW PLAYING',
+                                    style: TextStyle(
+                                      color: tokens.accent,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.9,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: tokens.textPrimary,
-                                    fontWeight: FontWeight.w900,
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    item.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: tokens.textPrimary,
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  item.artist ?? 'Unknown artist',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: tokens.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    item.artist ?? 'Unknown artist',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: tokens.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          if (!compact && onQueue != null)
+                            if (!compact && onQueue != null)
+                              _DockAction(
+                                tooltip: 'Queue',
+                                icon: Icons.queue_music_rounded,
+                                color: tokens.textSecondary,
+                                onPressed: onQueue!,
+                              ),
+                            if (!compact && onRepeat != null)
+                              _DockAction(
+                                tooltip: 'Repeat once',
+                                icon: Icons.repeat_rounded,
+                                color:
+                                    repeatOne
+                                        ? tokens.accent
+                                        : tokens.textSecondary,
+                                onPressed: onRepeat!,
+                              ),
+                            if (onPrevious != null)
+                              _DockAction(
+                                tooltip: 'Previous',
+                                icon: Icons.skip_previous_rounded,
+                                color: tokens.textSecondary,
+                                onPressed: onPrevious!,
+                              ),
+                            IconButton.filled(
+                              tooltip: isPlaying ? 'Pause' : 'Play',
+                              onPressed: onPlayPause,
+                              style: IconButton.styleFrom(
+                                backgroundColor: tokens.accent,
+                                foregroundColor:
+                                    tokens.isLight
+                                        ? Colors.white
+                                        : Colors.black,
+                              ),
+                              icon: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                transitionBuilder:
+                                    (child, animation) => ScaleTransition(
+                                      scale: animation,
+                                      child: child,
+                                    ),
+                                child: Icon(
+                                  isPlaying
+                                      ? Icons.pause_rounded
+                                      : Icons.play_arrow_rounded,
+                                  key: ValueKey<bool>(isPlaying),
+                                ),
+                              ),
+                            ),
+                            if (onNext != null)
+                              _DockAction(
+                                tooltip: 'Next',
+                                icon: Icons.skip_next_rounded,
+                                color: tokens.textSecondary,
+                                onPressed: onNext!,
+                              ),
                             _DockAction(
-                              tooltip: 'Queue',
-                              icon: Icons.queue_music_rounded,
+                              tooltip: 'Stop and close mini player',
+                              icon: Icons.close_rounded,
                               color: tokens.textSecondary,
-                              onPressed: onQueue!,
+                              onPressed: onDismiss ?? onStop,
                             ),
-                          if (!compact && onRepeat != null)
-                            _DockAction(
-                              tooltip: 'Repeat once',
-                              icon: Icons.repeat_rounded,
-                              color:
-                                  repeatOne
-                                      ? tokens.accent
-                                      : tokens.textSecondary,
-                              onPressed: onRepeat!,
-                            ),
-                          if (onPrevious != null)
-                            _DockAction(
-                              tooltip: 'Previous',
-                              icon: Icons.skip_previous_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onPrevious!,
-                            ),
-                          IconButton.filled(
-                            tooltip: isPlaying ? 'Pause' : 'Play',
-                            onPressed: onPlayPause,
-                            style: IconButton.styleFrom(
-                              backgroundColor: tokens.accent,
-                              foregroundColor:
-                                  tokens.isLight ? Colors.white : Colors.black,
-                            ),
-                            icon: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              transitionBuilder:
-                                  (child, animation) => ScaleTransition(
-                                    scale: animation,
-                                    child: child,
-                                  ),
-                              child: Icon(
-                                isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
-                                key: ValueKey<bool>(isPlaying),
+                          ],
+                        ),
+                        if (progress != null) ...<Widget>[
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 3,
+                              backgroundColor: tokens.surfaceMuted,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                tokens.accent,
                               ),
                             ),
                           ),
-                          if (onNext != null)
-                            _DockAction(
-                              tooltip: 'Next',
-                              icon: Icons.skip_next_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onNext!,
-                            ),
-                          _DockAction(
-                            tooltip: 'Stop and close mini player',
-                            icon: Icons.close_rounded,
-                            color: tokens.textSecondary,
-                            onPressed: onDismiss ?? onStop,
-                          ),
                         ],
-                      ),
-                      if (progress != null) ...<Widget>[
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 3,
-                            backgroundColor: tokens.surfaceMuted,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              tokens.accent,
-                            ),
-                          ),
-                        ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
