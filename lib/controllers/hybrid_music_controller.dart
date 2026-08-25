@@ -166,6 +166,17 @@ class HybridMusicController extends ChangeNotifier {
     }
   }
 
+  void removeOnlineVideo(MediaTrack track) {
+    final videoId = track.youtubeId;
+    _youtubeResults = _youtubeResults
+        .where(
+          (candidate) =>
+              candidate.youtubeId != videoId && candidate.id != track.id,
+        )
+        .toList(growable: false);
+    notifyListeners();
+  }
+
   Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);
 
   Future<void> cancelYouTubeDownload(String videoId) =>
