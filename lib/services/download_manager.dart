@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
 import 'package:path/path.dart' as p;
@@ -22,13 +24,24 @@ class DownloadManager extends ChangeNotifier {
 
   final YoutubeService _youtubeService;
   final List<DownloadItem> _items = <DownloadItem>[];
-  final Map<String, HttpClient> _activeClients = <String, HttpClient>{};
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 45),
+      sendTimeout: const Duration(seconds: 20),
+      followRedirects: true,
+      maxRedirects: 5,
+    ),
+  );
+  final Map<String, CancelToken> _activeTokens = <String, CancelToken>{};
+  final Map<String, String> _backgroundTaskIds = <String, String>{};
   final Set<String> _activeJobs = <String>{};
   Directory? _directory;
   bool _initialized = false;
 
   List<DownloadItem> get items => List<DownloadItem>.unmodifiable(_items);
   bool get isInitialized => _initialized;
+  bool get hasActiveDownloads => _activeJobs.isNotEmpty;
 
   Future<List<YoutubeDownloadOption>> optionsFor(
     MediaTrack track, {
@@ -99,6 +112,7 @@ class DownloadManager extends ChangeNotifier {
 
   Future<void> _run(DownloadItem original, YoutubeDownloadOption option) async {
     _activeJobs.add(original.id);
+    option = await _freshOption(original, option);
     final output = await _fileFor(original);
     final temporary = File('${output.path}.part');
     final sourceTemporary = File('${output.path}.source.part');
@@ -114,6 +128,7 @@ class DownloadManager extends ChangeNotifier {
           option.primaryUri,
           temporary,
           jobId: original.id,
+          background: true,
           onProgress:
               (received, total) =>
                   _updateProgress(original.id, received, total),
@@ -239,7 +254,11 @@ class DownloadManager extends ChangeNotifier {
         );
       }
     } finally {
-      _activeClients.remove(original.id)?.close(force: true);
+      _activeTokens.remove(original.id)?.cancel('Download finished');
+      final taskId = _backgroundTaskIds.remove(original.id);
+      if (taskId != null) {
+        await FlutterDownloader.cancel(taskId: taskId);
+      }
       _activeJobs.remove(original.id);
     }
   }
@@ -249,40 +268,100 @@ class DownloadManager extends ChangeNotifier {
     File destination, {
     required String jobId,
     required void Function(int received, int? total) onProgress,
+    bool background = false,
   }) async {
-    final client =
-        HttpClient()..connectionTimeout = const Duration(seconds: 20);
-    _activeClients[jobId] = client;
-    IOSink? sink;
+    if (background) {
+      return _downloadInBackground(
+        uri,
+        destination,
+        jobId: jobId,
+        onProgress: onProgress,
+      );
+    }
+
+    final cancelToken = CancelToken();
+    _activeTokens[jobId] = cancelToken;
     try {
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.userAgentHeader, 'YAZEN/1.0');
-      final response = await request.close();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'Download failed: ${response.statusCode}',
-          uri: uri,
-        );
-      }
-      final total = response.contentLength > 0 ? response.contentLength : null;
-      var received = 0;
       if (await destination.exists()) await destination.delete();
-      sink = destination.openWrite();
-      await for (final chunk in response) {
-        sink.add(chunk);
-        received += chunk.length;
-        onProgress(received, total);
-      }
-      await sink.flush();
-      await sink.close();
-      sink = null;
+      await _dio.download(
+        uri.toString(),
+        destination.path,
+        cancelToken: cancelToken,
+        deleteOnError: false,
+        options: Options(
+          headers: <String, String>{'User-Agent': 'YAZEN/1.0'},
+          validateStatus:
+              (status) => status != null && status >= 200 && status < 300,
+        ),
+        onReceiveProgress:
+            (received, total) => onProgress(received, total > 0 ? total : null),
+      );
+      final received = await destination.length();
+      if (received <= 0) throw StateError('Download returned an empty file.');
+      onProgress(received, received);
       return received;
     } finally {
-      await sink?.close();
-      if (identical(_activeClients[jobId], client)) {
-        _activeClients.remove(jobId)?.close(force: true);
+      if (identical(_activeTokens[jobId], cancelToken)) {
+        _activeTokens.remove(jobId);
       }
-      client.close(force: true);
+    }
+  }
+
+  Future<int> _downloadInBackground(
+    Uri uri,
+    File destination, {
+    required String jobId,
+    required void Function(int received, int? total) onProgress,
+  }) async {
+    if (await destination.exists()) await destination.delete();
+    final taskId = await FlutterDownloader.enqueue(
+      url: uri.toString(),
+      savedDir: destination.parent.path,
+      fileName: p.basename(destination.path),
+      headers: const <String, String>{'User-Agent': 'YAZEN/1.0'},
+      showNotification: true,
+      openFileFromNotification: false,
+    );
+    if (taskId == null || taskId.isEmpty) {
+      throw StateError('Could not start the background download.');
+    }
+    _backgroundTaskIds[jobId] = taskId;
+    try {
+      while (_activeJobs.contains(jobId)) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final tasks =
+            await FlutterDownloader.loadTasks() ?? const <DownloadTask>[];
+        DownloadTask? task;
+        for (final candidate in tasks) {
+          if (candidate.taskId == taskId) {
+            task = candidate;
+            break;
+          }
+        }
+        if (task == null) continue;
+        if (task.status == DownloadTaskStatus.complete) {
+          final received = await destination.length();
+          if (received <= 0) {
+            throw StateError('Background download returned an empty file.');
+          }
+          onProgress(received, received);
+          return received;
+        }
+        if (task.status == DownloadTaskStatus.failed) {
+          throw StateError('Background network download failed.');
+        }
+        if (task.status == DownloadTaskStatus.canceled) {
+          throw StateError('Download cancelled.');
+        }
+        if (task.progress >= 0 && await destination.exists()) {
+          onProgress(await destination.length(), null);
+        }
+      }
+      throw StateError('Download cancelled.');
+    } finally {
+      if (identical(_backgroundTaskIds[jobId], taskId)) {
+        _backgroundTaskIds.remove(jobId);
+      }
     }
   }
 
@@ -299,15 +378,41 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> cancel(String id) async {
-    _activeClients.remove(id)?.close(force: true);
+    _activeTokens.remove(id)?.cancel('Cancelled by user');
+    final taskId = _backgroundTaskIds.remove(id);
+    if (taskId != null) {
+      await FlutterDownloader.cancel(taskId: taskId);
+    }
     final current = _find(id);
     if (current == null || !_activeJobs.contains(id)) return;
     _replace(current.copyWith(status: DownloadStatus.cancelled));
   }
 
+  Future<YoutubeDownloadOption> _freshOption(
+    DownloadItem item,
+    YoutubeDownloadOption original,
+  ) async {
+    try {
+      final options = await _youtubeService.getDownloadOptions(item.videoId);
+      for (final candidate in options) {
+        if (candidate.kind == original.kind &&
+            candidate.qualityLabel == original.qualityLabel) {
+          return candidate;
+        }
+      }
+    } catch (_) {
+      // Keep the picker option as a bounded offline/provider fallback.
+    }
+    return original;
+  }
+
   Future<void> delete(String id) async {
     final current = _find(id);
-    _activeClients.remove(id)?.close(force: true);
+    _activeTokens.remove(id)?.cancel('Deleted by user');
+    final taskId = _backgroundTaskIds.remove(id);
+    if (taskId != null) {
+      await FlutterDownloader.cancel(taskId: taskId);
+    }
     if (current?.filePath != null) {
       final file = File(current!.filePath!);
       if (await file.exists()) await file.delete();
