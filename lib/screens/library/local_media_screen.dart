@@ -444,10 +444,12 @@ class _VideoPreviewCard extends StatelessWidget {
                         vertical: 3,
                       ),
                       child: Text(
-                        track.isOnline ? 'ONLINE' : 'LOCAL',
+                        track.source == TrackSource.youtube
+                            ? 'ONLINE'
+                            : 'LOCAL',
                         style: TextStyle(
                           color:
-                              track.isOnline
+                              track.source == TrackSource.youtube
                                   ? tokens.accentStrong
                                   : tokens.accent,
                           fontSize: 10,

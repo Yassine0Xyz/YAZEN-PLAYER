@@ -275,28 +275,39 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
   Widget build(BuildContext context) {
     final tokens = context.watch<ThemeProvider>().tokens;
     final controller = context.read<HybridMusicController>();
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     return Scaffold(
       backgroundColor: tokens.background,
-      appBar: AppBar(
-        backgroundColor: tokens.background,
-        title: const Text(
-          'Video detail',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        actions: <Widget>[
-          IconButton(
-            onPressed: _copyLink,
-            icon: const Icon(Icons.share_rounded),
-          ),
-        ],
-      ),
+      appBar:
+          landscape
+              ? null
+              : AppBar(
+                backgroundColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                title: const SizedBox.shrink(),
+                actions: <Widget>[
+                  IconButton(
+                    tooltip: 'Share video',
+                    onPressed: _copyLink,
+                    icon: const Icon(Icons.share_rounded),
+                  ),
+                ],
+              ),
       body: Stack(
         children: <Widget>[
           ListView(
             controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 36),
+            padding: EdgeInsets.fromLTRB(
+              landscape ? 0 : 16,
+              0,
+              landscape ? 0 : 16,
+              36,
+            ),
             children: <Widget>[
               _OnlinePlayerHeader(
+                edgeToEdge: landscape,
                 streamFuture: _streamFuture!,
                 title: _current.title,
                 thumbnail: _current.thumbnailUrl,
@@ -389,7 +400,7 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
                       ...related.map(
                         (video) => _RelatedTile(
                           video: video,
-                          onTap: () => _setCurrent(video),
+                          onTap: () => _openVideo(video),
                         ),
                       ),
                       if (_loadingMore)
@@ -411,6 +422,30 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
               ),
             ],
           ),
+          if (landscape)
+            Positioned(
+              top: 0,
+              left: 8,
+              right: 8,
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    IconButton(
+                      tooltip: 'Back',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                    IconButton(
+                      tooltip: 'Share video',
+                      onPressed: _copyLink,
+                      icon: const Icon(Icons.share_rounded),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_stickyPlayer && _activeVideoController != null)
             Positioned(
               top: 0,
@@ -436,6 +471,7 @@ class _YoutubeVideoDetailScreenState extends State<YoutubeVideoDetailScreen> {
 
 class _OnlinePlayerHeader extends StatelessWidget {
   const _OnlinePlayerHeader({
+    required this.edgeToEdge,
     required this.streamFuture,
     required this.title,
     required this.thumbnail,
@@ -446,6 +482,7 @@ class _OnlinePlayerHeader extends StatelessWidget {
     required this.onRetry,
   });
 
+  final bool edgeToEdge;
   final Future<Uri> streamFuture;
   final String title;
   final Uri? thumbnail;
@@ -473,7 +510,8 @@ class _OnlinePlayerHeader extends StatelessWidget {
           );
         }
         return ClipRRect(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius:
+              edgeToEdge ? BorderRadius.zero : BorderRadius.circular(22),
           child: AspectRatio(
             aspectRatio: 16 / 9,
             child: _InlineOnlinePlayer(
@@ -754,66 +792,62 @@ class _RelatedTile extends StatelessWidget {
     return EchoPressable(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 13),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: SizedBox(
-                width: 150,
-                height: 86,
-                child:
-                    video.thumbnailUrl == null
-                        ? ColoredBox(
-                          color: tokens.surfaceElevated,
-                          child: const Icon(Icons.movie_rounded),
-                        )
-                        : Image.network(
-                          video.thumbnailUrl.toString(),
-                          fit: BoxFit.cover,
-                          errorBuilder:
-                              (_, __, ___) => ColoredBox(
-                                color: tokens.surfaceElevated,
-                                child: const Icon(Icons.movie_rounded),
-                              ),
-                        ),
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child:
+                  video.thumbnailUrl == null
+                      ? ColoredBox(
+                        color: tokens.surfaceElevated,
+                        child: const Icon(Icons.movie_rounded, size: 42),
+                      )
+                      : Image.network(
+                        video.thumbnailUrl.toString(),
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (_, __, ___) => ColoredBox(
+                              color: tokens.surfaceElevated,
+                              child: const Icon(Icons.movie_rounded, size: 42),
+                            ),
+                      ),
             ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    video.title,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    video.author,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: tokens.textSecondary, fontSize: 12),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    video.duration == null
-                        ? 'LIVE'
-                        : '${video.duration!.inMinutes}:${video.duration!.inSeconds.remainder(60).toString().padLeft(2, '0')}',
-                    style: TextStyle(color: tokens.textSecondary, fontSize: 11),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            video.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              height: 1.2,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  video.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                ),
+              ),
+              Text(
+                video.duration == null
+                    ? 'LIVE'
+                    : '${video.duration!.inMinutes}:${video.duration!.inSeconds.remainder(60).toString().padLeft(2, '0')}',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
