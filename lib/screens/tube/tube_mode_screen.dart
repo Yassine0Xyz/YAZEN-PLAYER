@@ -9,6 +9,7 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/youtube_service.dart';
+import '../../widgets/download_picker_sheet.dart';
 import '../discover/youtube_video_detail_screen.dart';
 
 class TubeModeScreen extends StatefulWidget {
@@ -159,6 +160,10 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
     unawaited(_rememberInterest(result.author));
     if (mode == _TubePlaybackMode.voice) {
       await context.read<HybridMusicController>().playTrack(track);
+      return;
+    }
+    if (mode == _TubePlaybackMode.download) {
+      await showDownloadPicker(context, track);
       return;
     }
     await Navigator.of(context).push(YoutubeVideoDetailScreen.route(result));
@@ -386,7 +391,7 @@ class _TubeCard extends StatelessWidget {
   }
 }
 
-enum _TubePlaybackMode { voice, video }
+enum _TubePlaybackMode { voice, video, download }
 
 class _PlaybackChoiceSheet extends StatelessWidget {
   const _PlaybackChoiceSheet({required this.track});
@@ -463,6 +468,23 @@ class _PlaybackChoiceSheet extends StatelessWidget {
               ),
               subtitle: const Text('Open in the YAZEN video player'),
               onTap: () => Navigator.pop(context, _TubePlaybackMode.video),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              tileColor: tokens.surface,
+              leading: Icon(
+                Icons.download_for_offline_rounded,
+                color: tokens.accent,
+              ),
+              title: const Text(
+                'Download',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('Choose audio or available video quality'),
+              onTap: () => Navigator.pop(context, _TubePlaybackMode.download),
             ),
           ],
         ),
