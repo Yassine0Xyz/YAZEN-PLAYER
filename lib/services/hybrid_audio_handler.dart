@@ -93,6 +93,7 @@ class HybridAudioHandler extends BaseAudioHandler
   final _partyActions = StreamController<LocalPlaybackAction>.broadcast();
   static const _effectsChannel = MethodChannel('echo/audio_effects');
   bool _threeDSurroundEnabled = false;
+  bool _equalizerAvailable = true;
   bool _interruptedPlayback = false;
 
   MediaTrack? _activeTrack;
@@ -104,6 +105,7 @@ class HybridAudioHandler extends BaseAudioHandler
   YoutubeService get youtubeService => _youtubeService;
   AndroidEqualizer get equalizer => _equalizer;
   bool get threeDSurroundEnabled => _threeDSurroundEnabled;
+  bool get equalizerAvailable => _equalizerAvailable;
   Stream<LocalPlaybackAction> get partyActions => _partyActions.stream;
   List<MediaTrack> get queueTracks =>
       List<MediaTrack>.unmodifiable(_queueTracks);
@@ -146,8 +148,31 @@ class HybridAudioHandler extends BaseAudioHandler
     });
   }
 
-  Future<void> setEqualizerEnabled(bool enabled) =>
-      _equalizer.setEnabled(enabled);
+  Future<bool> setEqualizerEnabled(bool enabled) async {
+    if (!_equalizerAvailable) return false;
+    try {
+      await _equalizer.setEnabled(enabled);
+      return true;
+    } catch (_) {
+      _equalizerAvailable = false;
+      return false;
+    }
+  }
+
+  Future<bool> setEqualizerBandGain(int bandIndex, double gain) async {
+    if (!_equalizerAvailable) return false;
+    try {
+      final parameters = await _equalizer.parameters;
+      if (bandIndex < 0 || bandIndex >= parameters.bands.length) {
+        return false;
+      }
+      await parameters.bands[bandIndex].setGain(gain);
+      return true;
+    } catch (_) {
+      _equalizerAvailable = false;
+      return false;
+    }
+  }
 
   Future<void> setThreeDSurroundEnabled(bool enabled) async {
     _threeDSurroundEnabled = enabled;
@@ -160,8 +185,9 @@ class HybridAudioHandler extends BaseAudioHandler
         },
       );
     } on MissingPluginException {
-      // The native virtualizer is optional. The EQ remains fully functional
-      // when the platform implementation is not included in a build flavor.
+      // The native virtualizer is optional.
+    } catch (_) {
+      // Optional effects must never be allowed to interrupt playback.
     }
   }
 

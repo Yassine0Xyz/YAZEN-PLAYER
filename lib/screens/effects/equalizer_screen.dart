@@ -53,6 +53,9 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
           future: handler.equalizer.parameters,
           builder: (context, snapshot) {
             final parameters = snapshot.data;
+            if (snapshot.hasError) {
+              return _EffectUnavailable();
+            }
             if (parameters == null) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -89,6 +92,9 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                       _EqualizerBands(
                         parameters: parameters,
                         enabled: enabledSnapshot.data ?? _enabled,
+                        onGainChanged:
+                            (index, gain) =>
+                                handler.setEqualizerBandGain(index, gain),
                       ),
                       const SizedBox(height: 18),
                       _SurroundCard(
@@ -117,8 +123,40 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
         parameters.minDecibels,
         parameters.maxDecibels,
       );
-      await parameters.bands[index].setGain(gain.toDouble());
+      await handler.setEqualizerBandGain(index, gain.toDouble());
     }
+  }
+}
+
+class _EffectUnavailable extends StatelessWidget {
+  const _EffectUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.tune_rounded, size: 52, color: tokens.textSecondary),
+            const SizedBox(height: 14),
+            const Text(
+              'Equalizer unavailable on this device',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Playback will continue without audio effects.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -232,10 +270,15 @@ class _PresetPicker extends StatelessWidget {
 }
 
 class _EqualizerBands extends StatelessWidget {
-  const _EqualizerBands({required this.parameters, required this.enabled});
+  const _EqualizerBands({
+    required this.parameters,
+    required this.enabled,
+    required this.onGainChanged,
+  });
 
   final AndroidEqualizerParameters parameters;
   final bool enabled;
+  final Future<bool> Function(int index, double gain) onGainChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -257,6 +300,9 @@ class _EqualizerBands extends StatelessWidget {
                   band: band,
                   parameters: parameters,
                   enabled: enabled,
+                  onChanged:
+                      (gain) =>
+                          onGainChanged(parameters.bands.indexOf(band), gain),
                 ),
               );
             }).toList(),
@@ -270,11 +316,13 @@ class _BandControl extends StatelessWidget {
     required this.band,
     required this.parameters,
     required this.enabled,
+    required this.onChanged,
   });
 
   final AndroidEqualizerBand band;
   final AndroidEqualizerParameters parameters;
   final bool enabled;
+  final Future<bool> Function(double gain) onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +354,7 @@ class _BandControl extends StatelessWidget {
                                 parameters.maxDecibels,
                               )
                               .toDouble(),
-                      onChanged: enabled ? band.setGain : null,
+                      onChanged: enabled ? (value) => onChanged(value) : null,
                     ),
               ),
             ),
