@@ -1294,12 +1294,18 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
           const SizedBox(height: 8),
           _SheetSwitch(
             icon: Icons.equalizer_rounded,
-            title: 'Equalizer',
-            value: _equalizer,
-            onChanged: (value) async {
-              setState(() => _equalizer = value);
-              await widget.handler.setEqualizerEnabled(value);
-            },
+            title:
+                widget.handler.equalizerAvailable
+                    ? 'Equalizer'
+                    : 'Equalizer unavailable',
+            value: widget.handler.equalizerAvailable && _equalizer,
+            onChanged:
+                widget.handler.equalizerAvailable
+                    ? (value) async {
+                      setState(() => _equalizer = value);
+                      await widget.handler.setEqualizerEnabled(value);
+                    }
+                    : null,
           ),
           _SheetSwitch(
             icon: Icons.surround_sound_rounded,
@@ -1433,7 +1439,7 @@ class _SheetSwitch extends StatelessWidget {
   final IconData icon;
   final String title;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
