@@ -86,6 +86,7 @@ class HybridAudioHandler extends BaseAudioHandler
   Timer? _sleepTimer;
   DateTime? _sleepDeadline;
   Future<void> _lastResumeSave = Future<void>.value();
+  Future<void> _navigationTail = Future<void>.value();
   final _partyActions = StreamController<LocalPlaybackAction>.broadcast();
   static const _effectsChannel = MethodChannel('echo/audio_effects');
   bool _threeDSurroundEnabled = false;
@@ -189,16 +190,17 @@ class HybridAudioHandler extends BaseAudioHandler
     }
   }
 
-  Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) async {
-    _queueGeneration++;
-    _pendingQueueTracks = null;
-    _queuePopulationFuture = null;
-    await _playTrackInternal(
-      track,
-      autoPlay: autoPlay,
-      generation: _queueGeneration,
-    );
-  }
+  Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) =>
+      _serializeNavigation(() async {
+        _queueGeneration++;
+        _pendingQueueTracks = null;
+        _queuePopulationFuture = null;
+        await _playTrackInternal(
+          track,
+          autoPlay: autoPlay,
+          generation: _queueGeneration,
+        );
+      });
 
   Future<void> _playTrackInternal(
     MediaTrack track, {
@@ -207,6 +209,7 @@ class HybridAudioHandler extends BaseAudioHandler
   }) async {
     final item = track.toMediaItem();
     final sources = await _resolveSources(track, item);
+    if (generation != _queueGeneration) return;
     _queueTracks
       ..clear()
       ..add(track);
@@ -318,7 +321,7 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> playTrackQueue(
     List<MediaTrack> tracks, {
     int initialIndex = 0,
-  }) async {
+  }) => _serializeNavigation(() async {
     if (tracks.isEmpty) return;
     final safeIndex = initialIndex.clamp(0, tracks.length - 1).toInt();
     final selected = tracks[safeIndex];
@@ -340,7 +343,7 @@ class HybridAudioHandler extends BaseAudioHandler
     } else {
       _pendingQueueTracks = null;
     }
-  }
+  });
 
   Future<void> _populateAdjacentQueue(
     List<MediaTrack> tracks,
@@ -567,15 +570,15 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> skipToNext() async {
+  Future<void> skipToNext() => _serializeNavigation(() async {
     await _waitForQueuePopulation();
     if (!_player.hasNext) return;
     await _player.seekToNext();
     _emitPartyAction(PartyAction.nextTrack);
-  }
+  });
 
   @override
-  Future<void> skipToPrevious() async {
+  Future<void> skipToPrevious() => _serializeNavigation(() async {
     await _waitForQueuePopulation();
     if (_player.hasPrevious) {
       await _player.seekToPrevious();
@@ -583,6 +586,18 @@ class HybridAudioHandler extends BaseAudioHandler
       await _player.seek(Duration.zero);
     }
     _emitPartyAction(PartyAction.previousTrack);
+  });
+
+  Future<void> _serializeNavigation(Future<void> Function() action) async {
+    final previous = _navigationTail;
+    final completed = Completer<void>();
+    _navigationTail = completed.future;
+    await previous;
+    try {
+      await action();
+    } finally {
+      if (!completed.isCompleted) completed.complete();
+    }
   }
 
   Future<void> _waitForQueuePopulation() async {
@@ -611,9 +626,8 @@ class HybridAudioHandler extends BaseAudioHandler
       }
       await _waitForQueuePopulation();
       if (_player.hasNext) {
-        await _player.seekToNext();
+        await skipToNext();
         await play();
-        _emitPartyAction(PartyAction.nextTrack);
       }
     } finally {
       _autoAdvanceInFlight = false;
