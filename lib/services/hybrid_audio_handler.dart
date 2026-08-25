@@ -390,27 +390,38 @@ class HybridAudioHandler extends BaseAudioHandler
     try {
       final items = <MediaItem>[];
       final sources = <AudioSource>[];
-      for (final track in snapshot.queue) {
-        if (!track.isLocal &&
-            track.youtubeId != null &&
-            !await _cache.hasComplete(track.youtubeId!)) {
-          return;
+      final restoredTracks = <MediaTrack>[];
+      var restoredIndex = 0;
+      for (
+        var sourceIndex = 0;
+        sourceIndex < snapshot.queue.length;
+        sourceIndex++
+      ) {
+        final track = snapshot.queue[sourceIndex];
+        try {
+          final item = track.toMediaItem();
+          final source = await _resolveSource(track, item);
+          if (sourceIndex <= snapshot.currentIndex)
+            restoredIndex = items.length;
+          items.add(item);
+          sources.add(source);
+          restoredTracks.add(track);
+        } catch (_) {
+          // An expired online URL must not make local/restorable queue items
+          // disappear after a cold start.
         }
-        final item = track.toMediaItem();
-        items.add(item);
-        sources.add(await _resolveSource(track, item));
       }
       if (sources.isEmpty) return;
       _queueTracks
         ..clear()
-        ..addAll(snapshot.queue);
+        ..addAll(restoredTracks);
       queue.add(items);
       await _player.setAudioSources(
         sources,
-        initialIndex: snapshot.currentIndex,
+        initialIndex: restoredIndex.clamp(0, items.length - 1).toInt(),
         initialPosition: snapshot.position,
       );
-      final index = snapshot.currentIndex.clamp(0, items.length - 1).toInt();
+      final index = restoredIndex.clamp(0, items.length - 1).toInt();
       _activeTrack = _queueTracks[index];
       mediaItem.add(items[index]);
     } catch (_) {
