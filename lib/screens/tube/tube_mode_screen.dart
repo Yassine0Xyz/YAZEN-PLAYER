@@ -5,7 +5,7 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/youtube_service.dart';
-import '../player/yazen_video_player_screen.dart';
+import '../discover/youtube_video_detail_screen.dart';
 
 class TubeModeScreen extends StatefulWidget {
   const TubeModeScreen({super.key});
@@ -107,23 +107,7 @@ class _TubeModeScreenState extends State<TubeModeScreen> {
       await context.read<HybridMusicController>().playTrack(track);
       return;
     }
-    try {
-      final service = context.read<HybridMusicController>().youtubeService;
-      final streamUri = await service.getVideoStreamUrl(result.videoId);
-      if (!mounted) return;
-      await Navigator.of(
-        context,
-      ).push(YazenVideoPlayerScreen.route(track, streamUri: streamUri));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Video stream is unavailable right now. Try Voice only.',
-          ),
-        ),
-      );
-    }
+    await Navigator.of(context).push(YoutubeVideoDetailScreen.route(result));
   }
 
   @override
