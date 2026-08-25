@@ -18,10 +18,10 @@
 @import audio_session;
 #endif
 
-#if __has_include(<ffmpeg_kit_flutter_new_audio/FFmpegKitFlutterPlugin.h>)
-#import <ffmpeg_kit_flutter_new_audio/FFmpegKitFlutterPlugin.h>
+#if __has_include(<ffmpeg_kit_flutter_new_full/FFmpegKitFlutterPlugin.h>)
+#import <ffmpeg_kit_flutter_new_full/FFmpegKitFlutterPlugin.h>
 #else
-@import ffmpeg_kit_flutter_new_audio;
+@import ffmpeg_kit_flutter_new_full;
 #endif
 
 #if __has_include(<flutter_downloader/FlutterDownloaderPlugin.h>)

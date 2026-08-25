@@ -3,7 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  ffmpeg_kit_flutter_new_audio
+  ffmpeg_kit_flutter_new_full
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

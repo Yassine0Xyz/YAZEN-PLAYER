@@ -7,8 +7,8 @@ import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
-import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -513,25 +513,47 @@ class DownloadManager extends ChangeNotifier {
 
     final cancelToken = CancelToken();
     _activeTokens[jobId] = cancelToken;
+    Object? lastError;
     try {
-      if (await destination.exists()) await destination.delete();
-      await _dio.download(
-        uri.toString(),
-        destination.path,
-        cancelToken: cancelToken,
-        deleteOnError: false,
-        options: Options(
-          headers: <String, String>{'User-Agent': 'YAZEN/1.0'},
-          validateStatus:
-              (status) => status != null && status >= 200 && status < 300,
-        ),
-        onReceiveProgress:
-            (received, total) => onProgress(received, total > 0 ? total : null),
-      );
-      final received = await destination.length();
-      if (received <= 0) throw StateError('Download returned an empty file.');
-      onProgress(received, received);
-      return received;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (await destination.exists()) await destination.delete();
+          await _dio.download(
+            uri.toString(),
+            destination.path,
+            cancelToken: cancelToken,
+            deleteOnError: false,
+            options: Options(
+              headers: const <String, String>{
+                'User-Agent':
+                    'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity',
+              },
+              validateStatus:
+                  (status) => status != null && status >= 200 && status < 300,
+            ),
+            onReceiveProgress:
+                (received, total) =>
+                    onProgress(received, total > 0 ? total : null),
+          );
+          final received = await destination.length();
+          if (received <= 0) {
+            throw StateError('Download returned an empty file.');
+          }
+          onProgress(received, received);
+          return received;
+        } catch (error) {
+          lastError = error;
+          if (error is DioException && CancelToken.isCancel(error)) rethrow;
+          if (attempt < 2) {
+            await Future<void>.delayed(
+              Duration(milliseconds: 400 * (attempt + 1)),
+            );
+          }
+        }
+      }
+      throw StateError('Transfer failed after 3 attempts: $lastError');
     } finally {
       if (identical(_activeTokens[jobId], cancelToken)) {
         _activeTokens.remove(jobId);

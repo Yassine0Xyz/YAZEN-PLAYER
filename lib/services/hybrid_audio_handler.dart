@@ -206,21 +206,49 @@ class HybridAudioHandler extends BaseAudioHandler
     bool autoPlay = true,
   }) async {
     final item = track.toMediaItem();
-    var source = await _resolveSource(track, item);
+    final sources = await _resolveSources(track, item);
     _queueTracks
       ..clear()
       ..add(track);
     _activeTrack = track;
     mediaItem.add(item);
     queue.add(<MediaItem>[item]);
-    try {
-      await _player.setAudioSource(source);
-    } catch (error) {
-      if (track.isLocal) rethrow;
-      // YouTube URLs are short-lived. Resolve one fresh URL once before
-      // surfacing the failure to the controller.
-      source = await _resolveSource(track, item);
-      await _player.setAudioSource(source);
+
+    Object? lastError;
+    for (final source in sources) {
+      try {
+        await _player.setAudioSource(source);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (track.isLocal) rethrow;
+      }
+    }
+    if (lastError != null && !track.isLocal) {
+      try {
+        final fallbackUri = await _youtubeService.getFallbackAudioStreamUrl(
+          track.youtubeId!,
+        );
+        await _player.setAudioSource(
+          AudioSource.uri(
+            fallbackUri,
+            headers: const <String, String>{
+              'User-Agent': 'YAZEN/1.0 (Android)',
+              'Accept': '*/*',
+            },
+            tag: item,
+          ),
+        );
+        lastError = null;
+      } catch (fallbackError) {
+        lastError = fallbackError;
+      }
+    }
+    if (lastError != null) {
+      throw StateError(
+        'Voice only stream could not start after primary and backup attempts: $lastError',
+      );
     }
     _emitPartyAction(PartyAction.trackChange);
     _persistPlayback();
@@ -231,22 +259,60 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<void> _confirmYoutubePlayback(MediaTrack track, MediaItem item) async {
+    try {
+      await _waitForReady();
+      return;
+    } catch (error) {
+      await _player.stop();
+      final sources = await _resolveSources(track, item);
+      Object? lastError;
+      for (final source in sources) {
+        try {
+          await _player.setAudioSource(source);
+          await play();
+          await _waitForReady();
+          return;
+        } catch (retryError) {
+          lastError = retryError;
+          await _player.stop();
+        }
+      }
+      try {
+        final fallbackUri = await _youtubeService.getFallbackAudioStreamUrl(
+          track.youtubeId!,
+        );
+        await _player.setAudioSource(
+          AudioSource.uri(
+            fallbackUri,
+            headers: const <String, String>{
+              'User-Agent': 'YAZEN/1.0 (Android)',
+              'Accept': '*/*',
+            },
+            tag: item,
+          ),
+        );
+        await play();
+        await _waitForReady();
+        return;
+      } catch (fallbackError) {
+        lastError = fallbackError;
+      }
+      throw StateError(
+        'Voice only playback did not become ready: ${lastError ?? error}',
+      );
+    }
+  }
+
+  Future<void> _waitForReady() async {
     if (_player.playing && _player.processingState == ProcessingState.ready) {
       return;
     }
-    try {
-      await _player.playerStateStream
-          .firstWhere(
-            (state) =>
-                state.playing && state.processingState == ProcessingState.ready,
-          )
-          .timeout(const Duration(seconds: 8));
-    } catch (_) {
-      await _player.stop();
-      final freshSource = await _resolveSource(track, item);
-      await _player.setAudioSource(freshSource);
-      await play();
-    }
+    await _player.playerStateStream
+        .firstWhere(
+          (state) =>
+              state.playing && state.processingState == ProcessingState.ready,
+        )
+        .timeout(const Duration(seconds: 8));
   }
 
   Future<void> playTrackQueue(
@@ -393,13 +459,26 @@ class HybridAudioHandler extends BaseAudioHandler
   }) async {
     final youtubeId = track.youtubeId;
     if (!track.isLocal && youtubeId != null && youtubeId.isNotEmpty) {
-      if (await _cache.hasComplete(youtubeId))
+      if (await _cache.hasComplete(youtubeId)) {
         return _cache.cachedFile(youtubeId);
-      final streamUri = await _resolveYoutubeStreamUri(youtubeId);
-      return _cache.downloadToCache(
-        videoId: youtubeId,
-        streamUri: streamUri,
-        onProgress: onProgress,
+      }
+      final candidates = await _youtubeService.getAudioStreamCandidates(
+        youtubeId,
+      );
+      Object? lastError;
+      for (final streamUri in candidates) {
+        try {
+          return await _cache.downloadToCache(
+            videoId: youtubeId,
+            streamUri: streamUri,
+            onProgress: onProgress,
+          );
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw StateError(
+        'Offline audio cache failed after ${candidates.length} stream attempts: $lastError',
       );
     }
     throw StateError(
@@ -410,11 +489,14 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<Uri> _resolveYoutubeStreamUri(String youtubeId) =>
       _youtubeService.getAudioStreamUrl(youtubeId);
 
-  Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
+  Future<List<AudioSource>> _resolveSources(
+    MediaTrack track,
+    MediaItem item,
+  ) async {
     if (track.isLocal) {
       final uri = track.uri;
       if (uri == null) throw StateError('Local track is missing a file URI.');
-      return AudioSource.uri(uri, tag: item);
+      return <AudioSource>[AudioSource.uri(uri, tag: item)];
     }
 
     final youtubeId = track.youtubeId;
@@ -422,19 +504,32 @@ class HybridAudioHandler extends BaseAudioHandler
       throw StateError('YouTube track is missing a video ID.');
     }
 
-    // Skip YouTube entirely when a completed local copy is available. This is
-    // the offline-resilience path and avoids refreshing an expired stream URL.
     if (await _cache.hasComplete(youtubeId)) {
       final cachedFile = await _cache.cachedFile(youtubeId);
-      return AudioSource.uri(Uri.file(cachedFile.path), tag: item);
+      return <AudioSource>[
+        AudioSource.uri(Uri.file(cachedFile.path), tag: item),
+      ];
     }
 
-    final streamUri = await _resolveYoutubeStreamUri(youtubeId);
-    // Resolve and play the live stream directly on first Voice only play.
-    // LockCachingAudioSource can fail before it has received headers from
-    // short-lived YouTube URLs. Explicit offline downloads still use the
-    // persistent cache through cacheYouTubeTrack().
-    return AudioSource.uri(streamUri, tag: item);
+    final uris = await _youtubeService.getAudioStreamCandidates(youtubeId);
+    return uris
+        .map(
+          (uri) => AudioSource.uri(
+            uri,
+            headers: const <String, String>{
+              'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
+              'Accept': '*/*',
+            },
+            tag: item,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
+    final sources = await _resolveSources(track, item);
+    return sources.first;
   }
 
   Future<List<MediaTrack>> searchYouTube(String query, {int limit = 20}) async {

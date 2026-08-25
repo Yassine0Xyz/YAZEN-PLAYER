@@ -148,38 +148,68 @@ class YoutubeService {
   }
 
   Future<Uri> getAudioStreamUrl(String videoId) async {
+    final candidates = await getAudioStreamCandidates(videoId);
+    return candidates.first;
+  }
+
+  Future<List<Uri>> getAudioStreamCandidates(String videoId) async {
     _ensureOpen();
     final normalizedId = extractVideoId(videoId) ?? videoId.trim();
     if (normalizedId.isEmpty) {
       throw const FormatException('A YouTube video ID is required.');
     }
 
+    final candidates = <Uri>[];
+    Object? primaryError;
     try {
       final manifest = await _withRetry(
         () => _client.videos.streams.getManifest(normalizedId),
       );
       final audioStreams = manifest.audioOnly.toList();
-      if (audioStreams.isEmpty) {
-        throw StateError('No audio-only stream was found.');
-      }
       audioStreams.sort((a, b) {
         final aMp4 = a.container == StreamContainer.mp4;
         final bMp4 = b.container == StreamContainer.mp4;
         if (aMp4 != bMp4) return aMp4 ? -1 : 1;
         return b.bitrate.compareTo(a.bitrate);
       });
-      final url = audioStreams.first.url;
-      if (url.scheme != 'http' && url.scheme != 'https') {
-        throw StateError('The audio stream URL is invalid.');
+      for (final stream in audioStreams) {
+        final url = stream.url;
+        if ((url.scheme == 'http' || url.scheme == 'https') &&
+            !candidates.contains(url)) {
+          candidates.add(url);
+        }
       }
-      return url;
-    } catch (primaryError) {
+    } catch (error) {
+      primaryError = error;
+    }
+
+    // Do not probe every public fallback while a valid primary manifest exists:
+    // those endpoints may each take several seconds and make Voice only appear
+    // frozen. The handler requests the fallback explicitly after playback
+    // rejects all primary candidates.
+    if (candidates.isEmpty) {
       final fallback = await _fallbackAudio(normalizedId);
-      if (fallback != null) return fallback;
+      if (fallback != null) candidates.add(fallback);
+    }
+    if (candidates.isEmpty) {
       throw StateError(
-        'Audio stream unavailable after primary and fallback attempts: $primaryError',
+        'Audio stream unavailable after primary and fallback attempts${primaryError == null ? '' : ': $primaryError'}',
       );
     }
+    return candidates;
+  }
+
+  Future<Uri> getFallbackAudioStreamUrl(String videoId) async {
+    _ensureOpen();
+    final normalizedId = extractVideoId(videoId) ?? videoId.trim();
+    if (normalizedId.isEmpty) {
+      throw const FormatException('A YouTube video ID is required.');
+    }
+    final fallback = await _fallbackAudio(normalizedId);
+    if (fallback == null) {
+      throw StateError('Backup audio stream is unavailable right now.');
+    }
+    return fallback;
   }
 
   String? extractVideoId(String input) {

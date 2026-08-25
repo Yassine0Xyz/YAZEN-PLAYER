@@ -34,7 +34,7 @@ dependencies:
   nsd: ^5.0.1
 
   cupertino_icons: ^1.0.8
-  ffmpeg_kit_flutter_new_audio: ^2.5.2
+  ffmpeg_kit_flutter_new_full: ^2.5.2
   dio: ^5.11.0
   flutter_downloader: ^1.12.1
 dev_dependencies:
