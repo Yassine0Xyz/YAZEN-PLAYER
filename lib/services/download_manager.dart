@@ -47,6 +47,7 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, String> _backgroundTaskIds = <String, String>{};
   final Set<String> _activeJobs = <String>{};
   final Set<String> _pausedJobs = <String>{};
+  final Map<String, int> _automaticRetryCounts = <String, int>{};
   ReceivePort? _downloadEventsPort;
   Directory? _directory;
   bool _initialized = false;
@@ -477,7 +478,25 @@ class DownloadManager extends ChangeNotifier {
       }
       if (await output.exists()) await output.delete();
       final current = _find(original.id);
-      if (current?.status != DownloadStatus.cancelled) {
+      if (current?.status != DownloadStatus.cancelled &&
+          _isRetryableError(error) &&
+          (_automaticRetryCounts[original.id] ?? 0) < 2) {
+        final retryCount = (_automaticRetryCounts[original.id] ?? 0) + 1;
+        _automaticRetryCounts[original.id] = retryCount;
+        _replace(
+          (current ?? original).copyWith(
+            status: DownloadStatus.retrying,
+            clearError: true,
+          ),
+        );
+        unawaited(
+          Future<void>.delayed(
+            Duration(seconds: retryCount),
+            () => _run(_find(original.id) ?? original, option),
+          ),
+        );
+      } else if (current?.status != DownloadStatus.cancelled) {
+        _automaticRetryCounts.remove(original.id);
         _replace(
           (current ?? original).copyWith(
             status: DownloadStatus.failed,
@@ -492,7 +511,28 @@ class DownloadManager extends ChangeNotifier {
         await FlutterDownloader.cancel(taskId: taskId);
       }
       _activeJobs.remove(original.id);
+      if ((_find(original.id)?.status ?? DownloadStatus.failed) ==
+          DownloadStatus.completed) {
+        _automaticRetryCounts.remove(original.id);
+      }
     }
+  }
+
+  bool _isRetryableError(Object error) {
+    if (error is DioException) {
+      if (CancelToken.isCancel(error)) return false;
+      final status = error.response?.statusCode;
+      return status == null ||
+          status == 408 ||
+          status == 425 ||
+          status == 429 ||
+          status >= 500;
+    }
+    if (error is SocketException || error is TimeoutException) return true;
+    final message = error.toString().toLowerCase();
+    return message.contains('background network download failed') ||
+        message.contains('connection reset') ||
+        message.contains('timed out');
   }
 
   Future<int> _downloadFile(
@@ -723,6 +763,7 @@ class DownloadManager extends ChangeNotifier {
           '${current.qualityLabel} is no longer available for this video.',
         );
       }
+      _automaticRetryCounts.remove(id);
       final next = current.copyWith(
         status: DownloadStatus.retrying,
         downloadedBytes: 0,
