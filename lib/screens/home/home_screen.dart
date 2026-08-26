@@ -18,6 +18,7 @@ import '../../widgets/echo_motion.dart';
 import '../../widgets/mini_player.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../player/full_player_screen.dart';
+import '../player/yazen_video_player_screen.dart';
 import 'widgets/library_tabs.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -172,6 +173,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 _HeaderAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Search local audio and video',
+                  onPressed: () => _showLocalSearch(context),
+                ),
+                _HeaderAction(
                   icon: Icons.tune_rounded,
                   tooltip: 'Filter and sort library',
                   onPressed: () => _showLibrarySort(context),
@@ -208,6 +214,142 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Future<void> _showLocalSearch(BuildContext context) async {
+    final parentContext = context;
+    final controller = context.read<HybridMusicController>();
+    final searchController = TextEditingController();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) {
+          final tokens = sheetContext.read<ThemeProvider>().tokens;
+          return StatefulBuilder(
+            builder: (context, setState) {
+              final query = searchController.text.trim().toLowerCase();
+              final allTracks = <MediaTrack>[
+                ...controller.localSongs,
+                ...controller.localVideos,
+              ];
+              final seen = <String>{};
+              final results = allTracks
+                  .where((track) {
+                    if (!seen.add(track.id)) return false;
+                    if (query.isEmpty) return true;
+                    final haystack =
+                        '${track.title} ${track.artist} ${track.album}'
+                            .toLowerCase();
+                    return haystack.contains(query);
+                  })
+                  .toList(growable: false);
+              return SafeArea(
+                child: Container(
+                  height: MediaQuery.sizeOf(context).height * 0.78,
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                  decoration: BoxDecoration(
+                    color: tokens.background,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(26),
+                    ),
+                    border: Border.all(color: tokens.divider),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: tokens.textSecondary.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: searchController,
+                        autofocus: true,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Search local media',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child:
+                            results.isEmpty
+                                ? Center(
+                                  child: Text(
+                                    query.isEmpty
+                                        ? 'No local media found.'
+                                        : 'No local matches for “$query”.',
+                                    style: TextStyle(
+                                      color: tokens.textSecondary,
+                                    ),
+                                  ),
+                                )
+                                : ListView.separated(
+                                  itemCount: results.length,
+                                  separatorBuilder:
+                                      (_, __) => const SizedBox(height: 2),
+                                  itemBuilder: (context, index) {
+                                    final track = results[index];
+                                    return ListTile(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                          ),
+                                      leading: Icon(
+                                        track.isVideo
+                                            ? Icons.ondemand_video_rounded
+                                            : Icons.music_note_rounded,
+                                        color: tokens.accent,
+                                      ),
+                                      title: Text(
+                                        track.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        track.artist,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(sheetContext);
+                                        if (track.isVideo) {
+                                          Navigator.of(parentContext).push(
+                                            YazenVideoPlayerScreen.route(track),
+                                          );
+                                        } else {
+                                          controller.playTrack(track);
+                                        }
+                                      },
+                                    );
+                                  },
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   Future<void> _showLibrarySort(BuildContext context) async {
