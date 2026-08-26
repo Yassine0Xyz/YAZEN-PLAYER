@@ -118,13 +118,24 @@ class MainActivity : AudioServiceActivity() {
             return
         }
         try {
-            val waveform = ByteArray(64)
-            if (visualizer.getWaveForm(waveform) != Visualizer.SUCCESS) {
+            // FFT returns interleaved real/imaginary signed bytes. Skip the
+            // DC component and convert each bin to a normalized magnitude so
+            // Dart can render genuine Bass-to-Treble energy bands.
+            val fft = ByteArray(visualizer.captureSize)
+            if (visualizer.getFft(fft) != Visualizer.SUCCESS) {
                 result.success(null)
                 return
             }
-            val levels = waveform.map { sample ->
-                (kotlin.math.abs(sample.toInt()) / 128f).coerceIn(0f, 1f)
+            val levels = mutableListOf<Float>()
+            var index = 2
+            while (index + 1 < fft.size) {
+                val real = fft[index].toInt()
+                val imaginary = fft[index + 1].toInt()
+                val magnitude = kotlin.math.sqrt(
+                    (real * real + imaginary * imaginary).toFloat(),
+                ) / 128f
+                levels.add(magnitude.coerceIn(0f, 1f))
+                index += 2
             }
             result.success(levels)
         } catch (_: Throwable) {

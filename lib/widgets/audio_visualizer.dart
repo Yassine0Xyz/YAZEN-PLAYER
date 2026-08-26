@@ -125,14 +125,22 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final previous =
           _levels.length == count ? _levels : List<double>.filled(count, 0);
       final next = List<double>.generate(count, (index) {
-        final sourceIndex = ((index * (samples.length - 1)) /
-                math.max(1, count - 1))
-            .round()
-            .clamp(0, samples.length - 1);
-        final target = samples[sourceIndex];
+        // Log-spaced aggregation makes the left bars react to Bass and the
+        // right bars react to progressively higher frequencies.
+        final startRatio = math.pow(index / count, 2.05).toDouble();
+        final endRatio = math.pow((index + 1) / count, 2.05).toDouble();
+        final start = (startRatio * (samples.length - 1)).floor();
+        final end = math
+            .max(start + 1, (endRatio * (samples.length - 1)).ceil())
+            .clamp(start + 1, samples.length);
+        var peak = 0.0;
+        for (var sampleIndex = start; sampleIndex < end; sampleIndex++) {
+          peak = math.max(peak, samples[sampleIndex]);
+        }
+        final target = math.sqrt(peak).clamp(0.0, 1.0).toDouble();
         final current = previous[index];
         // Fast attack and slower release keeps beats visible without jitter.
-        final smoothing = target > current ? 0.56 : 0.18;
+        final smoothing = target > current ? 0.58 : 0.16;
         return current + (target - current) * smoothing;
       });
       if (mounted) setState(() => _levels = next);
@@ -264,11 +272,8 @@ class _VisualizerPainter extends CustomPainter {
           useAudioSignal && levels.length == barCount
               ? levels[index]
               : active
-              ? (0.48 +
-                  math.sin(t * 0.82 + index * 0.42 + phaseOffset) * 0.20 +
-                  math.sin(t * 1.55 + index * 0.77 + phaseOffset * 1.7) * 0.18 +
-                  math.sin(t * 2.35 + index * 1.21 + phaseOffset * 0.6) * 0.10)
-              : 0.16;
+              ? 0.16
+              : 0.10;
       final barHeight = math.max(
         3.0,
         size.height * (0.18 + mirrored * 0.58) * energy.clamp(0.12, 1.0),
