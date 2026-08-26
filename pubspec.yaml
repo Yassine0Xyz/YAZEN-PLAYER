@@ -13,7 +13,7 @@ dependencies:
 
   # Playback and background controls.
   just_audio: ^0.10.6
-  video_thumbnail: ^0.5.3
+  just_waveform: ^0.0.7
   video_player: ^2.9.2
   audio_service: ^0.18.19
   audio_session: ^0.2.2
@@ -73,3 +73,8 @@ flutter:
           weight: 800
           style: normal
 
+
+# Android Gradle Plugin 8+ requires a namespace in this legacy plugin.
+dependency_overrides:
+  on_audio_query_android:
+    path: third_party/on_audio_query_android

@@ -65,8 +65,7 @@ class MediaLibraryService {
     );
   }
 
-  Future<List<String>> queryFolders() async {
-    final songs = await querySongs();
+  List<String> foldersFromSongs(List<MediaTrack> songs) {
     final folders =
         songs
             .map((song) => song.folder)

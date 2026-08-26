@@ -94,14 +94,13 @@ class HybridMusicController extends ChangeNotifier {
         _library.queryArtists(),
         _library.queryAlbums(),
         _library.queryPlaylists(),
-        _library.queryFolders(),
       ]);
       _localSongs = results[0] as List<MediaTrack>;
       _localVideos = results[1] as List<MediaTrack>;
       _artists = results[2] as List<ArtistModel>;
       _albums = results[3] as List<AlbumModel>;
       _playlists = results[4] as List<PlaylistModel>;
-      _folders = results[5] as List<String>;
+      _folders = _library.foldersFromSongs(_localSongs);
     } catch (error) {
       _errorMessage = 'Unable to read the device music library: $error';
     } finally {

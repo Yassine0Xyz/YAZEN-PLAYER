@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -15,12 +16,16 @@ import android.util.Rational
 import android.util.Size
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class MainActivity : AudioServiceActivity() {
     private val channelName = "yazen/local_media"
+    private var visualizer: Visualizer? = null
+    private var visualizerSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -37,6 +42,20 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "yazen/audio_fft")
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                    visualizerSink = events
+                    val sessionId = (arguments as? Map<*, *>)?.get("sessionId") as? Int
+                    if (sessionId != null && sessionId > 0) startVisualizer(sessionId)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    visualizerSink = null
+                    stopVisualizer()
+                }
+            })
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "yazen/player_controls")
             .setMethodCallHandler { call, result ->
@@ -76,6 +95,63 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun startVisualizer(sessionId: Int) {
+        stopVisualizer()
+        try {
+            val captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
+            val next = Visualizer(sessionId)
+            next.captureSize = captureSize
+            next.setDataCaptureListener(
+                object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(
+                        visualizer: Visualizer,
+                        waveform: ByteArray,
+                        samplingRate: Int,
+                    ) = Unit
+
+                    override fun onFftDataCapture(
+                        visualizer: Visualizer,
+                        fft: ByteArray,
+                        samplingRate: Int,
+                    ) {
+                        val bands = ArrayList<Float>(24)
+                        var index = 2
+                        while (index + 1 < fft.size && bands.size < 24) {
+                            val real = fft[index].toFloat()
+                            val imaginary = fft[index + 1].toFloat()
+                            val magnitude = sqrt(real * real + imaginary * imaginary)
+                            bands.add((magnitude / 128f).coerceIn(0f, 1f))
+                            index += 2
+                        }
+                        runOnUiThread { visualizerSink?.success(bands) }
+                    }
+                },
+                Visualizer.getMaxCaptureRate() / 2,
+                false,
+                true,
+            )
+            next.enabled = true
+            visualizer = next
+        } catch (_: Exception) {
+            stopVisualizer()
+        }
+    }
+
+    private fun stopVisualizer() {
+        try {
+            visualizer?.enabled = false
+            visualizer?.release()
+        } catch (_: Exception) {
+        } finally {
+            visualizer = null
+        }
+    }
+
+    override fun onDestroy() {
+        stopVisualizer()
+        super.onDestroy()
     }
 
     private fun videoPermission(): String = if (Build.VERSION.SDK_INT >= 33) {

@@ -407,7 +407,6 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> setSpeed(double speed) => _player.setSpeed(speed);
 
-  @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   @override

@@ -24,6 +24,12 @@
 @import just_audio;
 #endif
 
+#if __has_include(<just_waveform/JustWaveformPlugin.h>)
+#import <just_waveform/JustWaveformPlugin.h>
+#else
+@import just_waveform;
+#endif
+
 #if __has_include(<nsd_ios/NsdIosPlugin.h>)
 #import <nsd_ios/NsdIosPlugin.h>
 #else
@@ -60,25 +66,19 @@
 @import video_player_avfoundation;
 #endif
 
-#if __has_include(<video_thumbnail/VideoThumbnailPlugin.h>)
-#import <video_thumbnail/VideoThumbnailPlugin.h>
-#else
-@import video_thumbnail;
-#endif
-
 @implementation GeneratedPluginRegistrant
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [AudioServicePlugin registerWithRegistrar:[registry registrarForPlugin:@"AudioServicePlugin"]];
   [AudioSessionPlugin registerWithRegistrar:[registry registrarForPlugin:@"AudioSessionPlugin"]];
   [JustAudioPlugin registerWithRegistrar:[registry registrarForPlugin:@"JustAudioPlugin"]];
+  [JustWaveformPlugin registerWithRegistrar:[registry registrarForPlugin:@"JustWaveformPlugin"]];
   [NsdIosPlugin registerWithRegistrar:[registry registrarForPlugin:@"NsdIosPlugin"]];
   [OnAudioQueryPlugin registerWithRegistrar:[registry registrarForPlugin:@"OnAudioQueryPlugin"]];
   [PusherChannelsFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"PusherChannelsFlutterPlugin"]];
   [SharedPreferencesPlugin registerWithRegistrar:[registry registrarForPlugin:@"SharedPreferencesPlugin"]];
   [SqflitePlugin registerWithRegistrar:[registry registrarForPlugin:@"SqflitePlugin"]];
   [VideoPlayerPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoPlayerPlugin"]];
-  [VideoThumbnailPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoThumbnailPlugin"]];
 }
 
 @end

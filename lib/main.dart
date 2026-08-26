@@ -18,7 +18,7 @@ Future<void> main() async {
     builder: HybridAudioHandler.new,
     config: const AudioServiceConfig(
       androidNotificationChannelId:
-          'com.example.hybrid_music_player.channel.audio',
+          'com.yazen.player.channel.audio',
       androidNotificationChannelName: 'Music playback',
       androidNotificationOngoing: false,
       androidStopForegroundOnPause: false,
@@ -76,7 +76,7 @@ class HybridMusicApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeState, _) {
           return MaterialApp(
-            title: 'Echo',
+            title: 'YAZEN',
             debugShowCheckedModeBanner: false,
             theme: themeState.theme,
             builder:

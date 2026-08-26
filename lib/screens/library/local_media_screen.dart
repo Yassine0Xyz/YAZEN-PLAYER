@@ -98,15 +98,17 @@ class _SongsView extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (_, index) {
         final track = tracks[index];
+        final tile = TrackListTile(
+          track: track,
+          onTap: () => controller.playTrack(track),
+          isFavorite: controller.isFavorite(track),
+          onFavorite: () => controller.toggleFavorite(track),
+          onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
+        );
+        if (index >= 4) return tile;
         return EchoReveal(
-          delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
-          child: TrackListTile(
-            track: track,
-            onTap: () => controller.playTrack(track),
-            isFavorite: controller.isFavorite(track),
-            onFavorite: () => controller.toggleFavorite(track),
-            onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
-          ),
+          delay: Duration(milliseconds: index * 45),
+          child: tile,
         );
       },
     );

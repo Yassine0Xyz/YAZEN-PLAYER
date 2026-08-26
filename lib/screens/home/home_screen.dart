@@ -143,25 +143,21 @@ class _HomeScreenState extends State<HomeScreen> {
           children: <Widget>[
             Row(
               children: <Widget>[
-                EchoBreathingGlow(
-                  color: tokens.accentStrong,
-                  radius: 16,
-                  child: Container(
-                    width: compact ? 43 : 48,
-                    height: compact ? 43 : 48,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        colors: <Color>[tokens.accentStrong, tokens.accent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                Container(
+                  width: compact ? 40 : 44,
+                  height: compact ? 40 : 44,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      colors: <Color>[tokens.accentStrong, tokens.accent],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    child: Icon(
-                      Icons.graphic_eq_rounded,
-                      color: tokens.isLight ? Colors.white : Colors.black,
-                      size: compact ? 23 : 26,
-                    ),
+                  ),
+                  child: Icon(
+                    Icons.graphic_eq_rounded,
+                    color: tokens.isLight ? Colors.white : Colors.black,
+                    size: compact ? 21 : 24,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -334,59 +330,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _EchoSoundHero extends StatefulWidget {
+class _EchoSoundHero extends StatelessWidget {
   const _EchoSoundHero({
     required this.trackCount,
     required this.onDiscover,
     required this.onParty,
     required this.onDismiss,
   });
-
   final int trackCount;
   final VoidCallback onDiscover;
   final VoidCallback onParty;
   final VoidCallback onDismiss;
-
-  @override
-  State<_EchoSoundHero> createState() => _EchoSoundHeroState();
-}
-
-class _EchoSoundHeroState extends State<_EchoSoundHero>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  bool _reduceMotion = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 9),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (_reduceMotion != reduceMotion) {
-      _reduceMotion = reduceMotion;
-      if (_reduceMotion) {
-        _controller.stop();
-      } else {
-        _controller.repeat();
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
+    const ambientPhase = AlwaysStoppedAnimation<double>(0.14);
     final tokens = context.read<ThemeProvider>().tokens;
     return Container(
       height: 126,
@@ -411,7 +368,7 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
         fit: StackFit.expand,
         children: <Widget>[
           RepaintBoundary(
-            child: CustomPaint(painter: _SoundWavePainter(_controller, tokens)),
+            child: CustomPaint(painter: _SoundWavePainter(ambientPhase, tokens)),
           ),
           Positioned(
             top: 2,
@@ -419,7 +376,7 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
             child: IconButton(
               tooltip: 'Hide banner',
               visualDensity: VisualDensity.compact,
-              onPressed: widget.onDismiss,
+              onPressed: onDismiss,
               icon: Icon(
                 Icons.close_rounded,
                 size: 18,
@@ -434,7 +391,7 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
               child: RepaintBoundary(
                 child: CustomPaint(
                   size: const Size(220, 220),
-                  painter: _HeroOrbPainter(_controller, tokens),
+                  painter: _HeroOrbPainter(ambientPhase, tokens),
                 ),
               ),
             ),
@@ -472,9 +429,9 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
                         ),
                       ),
                       Text(
-                        widget.trackCount == 0
+                        trackCount == 0
                             ? 'Build your world of sound.'
-                            : '${widget.trackCount} tracks ready for your next mood.',
+                            : '${trackCount} tracks ready for your next mood.',
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 11,
@@ -490,7 +447,7 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
                     EchoPressable(
-                      onTap: widget.onDiscover,
+                      onTap: onDiscover,
                       borderRadius: BorderRadius.circular(14),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
@@ -532,7 +489,7 @@ class _EchoSoundHeroState extends State<_EchoSoundHero>
                     ),
                     const SizedBox(height: 8),
                     EchoPressable(
-                      onTap: widget.onParty,
+                      onTap: onParty,
                       borderRadius: BorderRadius.circular(14),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
@@ -690,7 +647,7 @@ class _HeaderAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
     return Padding(
-      padding: const EdgeInsets.only(left: 2),
+      padding: const EdgeInsets.only(left: 1),
       child: EchoIconButton(
         tooltip: tooltip,
         onPressed: onPressed,
@@ -702,7 +659,7 @@ class _HeaderAction extends StatelessWidget {
         selectedBackgroundColor: (color ?? tokens.accent).withValues(
           alpha: 0.14,
         ),
-        size: 38,
+        size: 34,
       ),
     );
   }

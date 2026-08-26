@@ -211,8 +211,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                   ),
                                   const SizedBox(height: 14),
                                   AudioVisualizer(
+                                    key: ValueKey('waveform-${item.id}'),
+                                    track: activeTrack,
                                     playing: isPlaying,
-                                    height: 30,
+                                    positionStream: handler.player.positionStream,
+                                    audioSessionId:
+                                        handler.player.androidAudioSessionId,
+                                    duration: item.duration ?? handler.player.duration,
+                                    height: 56,
+                                    barCount: 44,
                                     color:
                                         Theme.of(context).colorScheme.primary,
                                   ),

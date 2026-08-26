@@ -3,10 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../core/theme/theme_provider.dart';
-import '../core/theme/theme_tokens.dart';
 import '../models/media_track.dart';
 
 class VideoThumbnailWidget extends StatefulWidget {
@@ -58,16 +56,7 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
         return null;
       }
     }
-    try {
-      return await VideoThumbnail.thumbnailData(
-        video: uri.scheme == 'file' ? uri.toFilePath() : uri.toString(),
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: (widget.size * 3).round().clamp(160, 1200),
-        quality: 86,
-      );
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   @override

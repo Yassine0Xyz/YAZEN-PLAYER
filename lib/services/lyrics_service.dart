@@ -25,8 +25,14 @@ class LyricsService {
   LyricsService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
+  final Map<String, Future<SyncedLyrics?>> _requests =
+      <String, Future<SyncedLyrics?>>{};
 
-  Future<SyncedLyrics?> loadFor(MediaItem item) async {
+  Future<SyncedLyrics?> loadFor(MediaItem item) {
+    return _requests.putIfAbsent(item.id, () => _loadFor(item));
+  }
+
+  Future<SyncedLyrics?> _loadFor(MediaItem item) async {
     final localLyrics = await _loadAdjacentLrc(item.id);
     if (localLyrics != null) return localLyrics;
 
@@ -34,30 +40,55 @@ class LyricsService {
     final artist = (item.artist ?? '').trim();
     if (title.isEmpty || artist.isEmpty) return null;
 
-    final uri = Uri.https('lrclib.net', '/api/get', <String, String>{
+    final query = <String, String>{
       'track_name': title,
       'artist_name': artist,
-    });
-    final response = await _client.get(
-      uri,
-      headers: const <String, String>{
-        'Accept': 'application/json',
-        'User-Agent': 'YAZEN/1.0',
-      },
-    );
-    if (response.statusCode != 200) return null;
-
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
-    final synced = payload['syncedLyrics']?.toString();
-    final plain = payload['plainLyrics']?.toString();
-    if (synced != null && synced.trim().isNotEmpty) {
-      return SyncedLyrics(lines: parseLrc(synced), plainText: plain);
+    };
+    final album = (item.album ?? '').trim();
+    if (album.isNotEmpty) query['album_name'] = album;
+    final durationSeconds = item.duration?.inSeconds ?? 0;
+    if (durationSeconds > 0 && durationSeconds <= 3600) {
+      query['duration'] = durationSeconds.toString();
     }
-    if (plain != null && plain.trim().isNotEmpty) {
-      return SyncedLyrics(lines: const <LyricLine>[], plainText: plain);
+
+    final uri = Uri.https('lrclib.net', '/api/get', query);
+    try {
+      var response = await _client.get(uri, headers: _headers);
+      if (response.statusCode == 429) {
+        final retryAfter = int.tryParse(response.headers['retry-after'] ?? '');
+        final wait = Duration(
+          seconds: (retryAfter ?? 1).clamp(1, 8),
+        );
+        await Future<void>.delayed(wait);
+        response = await _client.get(uri, headers: _headers);
+      }
+      if (response.statusCode != 200) return null;
+
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final synced = payload['syncedLyrics']?.toString();
+      final plain = payload['plainLyrics']?.toString();
+      if (synced != null && synced.trim().isNotEmpty) {
+        final parsed = parseLrc(synced);
+        return SyncedLyrics(lines: parsed, plainText: plain);
+      }
+      if (plain != null && plain.trim().isNotEmpty) {
+        return SyncedLyrics(lines: const <LyricLine>[], plainText: plain);
+      }
+    } on FormatException {
+      return null;
+    } on SocketException {
+      return null;
+    } on http.ClientException {
+      return null;
     }
     return null;
   }
+
+  static const _headers = <String, String>{
+    'Accept': 'application/json',
+    'User-Agent':
+        'YAZEN/1.1 (https://github.com/Yassine0Xyz/YAZEN-PLAYER)',
+  };
 
   /// Parses standard LRC timestamps and applies an optional `[offset:...]`
   /// metadata value. Positive offset moves lines later; negative offset moves
@@ -66,7 +97,9 @@ class LyricsService {
   List<LyricLine> parseLrc(String source) {
     final lines = <LyricLine>[];
     final offsetMs = _parseOffsetMilliseconds(source);
-    final timestampPattern = RegExp(r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]');
+    final timestampPattern = RegExp(
+      r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]',
+    );
 
     for (final rawLine in const LineSplitter().convert(source)) {
       final matches = timestampPattern
