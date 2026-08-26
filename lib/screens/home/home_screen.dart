@@ -245,6 +245,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     return haystack.contains(query);
                   })
                   .toList(growable: false);
+              final audioResults = results
+                  .where((track) => !track.isVideo)
+                  .toList(growable: false);
               return SafeArea(
                 child: Container(
                   height: MediaQuery.sizeOf(context).height * 0.78,
@@ -332,7 +335,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                             YazenVideoPlayerScreen.route(track),
                                           );
                                         } else {
-                                          controller.playTrack(track);
+                                          final audioIndex = audioResults
+                                              .indexWhere(
+                                                (candidate) =>
+                                                    candidate.id == track.id,
+                                              );
+                                          if (audioIndex >= 0) {
+                                            controller.playTrackQueue(
+                                              audioResults,
+                                              initialIndex: audioIndex,
+                                            );
+                                          }
                                         }
                                       },
                                     );

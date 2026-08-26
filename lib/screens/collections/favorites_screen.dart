@@ -62,7 +62,11 @@ class FavoritesScreen extends StatelessWidget {
                   final track = tracks[index];
                   return TrackListTile(
                     track: track,
-                    onTap: () => controller.playTrack(track),
+                    onTap:
+                        () => controller.playTrackQueue(
+                          tracks,
+                          initialIndex: index,
+                        ),
                     isFavorite: true,
                     onFavorite: () => manager.toggleFavorite(track),
                     onAddToPlaylist:
@@ -76,12 +80,7 @@ class FavoritesScreen extends StatelessWidget {
   Future<void> _playAll(
     HybridMusicController controller,
     List<MediaTrack> tracks,
-  ) async {
-    await controller.playTrack(tracks.first);
-    for (final track in tracks.skip(1)) {
-      await controller.addToQueue(track);
-    }
-  }
+  ) => controller.playTrackQueue(tracks);
 }
 
 class _EmptyCollection extends StatelessWidget {

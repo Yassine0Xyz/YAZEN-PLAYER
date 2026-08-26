@@ -99,7 +99,7 @@ class _SongsView extends StatelessWidget {
           delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
           child: TrackListTile(
             track: track,
-            onTap: () => controller.playTrack(track),
+            onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
             isFavorite: controller.isFavorite(track),
             onFavorite: () => controller.toggleFavorite(track),
             onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
