@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -51,6 +52,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   int? _nativeSessionId;
   bool _nativeSignal = false;
   bool _syncInFlight = false;
+  DateTime? _lastDiagnosticsAt;
 
   @override
   void initState() {
@@ -130,6 +132,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final samples = raw
           .map((value) => (value as num).toDouble().clamp(0.0, 1.0))
           .toList(growable: false);
+      _logSignalDiagnostics(samples);
       final count = math.max(1, widget.barCount);
       final previous =
           _levels.length == count ? _levels : List<double>.filled(count, 0);
@@ -165,26 +168,31 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             .clamp(start + 1, samples.length);
 
         var sumSquares = 0.0;
+        var bandPeak = 0.0;
         for (var sampleIndex = start; sampleIndex < end; sampleIndex++) {
           final sample = samples[sampleIndex];
           sumSquares += sample * sample;
+          bandPeak = math.max(bandPeak, sample);
         }
         final sampleCount = math.max(1, end - start);
-        final rawEnergy = math.sqrt(sumSquares / sampleCount);
+        final rmsEnergy = math.sqrt(sumSquares / sampleCount);
+        // RMS is stable, while a peak catches short kick/snare transients.
+        // Combining both keeps the rail responsive without inventing motion.
+        final rawEnergy = math.max(rmsEnergy * 1.32, bandPeak * 0.82);
 
         // The floor follows silence slowly and follows active signal almost
         // not at all. This removes device noise without removing quiet music.
         var floor = previousFloors[index];
         final floorRate = rawEnergy < floor ? 0.075 : 0.012;
         floor += (rawEnergy - floor) * floorRate;
-        final gatedEnergy = math.max(0.0, rawEnergy - floor * 1.35 - 0.006);
+        final gatedEnergy = math.max(0.0, rawEnergy - floor * 1.18 - 0.003);
 
         // Each band has its own short-term ceiling, so a loud bass hit cannot
         // flatten the treble and one quiet song cannot make the next one tiny.
         var ceiling = previousCeilings[index] * 0.992;
         ceiling = math.max(0.18, ceiling);
         if (gatedEnergy > ceiling) ceiling = gatedEnergy;
-        final normalized = (gatedEnergy / math.max(ceiling * 0.72, 0.08)).clamp(
+        final normalized = (gatedEnergy / math.max(ceiling * 0.58, 0.06)).clamp(
           0.0,
           1.0,
         );
@@ -224,6 +232,22 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     } on PlatformException {
       await _stopNativeSignal();
     }
+  }
+
+  void _logSignalDiagnostics(List<double> samples) {
+    if (!kDebugMode || samples.isEmpty) return;
+    final now = DateTime.now();
+    final previous = _lastDiagnosticsAt;
+    if (previous != null && now.difference(previous).inSeconds < 2) return;
+    _lastDiagnosticsAt = now;
+    final maximum = samples.reduce(math.max);
+    final average =
+        samples.reduce((sum, value) => sum + value) / samples.length;
+    debugPrint(
+      '[YAZEN][Visualizer] session=$_nativeSessionId '
+      'bins=${samples.length} max=${maximum.toStringAsFixed(3)} '
+      'avg=${average.toStringAsFixed(3)}',
+    );
   }
 
   Future<void> _stopNativeSignal() async {

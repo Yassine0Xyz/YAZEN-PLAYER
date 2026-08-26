@@ -274,7 +274,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 14),
+                                  const SizedBox(height: 18),
                                   AudioVisualizer(
                                     playing: isPlaying,
                                     audioSessionId:
@@ -282,14 +282,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     position: playbackState?.updatePosition,
                                     duration: handler.player.duration,
                                     onSeek: handler.seek,
-                                    height: 38,
-                                    barCount: 32,
+                                    height: 62,
+                                    barCount: 36,
                                     profile: AudioVisualizerProfile.full,
                                     seed: item.id,
                                     color:
                                         Theme.of(context).colorScheme.primary,
                                   ),
-                                  const SizedBox(height: 16),
+                                  const SizedBox(height: 20),
                                   AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 300),
                                     switchInCurve: Curves.easeOutCubic,
@@ -693,8 +693,10 @@ class _TrackMeta extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontSize: 21,
+            height: 1.15,
             fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
+            letterSpacing: -0.35,
           ),
         ),
         const SizedBox(height: 7),
@@ -703,7 +705,7 @@ class _TrackMeta extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: tokens.textSecondary,
-            fontSize: 15,
+            fontSize: 13.5,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -716,7 +718,10 @@ class _TrackMeta extends StatelessWidget {
             lyricsSelected ? Icons.lyrics : Icons.lyrics_outlined,
             size: 17,
           ),
-          label: Text(lyricsSelected ? 'Hide lyrics' : 'Show lyrics'),
+          label: Text(
+            lyricsSelected ? 'Hide lyrics' : 'Show lyrics',
+            style: const TextStyle(fontSize: 13),
+          ),
           style: OutlinedButton.styleFrom(
             foregroundColor:
                 lyricsSelected ? tokens.accent : tokens.textSecondary,
