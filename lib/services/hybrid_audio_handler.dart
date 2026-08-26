@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
-import '../models/hybrid_party_models.dart';
 import '../models/media_track.dart';
 import 'playback_state_store.dart';
 import 'youtube_audio_cache.dart';
@@ -87,7 +86,6 @@ class HybridAudioHandler extends BaseAudioHandler
   DateTime? _sleepDeadline;
   Future<void> _lastResumeSave = Future<void>.value();
   Future<void> _navigationTail = Future<void>.value();
-  final _partyActions = StreamController<LocalPlaybackAction>.broadcast();
   static const _effectsChannel = MethodChannel('echo/audio_effects');
   bool _threeDSurroundEnabled = false;
   // Kept fail-closed until a device-safe native effects implementation is
@@ -105,7 +103,6 @@ class HybridAudioHandler extends BaseAudioHandler
   AndroidEqualizer get equalizer => _equalizer;
   bool get threeDSurroundEnabled => _threeDSurroundEnabled;
   bool get equalizerAvailable => _equalizerAvailable;
-  Stream<LocalPlaybackAction> get partyActions => _partyActions.stream;
   List<MediaTrack> get queueTracks =>
       List<MediaTrack>.unmodifiable(_queueTracks);
   int get currentQueueIndex => _player.currentIndex ?? 0;
@@ -259,7 +256,6 @@ class HybridAudioHandler extends BaseAudioHandler
     _activeTrack = track;
     mediaItem.add(item);
     queue.add(<MediaItem>[item]);
-    _emitPartyAction(PartyAction.trackChange);
     _persistPlayback();
     if (autoPlay) {
       await play();
@@ -562,14 +558,12 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> play() async {
     await _player.play();
-    _emitPartyAction(PartyAction.play);
     _persistPlayback();
   }
 
   @override
   Future<void> pause() async {
     await _player.pause();
-    _emitPartyAction(PartyAction.pause);
     _persistPlayback();
   }
 
@@ -582,7 +576,6 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> seek(Duration position) async {
     await _player.seek(position);
-    _emitPartyAction(PartyAction.seek);
     _persistPlayback();
   }
 
@@ -591,7 +584,6 @@ class HybridAudioHandler extends BaseAudioHandler
     await _waitForQueuePopulation();
     if (!_player.hasNext) return;
     await _player.seekToNext();
-    _emitPartyAction(PartyAction.nextTrack);
   });
 
   @override
@@ -602,7 +594,6 @@ class HybridAudioHandler extends BaseAudioHandler
     } else {
       await _player.seek(Duration.zero);
     }
-    _emitPartyAction(PartyAction.previousTrack);
   });
 
   Future<void> _serializeNavigation(Future<void> Function() action) async {
@@ -699,20 +690,6 @@ class HybridAudioHandler extends BaseAudioHandler
     );
   }
 
-  void _emitPartyAction(PartyAction action) {
-    final item = mediaItem.value;
-    if (_isDisposed || item == null) return;
-    _partyActions.add(
-      LocalPlaybackAction(
-        action: action,
-        trackId: item.id,
-        title: item.title,
-        position: _player.position,
-        playing: _player.playing,
-      ),
-    );
-  }
-
   void _broadcastPlaybackState() {
     if (_isDisposed) return;
 
@@ -763,7 +740,6 @@ class HybridAudioHandler extends BaseAudioHandler
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
-    await _partyActions.close();
     await _youtubeService.dispose();
     await _cache.dispose();
     await _player.dispose();

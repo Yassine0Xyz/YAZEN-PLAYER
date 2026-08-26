@@ -36,22 +36,10 @@
 @import just_audio;
 #endif
 
-#if __has_include(<nsd_ios/NsdIosPlugin.h>)
-#import <nsd_ios/NsdIosPlugin.h>
-#else
-@import nsd_ios;
-#endif
-
 #if __has_include(<on_audio_query_ios/OnAudioQueryPlugin.h>)
 #import <on_audio_query_ios/OnAudioQueryPlugin.h>
 #else
 @import on_audio_query_ios;
-#endif
-
-#if __has_include(<pusher_channels_flutter/PusherChannelsFlutterPlugin.h>)
-#import <pusher_channels_flutter/PusherChannelsFlutterPlugin.h>
-#else
-@import pusher_channels_flutter;
 #endif
 
 #if __has_include(<shared_preferences_foundation/SharedPreferencesPlugin.h>)
@@ -86,9 +74,7 @@
   [FFmpegKitFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"FFmpegKitFlutterPlugin"]];
   [FlutterDownloaderPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterDownloaderPlugin"]];
   [JustAudioPlugin registerWithRegistrar:[registry registrarForPlugin:@"JustAudioPlugin"]];
-  [NsdIosPlugin registerWithRegistrar:[registry registrarForPlugin:@"NsdIosPlugin"]];
   [OnAudioQueryPlugin registerWithRegistrar:[registry registrarForPlugin:@"OnAudioQueryPlugin"]];
-  [PusherChannelsFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"PusherChannelsFlutterPlugin"]];
   [SharedPreferencesPlugin registerWithRegistrar:[registry registrarForPlugin:@"SharedPreferencesPlugin"]];
   [SqflitePlugin registerWithRegistrar:[registry registrarForPlugin:@"SqflitePlugin"]];
   [VideoPlayerPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoPlayerPlugin"]];
