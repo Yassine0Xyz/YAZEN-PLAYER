@@ -1,12 +1,9 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../core/theme/theme_provider.dart';
-import '../core/theme/theme_tokens.dart';
 import '../models/media_track.dart';
 
 class VideoThumbnailWidget extends StatefulWidget {
