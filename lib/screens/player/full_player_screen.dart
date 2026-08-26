@@ -284,6 +284,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     onSeek: handler.seek,
                                     height: 38,
                                     barCount: 32,
+                                    profile: AudioVisualizerProfile.full,
                                     seed: item.id,
                                     color:
                                         Theme.of(context).colorScheme.primary,

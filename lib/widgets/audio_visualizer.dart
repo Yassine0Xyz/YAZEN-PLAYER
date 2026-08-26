@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+enum AudioVisualizerProfile { compact, full }
+
 class AudioVisualizer extends StatefulWidget {
   const AudioVisualizer({
     required this.playing,
@@ -15,6 +17,7 @@ class AudioVisualizer extends StatefulWidget {
     this.position,
     this.duration,
     this.onSeek,
+    this.profile = AudioVisualizerProfile.compact,
     super.key,
   });
 
@@ -27,6 +30,7 @@ class AudioVisualizer extends StatefulWidget {
   final Duration? position;
   final Duration? duration;
   final ValueChanged<Duration>? onSeek;
+  final AudioVisualizerProfile profile;
 
   @override
   State<AudioVisualizer> createState() => _AudioVisualizerState();
@@ -35,10 +39,15 @@ class AudioVisualizer extends StatefulWidget {
 class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
   static const _channel = MethodChannel('yazen/audio_visualizer');
+  static const _pollInterval = Duration(milliseconds: 72);
 
-  late final AnimationController _fallbackController;
+  late final AnimationController _colorController;
   Timer? _poller;
   List<double> _levels = const <double>[];
+  List<double> _peaks = const <double>[];
+  List<double> _noiseFloors = const <double>[];
+  List<double> _ceilings = const <double>[];
+  List<int> _peakHoldFrames = const <int>[];
   int? _nativeSessionId;
   bool _nativeSignal = false;
   bool _syncInFlight = false;
@@ -46,9 +55,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void initState() {
     super.initState();
-    _fallbackController = AnimationController(
+    _colorController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(seconds: 18),
     );
     _syncPlayback();
   }
@@ -57,25 +66,24 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   void didUpdateWidget(covariant AudioVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.playing != widget.playing ||
-        oldWidget.audioSessionId != widget.audioSessionId) {
+        oldWidget.audioSessionId != widget.audioSessionId ||
+        oldWidget.barCount != widget.barCount) {
+      _resetSignalState();
       _syncPlayback();
     }
   }
 
   void _syncPlayback() {
     if (widget.playing) {
-      _fallbackController.repeat();
+      // This controller only drives the slow color sweep. Bar movement is
+      // never generated here; it comes from the native FFT signal below.
+      _colorController.repeat();
       unawaited(_startNativeSignal());
     } else {
-      _fallbackController.stop();
-      _fallbackController.value = 0;
+      _colorController.stop();
+      _colorController.value = 0;
       unawaited(_stopNativeSignal());
-      if (mounted) {
-        setState(() {
-          _levels = List<double>.filled(widget.barCount, 0);
-          _nativeSignal = false;
-        });
-      }
+      _resetSignalState();
     }
   }
 
@@ -99,10 +107,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _poller?.cancel();
       _poller =
           started
-              ? Timer.periodic(const Duration(milliseconds: 72), (_) {
+              ? Timer.periodic(_pollInterval, (_) {
                 unawaited(_readNativeSignal());
               })
               : null;
+      if (started) _resetSignalState();
       setState(() {});
     } on MissingPluginException {
       _nativeSignal = false;
@@ -124,26 +133,92 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final count = math.max(1, widget.barCount);
       final previous =
           _levels.length == count ? _levels : List<double>.filled(count, 0);
-      final next = List<double>.generate(count, (index) {
-        // Log-spaced aggregation makes the left bars react to Bass and the
-        // right bars react to progressively higher frequencies.
+      final previousPeaks =
+          _peaks.length == count ? _peaks : List<double>.filled(count, 0);
+      final previousFloors =
+          _noiseFloors.length == count
+              ? _noiseFloors
+              : List<double>.filled(count, 0.012);
+      final previousCeilings =
+          _ceilings.length == count
+              ? _ceilings
+              : List<double>.filled(count, 0.24);
+      final previousHolds =
+          _peakHoldFrames.length == count
+              ? _peakHoldFrames
+              : List<int>.filled(count, 0);
+
+      final next = List<double>.filled(count, 0);
+      final nextPeaks = List<double>.filled(count, 0);
+      final nextFloors = List<double>.filled(count, 0);
+      final nextCeilings = List<double>.filled(count, 0);
+      final nextHolds = List<int>.filled(count, 0);
+
+      for (var index = 0; index < count; index++) {
+        // Log-spaced bands keep bass readable on the left while distributing
+        // the shorter treble bins across the right side.
         final startRatio = math.pow(index / count, 2.05).toDouble();
         final endRatio = math.pow((index + 1) / count, 2.05).toDouble();
         final start = (startRatio * (samples.length - 1)).floor();
         final end = math
             .max(start + 1, (endRatio * (samples.length - 1)).ceil())
             .clamp(start + 1, samples.length);
-        var peak = 0.0;
+
+        var sumSquares = 0.0;
         for (var sampleIndex = start; sampleIndex < end; sampleIndex++) {
-          peak = math.max(peak, samples[sampleIndex]);
+          final sample = samples[sampleIndex];
+          sumSquares += sample * sample;
         }
-        final target = math.sqrt(peak).clamp(0.0, 1.0).toDouble();
+        final sampleCount = math.max(1, end - start);
+        final rawEnergy = math.sqrt(sumSquares / sampleCount);
+
+        // The floor follows silence slowly and follows active signal almost
+        // not at all. This removes device noise without removing quiet music.
+        var floor = previousFloors[index];
+        final floorRate = rawEnergy < floor ? 0.075 : 0.012;
+        floor += (rawEnergy - floor) * floorRate;
+        final gatedEnergy = math.max(0.0, rawEnergy - floor * 1.35 - 0.006);
+
+        // Each band has its own short-term ceiling, so a loud bass hit cannot
+        // flatten the treble and one quiet song cannot make the next one tiny.
+        var ceiling = previousCeilings[index] * 0.992;
+        ceiling = math.max(0.18, ceiling);
+        if (gatedEnergy > ceiling) ceiling = gatedEnergy;
+        final normalized = (gatedEnergy / math.max(ceiling * 0.72, 0.08)).clamp(
+          0.0,
+          1.0,
+        );
+        final target = math.pow(normalized, 0.72).toDouble().clamp(0.0, 1.0);
         final current = previous[index];
-        // Fast attack and slower release keeps beats visible without jitter.
-        final smoothing = target > current ? 0.58 : 0.16;
-        return current + (target - current) * smoothing;
+        final smoothing = target > current ? 0.62 : 0.18;
+        final level = current + (target - current) * smoothing;
+
+        var hold = previousHolds[index];
+        var peak = previousPeaks[index];
+        if (level >= peak) {
+          peak = level;
+          hold = 3;
+        } else if (hold > 0) {
+          hold -= 1;
+        } else {
+          peak *= 0.89;
+        }
+
+        next[index] = level;
+        nextPeaks[index] = peak.clamp(0.0, 1.0);
+        nextFloors[index] = floor.clamp(0.0, 1.0);
+        nextCeilings[index] = ceiling.clamp(0.18, 1.0);
+        nextHolds[index] = hold;
+      }
+
+      if (!mounted || !widget.playing) return;
+      setState(() {
+        _levels = next;
+        _peaks = nextPeaks;
+        _noiseFloors = nextFloors;
+        _ceilings = nextCeilings;
+        _peakHoldFrames = nextHolds;
       });
-      if (mounted) setState(() => _levels = next);
     } on MissingPluginException {
       await _stopNativeSignal();
     } on PlatformException {
@@ -161,15 +236,34 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     } on MissingPluginException {
       // The native bridge is optional on non-Android targets.
     } on PlatformException {
-      // Some devices deny Visualizer access; the animated fallback remains safe.
+      // Some devices deny Visualizer access; the rail remains safely still.
     }
+  }
+
+  void _resetSignalState() {
+    final count = math.max(1, widget.barCount);
+    if (!mounted) {
+      _levels = List<double>.filled(count, 0);
+      _peaks = List<double>.filled(count, 0);
+      _noiseFloors = List<double>.filled(count, 0.012);
+      _ceilings = List<double>.filled(count, 0.24);
+      _peakHoldFrames = List<int>.filled(count, 0);
+      return;
+    }
+    setState(() {
+      _levels = List<double>.filled(count, 0);
+      _peaks = List<double>.filled(count, 0);
+      _noiseFloors = List<double>.filled(count, 0.012);
+      _ceilings = List<double>.filled(count, 0.24);
+      _peakHoldFrames = List<int>.filled(count, 0);
+    });
   }
 
   @override
   void dispose() {
     _poller?.cancel();
     unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
-    _fallbackController.dispose();
+    _colorController.dispose();
     super.dispose();
   }
 
@@ -180,7 +274,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final canSeek = widget.onSeek != null && durationMs > 0;
     return Semantics(
       button: canSeek,
-      label: canSeek ? 'Seekable audio waveform' : 'Audio waveform',
+      label: canSeek ? 'Seekable audio spectrum' : 'Audio spectrum',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown:
@@ -201,13 +295,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
           child: CustomPaint(
             size: Size(double.infinity, widget.height),
             painter: _VisualizerPainter(
-              animation: _fallbackController,
+              animation: _colorController,
               color: color,
               barCount: widget.barCount,
               active: widget.playing,
               phaseOffset: _seedValue(widget.seed),
               levels: _levels,
+              peaks: _peaks,
               useAudioSignal: _nativeSignal,
+              profile: widget.profile,
               progress:
                   durationMs > 0
                       ? ((widget.position?.inMilliseconds ?? 0) / durationMs)
@@ -238,7 +334,9 @@ class _VisualizerPainter extends CustomPainter {
     required this.active,
     required this.phaseOffset,
     required this.levels,
+    required this.peaks,
     required this.useAudioSignal,
+    required this.profile,
     required this.progress,
   }) : super(repaint: animation);
 
@@ -248,59 +346,85 @@ class _VisualizerPainter extends CustomPainter {
   final bool active;
   final double phaseOffset;
   final List<double> levels;
+  final List<double> peaks;
   final bool useAudioSignal;
+  final AudioVisualizerProfile profile;
   final double? progress;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
-    final gap = math.max(2.0, size.width * 0.008);
-    final width = math.max(1.8, (size.width - gap * (barCount - 1)) / barCount);
-    final center = size.width / 2;
+    final gap = math.max(
+      profile == AudioVisualizerProfile.full ? 2.2 : 2.8,
+      size.width * (profile == AudioVisualizerProfile.full ? 0.007 : 0.01),
+    );
+    final width = math.max(1.7, (size.width - gap * (barCount - 1)) / barCount);
+    final verticalCenter = size.height * 0.46;
     final t = animation.value * math.pi * 2;
     final baseHsl = HSLColor.fromColor(color);
     final paint = Paint()..strokeCap = StrokeCap.round;
+    final hasSignal = useAudioSignal && levels.length == barCount;
 
     for (var index = 0; index < barCount; index++) {
       final x = index * (width + gap) + width / 2;
-      final distance = ((x - center).abs() / math.max(center, 1)).clamp(
-        0.0,
-        1.0,
-      );
-      final mirrored = math.sin((1 - distance) * math.pi);
-      final energy =
-          useAudioSignal && levels.length == barCount
-              ? levels[index]
-              : active
-              ? 0.16
-              : 0.10;
-      final barHeight = math.max(
-        3.0,
-        size.height * (0.18 + mirrored * 0.58) * energy.clamp(0.12, 1.0),
-      );
+      final ratio = barCount <= 1 ? 0.0 : index / (barCount - 1);
+      final energy = hasSignal ? levels[index].clamp(0.0, 1.0) : 0.0;
+      final peak =
+          hasSignal && peaks.length == barCount
+              ? peaks[index].clamp(0.0, 1.0)
+              : 0.0;
+      final barHeight =
+          hasSignal ? math.max(3.0, size.height * (0.12 + energy * 0.82)) : 3.0;
+      final top = verticalCenter - barHeight / 2;
+      final bottom = verticalCenter + barHeight / 2;
+
+      // Slow, theme-anchored color travel. Audio energy changes brightness;
+      // it does not trigger random color changes.
       final hue =
-          (baseHsl.hue + index * 8 + math.sin(t * 0.28 + index) * 18) % 360;
-      final bandColor =
-          HSLColor.fromAHSL(
-            active ? 0.42 + energy.clamp(0.0, 1.0) * 0.48 : 0.22,
-            hue,
-            (baseHsl.lightness + 0.08).clamp(0.28, 0.78),
-            0.78,
-          ).toColor();
-      paint
-        ..color = bandColor
-        ..strokeWidth = width;
-      canvas.drawLine(
-        Offset(x, size.height / 2 - barHeight / 2),
-        Offset(x, size.height / 2 + barHeight / 2),
-        paint,
+          (baseHsl.hue + ratio * 46 + math.sin(t * 0.16 + phaseOffset) * 9) %
+          360;
+      final lightness = (baseHsl.lightness + 0.08 + energy * 0.12).clamp(
+        0.34,
+        0.82,
       );
+      final alpha = active ? 0.50 + energy * 0.46 : 0.20;
+      paint
+        ..color =
+            HSLColor.fromAHSL(
+              alpha,
+              hue,
+              (baseHsl.saturation + 0.12).clamp(0.45, 1.0),
+              lightness,
+            ).toColor()
+        ..strokeWidth = width;
+      canvas.drawLine(Offset(x, top), Offset(x, bottom), paint);
+
+      if (profile == AudioVisualizerProfile.full &&
+          hasSignal &&
+          peak > energy) {
+        final peakY = verticalCenter - size.height * (0.12 + peak * 0.82) / 2;
+        paint
+          ..color =
+              HSLColor.fromAHSL(
+                0.72,
+                (hue + 16) % 360,
+                (baseHsl.saturation + 0.16).clamp(0.55, 1.0),
+                (lightness + 0.10).clamp(0.42, 0.92),
+              ).toColor()
+          ..strokeWidth = math.max(1.4, width * 0.72);
+        canvas.drawLine(
+          Offset(x - width * 0.34, peakY),
+          Offset(x + width * 0.34, peakY),
+          paint,
+        );
+      }
     }
+
     if (progress != null) {
       final progressPaint =
           Paint()
-            ..color = color.withValues(alpha: 0.9)
-            ..strokeWidth = 2.4
+            ..color = color.withValues(alpha: 0.92)
+            ..strokeWidth = profile == AudioVisualizerProfile.full ? 2.4 : 1.8
             ..strokeCap = StrokeCap.round;
       final x = size.width * progress!.clamp(0.0, 1.0);
       canvas.drawLine(
@@ -318,6 +442,8 @@ class _VisualizerPainter extends CustomPainter {
       oldDelegate.active != active ||
       oldDelegate.phaseOffset != phaseOffset ||
       oldDelegate.levels != levels ||
+      oldDelegate.peaks != peaks ||
       oldDelegate.useAudioSignal != useAudioSignal ||
+      oldDelegate.profile != profile ||
       oldDelegate.progress != progress;
 }
