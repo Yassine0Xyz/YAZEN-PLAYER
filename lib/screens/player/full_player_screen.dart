@@ -1010,9 +1010,9 @@ class _DockAction extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               AnimatedScale(
-                scale: pulse ? 1.28 : 1,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.elasticOut,
+                scale: pulse ? 1.12 : 1,
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
                 child: Icon(
                   icon,
                   size: 20,
