@@ -139,10 +139,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder:
-          (_) => _LyricsSheet(
+          (sheetContext) => _LyricsSheet(
             lyricsFuture: _loadLyrics(controller, item),
             positionStream: handler.player.positionStream,
             onLineTap: handler.seek,
+            onRetry: () {
+              Navigator.of(sheetContext).pop();
+              _retryLyrics();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted)
+                  _showFullLyrics(context, controller, item, handler);
+              });
+            },
           ),
     );
   }
@@ -151,11 +159,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
     HybridMusicController controller,
     MediaItem item,
   ) {
-    if (_lyricsItemId != item.id) {
+    if (_lyricsItemId != item.id || _lyricsFuture == null) {
       _lyricsItemId = item.id;
       _lyricsFuture = controller.lyricsService.loadFor(item);
     }
     return _lyricsFuture!;
+  }
+
+  void _retryLyrics() {
+    if (!mounted) return;
+    setState(() {
+      _lyricsItemId = null;
+      _lyricsFuture = null;
+    });
   }
 
   @override
@@ -304,6 +320,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                               positionStream:
                                                   handler.player.positionStream,
                                               onLineTap: handler.seek,
+                                              onRetry: _retryLyrics,
                                             )
                                             : const SizedBox(
                                               key: ValueKey('empty-lyrics'),
@@ -1539,11 +1556,13 @@ class _LyricsSheet extends StatelessWidget {
     required this.lyricsFuture,
     required this.positionStream,
     this.onLineTap,
+    required this.onRetry,
   });
 
   final Future<SyncedLyrics?> lyricsFuture;
   final Stream<Duration> positionStream;
   final ValueChanged<Duration>? onLineTap;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -1556,6 +1575,7 @@ class _LyricsSheet extends StatelessWidget {
           lyricsFuture: lyricsFuture,
           positionStream: positionStream,
           onLineTap: onLineTap,
+          onRetry: onRetry,
         ),
       ),
     );

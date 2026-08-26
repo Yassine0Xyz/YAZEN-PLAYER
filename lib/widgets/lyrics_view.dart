@@ -10,6 +10,7 @@ class LyricsView extends StatelessWidget {
     required this.positionStream,
     this.height = 280,
     this.onLineTap,
+    this.onRetry,
     super.key,
   });
 
@@ -17,6 +18,7 @@ class LyricsView extends StatelessWidget {
   final Stream<Duration> positionStream;
   final double height;
   final ValueChanged<Duration>? onLineTap;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +43,7 @@ class LyricsView extends StatelessWidget {
           return _LyricsMessage(
             message: 'No lyrics found for this track.',
             height: height,
+            onRetry: onRetry,
           );
         }
         if (!lyrics.isSynced) {
@@ -48,6 +51,7 @@ class LyricsView extends StatelessWidget {
             message:
                 lyrics.plainText ?? 'Lyrics are available without timestamps.',
             height: height,
+            onRetry: onRetry,
           );
         }
 
@@ -72,6 +76,7 @@ class LyricsView extends StatelessWidget {
     required Future<SyncedLyrics?> lyricsFuture,
     required Stream<Duration> positionStream,
     ValueChanged<Duration>? onLineTap,
+    VoidCallback? onRetry,
     String title = 'Lyrics',
   }) {
     final tokens = context.read<ThemeProvider>().tokens;
@@ -111,6 +116,7 @@ class LyricsView extends StatelessWidget {
                         positionStream: positionStream,
                         height: double.infinity,
                         onLineTap: onLineTap,
+                        onRetry: onRetry,
                       ),
                     ),
                   ),
@@ -248,10 +254,15 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
 }
 
 class _LyricsMessage extends StatelessWidget {
-  const _LyricsMessage({required this.message, required this.height});
+  const _LyricsMessage({
+    required this.message,
+    required this.height,
+    this.onRetry,
+  });
 
   final String message;
   final double height;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -266,10 +277,23 @@ class _LyricsMessage extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: tokens.divider),
       ),
-      child: Text(
-        message,
-        textAlign: TextAlign.center,
-        style: TextStyle(color: tokens.textSecondary, height: 1.5),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: tokens.textSecondary, height: 1.5),
+          ),
+          if (onRetry != null) ...<Widget>[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ],
       ),
     );
   }
