@@ -103,12 +103,16 @@ class LyricsService {
     String title,
     String artist,
   ) {
+    final coreTitle = _withoutMetadataSuffix(title);
     final cleanTitle = _normalize(title);
+    final cleanCoreTitle = _normalize(coreTitle);
     final cleanArtist = _normalize(artist);
     final values = <({String title, String artist})>[
       (title: title, artist: artist),
+      (title: coreTitle, artist: artist),
       (title: cleanTitle, artist: cleanArtist),
-      (title: _withoutVersionSuffix(cleanTitle), artist: cleanArtist),
+      (title: cleanCoreTitle, artist: cleanArtist),
+      (title: _withoutVersionSuffix(cleanCoreTitle), artist: cleanArtist),
     ];
     final seen = <String>{};
     return values
@@ -303,6 +307,10 @@ class LyricsService {
         .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  String _withoutMetadataSuffix(String value) {
+    return value.split(RegExp(r'\s[|•]\s')).first.trim();
   }
 
   String _withoutVersionSuffix(String value) {
