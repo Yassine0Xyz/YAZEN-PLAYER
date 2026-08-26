@@ -452,11 +452,6 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                                       icon: const Icon(Icons.skip_next_rounded),
                                     ),
                                     IconButton(
-                                      tooltip: 'Stop',
-                                      onPressed: _stopVideo,
-                                      icon: const Icon(Icons.stop_rounded),
-                                    ),
-                                    IconButton(
                                       tooltip: 'Forward 10 seconds',
                                       onPressed:
                                           () => _seekBy(
@@ -665,12 +660,6 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
         ],
       ),
     );
-  }
-
-  Future<void> _stopVideo() async {
-    await widget.controller.pause();
-    await widget.controller.seekTo(Duration.zero);
-    _scheduleHudHide();
   }
 
   Future<void> _showSpeedPicker(BuildContext context) async {
