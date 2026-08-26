@@ -263,6 +263,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     playing: isPlaying,
                                     audioSessionId:
                                         handler.player.androidAudioSessionId,
+                                    position: playbackState?.updatePosition,
+                                    duration: handler.player.duration,
+                                    onSeek: handler.seek,
                                     height: 38,
                                     barCount: 32,
                                     seed: item.id,

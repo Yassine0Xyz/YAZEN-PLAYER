@@ -12,6 +12,9 @@ class AudioVisualizer extends StatefulWidget {
     this.barCount = 28,
     this.color,
     this.seed,
+    this.position,
+    this.duration,
+    this.onSeek,
     super.key,
   });
 
@@ -21,6 +24,9 @@ class AudioVisualizer extends StatefulWidget {
   final int barCount;
   final Color? color;
   final String? seed;
+  final Duration? position;
+  final Duration? duration;
+  final ValueChanged<Duration>? onSeek;
 
   @override
   State<AudioVisualizer> createState() => _AudioVisualizerState();
@@ -162,17 +168,46 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
-    return RepaintBoundary(
-      child: CustomPaint(
-        size: Size(double.infinity, widget.height),
-        painter: _VisualizerPainter(
-          animation: _fallbackController,
-          color: color,
-          barCount: widget.barCount,
-          active: widget.playing,
-          phaseOffset: _seedValue(widget.seed),
-          levels: _levels,
-          useAudioSignal: _nativeSignal,
+    final durationMs = widget.duration?.inMilliseconds ?? 0;
+    final canSeek = widget.onSeek != null && durationMs > 0;
+    return Semantics(
+      button: canSeek,
+      label: canSeek ? 'Seekable audio waveform' : 'Audio waveform',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown:
+            canSeek
+                ? (details) {
+                  final width = context.size?.width ?? 0;
+                  if (width <= 0) return;
+                  final fraction = (details.localPosition.dx / width).clamp(
+                    0.0,
+                    1.0,
+                  );
+                  widget.onSeek!(
+                    Duration(milliseconds: (durationMs * fraction).round()),
+                  );
+                }
+                : null,
+        child: RepaintBoundary(
+          child: CustomPaint(
+            size: Size(double.infinity, widget.height),
+            painter: _VisualizerPainter(
+              animation: _fallbackController,
+              color: color,
+              barCount: widget.barCount,
+              active: widget.playing,
+              phaseOffset: _seedValue(widget.seed),
+              levels: _levels,
+              useAudioSignal: _nativeSignal,
+              progress:
+                  durationMs > 0
+                      ? ((widget.position?.inMilliseconds ?? 0) / durationMs)
+                          .clamp(0.0, 1.0)
+                          .toDouble()
+                      : null,
+            ),
+          ),
         ),
       ),
     );
@@ -196,6 +231,7 @@ class _VisualizerPainter extends CustomPainter {
     required this.phaseOffset,
     required this.levels,
     required this.useAudioSignal,
+    required this.progress,
   }) : super(repaint: animation);
 
   final Animation<double> animation;
@@ -205,6 +241,7 @@ class _VisualizerPainter extends CustomPainter {
   final double phaseOffset;
   final List<double> levels;
   final bool useAudioSignal;
+  final double? progress;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -254,6 +291,19 @@ class _VisualizerPainter extends CustomPainter {
         paint,
       );
     }
+    if (progress != null) {
+      final progressPaint =
+          Paint()
+            ..color = color.withValues(alpha: 0.9)
+            ..strokeWidth = 2.4
+            ..strokeCap = StrokeCap.round;
+      final x = size.width * progress!.clamp(0.0, 1.0);
+      canvas.drawLine(
+        Offset(0, size.height - 1.2),
+        Offset(x, size.height - 1.2),
+        progressPaint,
+      );
+    }
   }
 
   @override
@@ -263,5 +313,6 @@ class _VisualizerPainter extends CustomPainter {
       oldDelegate.active != active ||
       oldDelegate.phaseOffset != phaseOffset ||
       oldDelegate.levels != levels ||
-      oldDelegate.useAudioSignal != useAudioSignal;
+      oldDelegate.useAudioSignal != useAudioSignal ||
+      oldDelegate.progress != progress;
 }
