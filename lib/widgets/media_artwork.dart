@@ -54,7 +54,9 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
   void _startLoad() {
     _cacheKey = _keyFor(widget.track);
     final cached = _cacheKey == null ? null : _memoryCache[_cacheKey!];
-    _lastBytes = cached;
+    // Keep the previous frame visible until the replacement artwork is ready.
+    // Clearing this immediately creates a blank flash during track changes.
+    if (cached != null && cached.isNotEmpty) _lastBytes = cached;
     _future = _load(widget.track, _cacheKey);
   }
 
