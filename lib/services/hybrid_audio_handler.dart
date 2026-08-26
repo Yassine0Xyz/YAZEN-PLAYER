@@ -690,6 +690,8 @@ class HybridAudioHandler extends BaseAudioHandler
     _pendingQueueTracks = null;
     _queuePopulationFuture = null;
     await _player.stop();
+    _activeTrack = null;
+    mediaItem.add(null);
     await super.stop();
   }
 

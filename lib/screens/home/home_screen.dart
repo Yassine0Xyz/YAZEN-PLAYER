@@ -893,8 +893,6 @@ class _MiniPlayerHost extends StatefulWidget {
 }
 
 class _MiniPlayerHostState extends State<_MiniPlayerHost> {
-  String? _dismissedTrackId;
-
   @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
@@ -903,7 +901,7 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
       stream: handler.mediaItem,
       builder: (context, mediaSnapshot) {
         final item = mediaSnapshot.data;
-        if (item == null || item.id == _dismissedTrackId) {
+        if (item == null) {
           return const SizedBox.shrink();
         }
         return StreamBuilder<PlaybackState>(
@@ -917,10 +915,7 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
               onPlayPause: controller.togglePlayback,
               onPrevious: handler.skipToPrevious,
               onNext: handler.skipToNext,
-              onDismiss: () {
-                setState(() => _dismissedTrackId = item.id);
-                unawaited(handler.stop());
-              },
+              onDismiss: () => unawaited(handler.stop()),
               onRepeat: controller.toggleRepeat,
               onQueue: () => Navigator.of(context).push(QueueScreen.route()),
               repeatOne: controller.repeatOne,
