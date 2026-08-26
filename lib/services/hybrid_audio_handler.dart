@@ -210,12 +210,11 @@ class HybridAudioHandler extends BaseAudioHandler
     final item = track.toMediaItem();
     final sources = await _resolveSources(track, item);
     if (generation != _queueGeneration) return;
-    _queueTracks
-      ..clear()
-      ..add(track);
-    _activeTrack = track;
-    mediaItem.add(item);
-    queue.add(<MediaItem>[item]);
+    // A direct selection is a source replacement, not an append. Stop the
+    // previous native source before loading the next one so just_audio does
+    // not keep a stale loading session alive behind the new request.
+    await _player.stop();
+    if (generation != _queueGeneration) return;
 
     Object? lastError;
     for (final source in sources) {
@@ -253,6 +252,13 @@ class HybridAudioHandler extends BaseAudioHandler
         'Voice only stream could not start after primary and backup attempts: $lastError',
       );
     }
+    if (generation != _queueGeneration) return;
+    _queueTracks
+      ..clear()
+      ..add(track);
+    _activeTrack = track;
+    mediaItem.add(item);
+    queue.add(<MediaItem>[item]);
     _emitPartyAction(PartyAction.trackChange);
     _persistPlayback();
     if (autoPlay) {
