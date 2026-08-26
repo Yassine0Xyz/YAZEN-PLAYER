@@ -7,7 +7,6 @@ import '../services/hybrid_audio_handler.dart';
 import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
-import '../services/youtube_service.dart';
 
 class HybridMusicController extends ChangeNotifier {
   HybridMusicController({
@@ -29,42 +28,35 @@ class HybridMusicController extends ChangeNotifier {
 
   LibraryTab _selectedTab = LibraryTab.songs;
   List<MediaTrack> _localSongs = const <MediaTrack>[];
-  List<MediaTrack> _youtubeResults = const <MediaTrack>[];
   List<MediaTrack> _localVideos = const <MediaTrack>[];
   List<ArtistModel> _artists = const <ArtistModel>[];
   List<AlbumModel> _albums = const <AlbumModel>[];
   List<PlaylistModel> _playlists = const <PlaylistModel>[];
   List<String> _folders = const <String>[];
   bool _isLoading = false;
-  bool _isSearching = false;
   bool _repeatOne = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
-  int _searchGeneration = 0;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
-  List<MediaTrack> get youtubeResults => _youtubeResults;
   List<MediaTrack> get localVideos => _localVideos;
   List<ArtistModel> get artists => _artists;
   List<AlbumModel> get albums => _albums;
   List<PlaylistModel> get playlists => _playlists;
   List<String> get folders => _folders;
   bool get isLoading => _isLoading;
-  bool get isSearching => _isSearching;
   bool get repeatOne => _repeatOne;
   LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
   HybridAudioHandler get audioHandler => _audioHandler;
   LyricsService get lyricsService => _lyricsService;
-  YoutubeService get youtubeService => _audioHandler.youtubeService;
   LocalPlaylistManager get playlistManager => _playlistManager;
 
   List<MediaTrack> get visibleTracks {
     final tracks = switch (_selectedTab) {
       LibraryTab.videos => _localVideos,
-      LibraryTab.onlineVideos => _youtubeResults,
       LibraryTab.playlists => _localSongs,
       LibraryTab.folders => _localSongs,
       LibraryTab.artists => _localSongs,
@@ -141,46 +133,7 @@ class HybridMusicController extends ChangeNotifier {
     }
   }
 
-  Future<void> searchYouTube(String query) async {
-    final normalizedQuery = query.trim();
-    if (normalizedQuery.isEmpty) return;
-
-    final generation = ++_searchGeneration;
-    _isSearching = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final results = await _audioHandler.searchYouTube(normalizedQuery);
-      if (generation != _searchGeneration) return;
-      _youtubeResults = results;
-      _selectedTab = LibraryTab.onlineVideos;
-    } catch (error) {
-      if (generation != _searchGeneration) return;
-      _errorMessage = 'YouTube search failed: $error';
-    } finally {
-      if (generation == _searchGeneration) {
-        _isSearching = false;
-        notifyListeners();
-      }
-    }
-  }
-
-  void removeOnlineVideo(MediaTrack track) {
-    final videoId = track.youtubeId;
-    _youtubeResults = _youtubeResults
-        .where(
-          (candidate) =>
-              candidate.youtubeId != videoId && candidate.id != track.id,
-        )
-        .toList(growable: false);
-    notifyListeners();
-  }
-
   Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);
-
-  Future<void> cancelYouTubeDownload(String videoId) =>
-      _audioHandler.cancelYouTubeDownload(videoId);
 
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 
@@ -194,13 +147,6 @@ class HybridMusicController extends ChangeNotifier {
 
   Future<void> addToPlaylist(String playlistId, MediaTrack track) =>
       _playlistManager.addToPlaylist(playlistId, track);
-
-  Future<void> cacheYouTubeTrack(
-    MediaTrack track, {
-    void Function(double progress)? onProgress,
-  }) {
-    return _audioHandler.cacheYouTubeTrack(track, onProgress: onProgress);
-  }
 
   Future<void> playTrack(MediaTrack track) async {
     try {

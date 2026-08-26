@@ -95,7 +95,6 @@ class LibraryTabs extends StatelessWidget {
   IconData _iconFor(LibraryTab tab) {
     return switch (tab) {
       LibraryTab.videos => Icons.ondemand_video_rounded,
-      LibraryTab.onlineVideos => Icons.video_library_rounded,
       LibraryTab.songs => Icons.music_note_rounded,
       LibraryTab.playlists => Icons.queue_music_rounded,
       LibraryTab.folders => Icons.folder_rounded,

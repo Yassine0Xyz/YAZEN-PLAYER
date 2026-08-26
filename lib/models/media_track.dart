@@ -150,7 +150,6 @@ enum TrackSource { local, youtube }
 
 enum LibraryTab {
   videos('Local Videos'),
-  onlineVideos('Online Videos'),
   songs('Songs'),
   playlists('Playlists'),
   folders('Folders'),

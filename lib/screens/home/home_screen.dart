@@ -10,17 +10,14 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../screens/downloads/downloads_screen.dart';
 import '../../models/media_track.dart';
 import '../../core/theme/theme_provider.dart';
-import '../../screens/discover/youtube_search_screen.dart';
 import '../../screens/effects/equalizer_screen.dart';
 import '../../screens/library/local_media_screen.dart';
-import '../../screens/party/hybrid_party_screen.dart';
 import '../../screens/queue/queue_screen.dart';
 import '../../screens/settings/settings_screen.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/mini_player.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../player/full_player_screen.dart';
-import '../tube/tube_mode_screen.dart';
 import 'widgets/library_tabs.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -80,17 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
                   child: _TopQuickNav(
-                    onDiscover:
-                        () => Navigator.of(
-                          context,
-                        ).push(YoutubeSearchScreen.route()),
-                    onTube:
-                        () =>
-                            Navigator.of(context).push(TubeModeScreen.route()),
-                    onParty:
-                        () => Navigator.of(
-                          context,
-                        ).push(HybridPartyScreen.route()),
                     onDownloads:
                         () =>
                             Navigator.of(context).push(DownloadsScreen.route()),
@@ -186,14 +172,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 _HeaderAction(
-                  icon: Icons.search_rounded,
-                  tooltip: 'Search local and YouTube media',
-                  onPressed:
-                      () => Navigator.of(
-                        context,
-                      ).push(YoutubeSearchScreen.route()),
-                ),
-                _HeaderAction(
                   icon: Icons.tune_rounded,
                   tooltip: 'Filter and sort library',
                   onPressed: () => _showLibrarySort(context),
@@ -210,15 +188,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed:
                         () =>
                             Navigator.of(context).push(EqualizerScreen.route()),
-                  ),
-                if (!compact)
-                  _HeaderAction(
-                    icon: Icons.groups_rounded,
-                    tooltip: 'Party Mode',
-                    onPressed:
-                        () => Navigator.of(
-                          context,
-                        ).push(HybridPartyScreen.route()),
                   ),
                 _HeaderAction(
                   icon: Icons.palette_outlined,
@@ -298,16 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _TopQuickNav extends StatelessWidget {
-  const _TopQuickNav({
-    required this.onDiscover,
-    required this.onTube,
-    required this.onParty,
-    required this.onDownloads,
-  });
-
-  final VoidCallback onDiscover;
-  final VoidCallback onTube;
-  final VoidCallback onParty;
+  const _TopQuickNav({required this.onDownloads});
   final VoidCallback onDownloads;
 
   @override
@@ -317,33 +277,6 @@ class _TopQuickNav extends StatelessWidget {
       height: 34,
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: _QuickNavChip(
-              icon: Icons.search_rounded,
-              label: 'Discover',
-              color: tokens.accent,
-              onTap: onDiscover,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _QuickNavChip(
-              icon: Icons.ondemand_video_rounded,
-              label: 'Tube',
-              color: tokens.accentStrong,
-              onTap: onTube,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _QuickNavChip(
-              icon: Icons.groups_rounded,
-              label: 'Party',
-              color: tokens.accent,
-              onTap: onParty,
-            ),
-          ),
-          const SizedBox(width: 8),
           Expanded(
             child: _QuickNavChip(
               icon: Icons.download_rounded,

@@ -7,18 +7,15 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/local_playlist_manager.dart';
-import '../../services/youtube_service.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/shimmer_skeleton.dart';
 import '../../widgets/playlist_picker_sheet.dart';
-import '../../widgets/download_picker_sheet.dart';
 import '../../widgets/video_thumbnail.dart';
 import '../home/widgets/library_tabs.dart';
 import '../home/widgets/track_list_tile.dart';
 import '../collections/favorites_screen.dart';
 import '../collections/playlist_details_screen.dart';
 import '../player/yazen_video_player_screen.dart';
-import '../discover/youtube_video_detail_screen.dart';
 
 class LocalMediaScreen extends StatelessWidget {
   const LocalMediaScreen({
@@ -67,14 +64,7 @@ class LocalMediaScreen extends StatelessWidget {
         folders: controller.folders,
         tracks: controller.localSongs,
       ),
-      LibraryTab.videos => _VideosView(
-        tracks: controller.visibleTracks,
-        online: false,
-      ),
-      LibraryTab.onlineVideos => _VideosView(
-        tracks: controller.youtubeResults,
-        online: true,
-      ),
+      LibraryTab.videos => _VideosView(tracks: controller.visibleTracks),
       LibraryTab.playlists => _PlaylistsView(
         devicePlaylists: controller.playlists,
         customPlaylists: controller.playlistManager.playlists,
@@ -364,21 +354,18 @@ class _FolderRow extends StatelessWidget {
 }
 
 class _VideosView extends StatelessWidget {
-  const _VideosView({required this.tracks, required this.online});
+  const _VideosView({required this.tracks});
 
   final List<MediaTrack> tracks;
-  final bool online;
 
   @override
   Widget build(BuildContext context) {
     if (tracks.isEmpty) {
-      return _CategoryEmptyState(
+      return const _CategoryEmptyState(
         icon: Icons.ondemand_video_rounded,
-        title: online ? 'No online videos yet' : 'No local videos yet',
+        title: 'No local videos yet',
         subtitle:
-            online
-                ? 'Search YouTube from Discover and your results will appear here.'
-                : 'Videos on this device will appear here after video permission is granted.',
+            'Videos on this device will appear here after video permission is granted.',
       );
     }
     return ListView.separated(
@@ -390,181 +377,11 @@ class _VideosView extends StatelessWidget {
         return _VideoPreviewCard(
           track: track,
           onPlay:
-              online
-                  ? () => _showOnlineVideoActions(context, track)
-                  : () => Navigator.of(
-                    context,
-                  ).push(YazenVideoPlayerScreen.route(track)),
+              () => Navigator.of(
+                context,
+              ).push(YazenVideoPlayerScreen.route(track)),
         );
       },
-    );
-  }
-}
-
-enum _OnlineVideoAction { playVideo, voiceOnly, download, playlist, remove }
-
-Future<void> _showOnlineVideoActions(
-  BuildContext context,
-  MediaTrack track,
-) async {
-  final action = await showModalBottomSheet<_OnlineVideoAction>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (sheetContext) {
-      final tokens = sheetContext.read<ThemeProvider>().tokens;
-      return SafeArea(
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-          decoration: BoxDecoration(
-            color: tokens.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      track.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.pop(sheetContext),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              Text(
-                '${track.artist} · Online',
-                style: TextStyle(color: tokens.textSecondary, fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              _OnlineActionTile(
-                icon: Icons.ondemand_video_rounded,
-                title: 'Play Video',
-                subtitle: 'Resolve a fresh playable video stream',
-                onTap:
-                    () => Navigator.pop(
-                      sheetContext,
-                      _OnlineVideoAction.playVideo,
-                    ),
-              ),
-              _OnlineActionTile(
-                icon: Icons.headphones_rounded,
-                title: 'Voice only',
-                subtitle: 'Play audio in the background',
-                onTap:
-                    () => Navigator.pop(
-                      sheetContext,
-                      _OnlineVideoAction.voiceOnly,
-                    ),
-              ),
-              _OnlineActionTile(
-                icon: Icons.download_rounded,
-                title: 'Download',
-                subtitle: 'Choose Classic, MP3, or available video quality',
-                onTap:
-                    () => Navigator.pop(
-                      sheetContext,
-                      _OnlineVideoAction.download,
-                    ),
-              ),
-              _OnlineActionTile(
-                icon: Icons.playlist_add_rounded,
-                title: 'Add to Playlist',
-                subtitle: 'Keep this online item in a local playlist',
-                onTap:
-                    () => Navigator.pop(
-                      sheetContext,
-                      _OnlineVideoAction.playlist,
-                    ),
-              ),
-              _OnlineActionTile(
-                icon: Icons.history_toggle_off_rounded,
-                title: 'Remove from Online History',
-                subtitle: 'Remove it from this Online Videos list',
-                onTap:
-                    () =>
-                        Navigator.pop(sheetContext, _OnlineVideoAction.remove),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-  if (!context.mounted || action == null) return;
-  final controller = context.read<HybridMusicController>();
-  final videoId = track.youtubeId;
-  if (videoId == null || videoId.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('This online item has no stable video ID.')),
-    );
-    return;
-  }
-  switch (action) {
-    case _OnlineVideoAction.playVideo:
-      await Navigator.of(context).push(
-        YoutubeVideoDetailScreen.route(
-          YoutubeVideoResult(
-            videoId: videoId,
-            title: track.title,
-            author: track.artist,
-            duration: track.duration,
-            thumbnailUrl: track.artworkUri,
-            viewCount: track.viewCount,
-          ),
-        ),
-      );
-    case _OnlineVideoAction.voiceOnly:
-      await controller.playTrack(track);
-      if (!context.mounted) return;
-      final error = controller.errorMessage;
-      if (error != null && error.isNotEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
-      }
-    case _OnlineVideoAction.download:
-      await showDownloadPicker(context, track);
-    case _OnlineVideoAction.playlist:
-      await showAddToPlaylistSheet(context, track);
-    case _OnlineVideoAction.remove:
-      controller.removeOnlineVideo(track);
-  }
-}
-
-class _OnlineActionTile extends StatelessWidget {
-  const _OnlineActionTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: tokens.accent),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(color: tokens.textSecondary, fontSize: 11),
-      ),
-      onTap: onTap,
     );
   }
 }
