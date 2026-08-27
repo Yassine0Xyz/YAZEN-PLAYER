@@ -20,8 +20,7 @@ Future<void> main() async {
   final audioHandler = await AudioService.init<HybridAudioHandler>(
     builder: HybridAudioHandler.new,
     config: const AudioServiceConfig(
-      androidNotificationChannelId:
-          'com.example.hybrid_music_player.channel.audio',
+      androidNotificationChannelId: 'com.example.yazen.channel.audio',
       androidNotificationChannelName: 'Music playback',
       androidNotificationOngoing: false,
       androidStopForegroundOnPause: false,

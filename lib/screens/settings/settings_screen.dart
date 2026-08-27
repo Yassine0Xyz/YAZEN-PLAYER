@@ -19,16 +19,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _appVersion = '0.1.0+1';
-  static const _wifiCacheKey = 'echo.settings.cache_wifi_only';
-  static const _gaplessKey = 'echo.settings.gapless_playback';
-  static const _notificationsKey = 'echo.settings.playback_notifications';
-  static const _equalizerKey = 'echo.settings.equalizer_enabled';
-  static const _surroundKey = 'echo.settings.surround_enabled';
-  static const _speedKey = 'echo.settings.playback_speed';
+  static const _equalizerKey = 'yazen.settings.equalizer_enabled';
+  static const _surroundKey = 'yazen.settings.surround_enabled';
+  static const _speedKey = 'yazen.settings.playback_speed';
 
-  bool _cacheOnWifiOnly = true;
-  bool _gaplessPlayback = true;
-  bool _playbackNotifications = true;
   bool _equalizerEnabled = true;
   bool _surroundEnabled = false;
   double _playbackSpeed = 1.0;
@@ -106,35 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (value) => _setSurround(controller, value),
                 ),
                 Divider(color: tokens.divider, height: 1),
-                _PreferenceSwitch(
-                  icon: Icons.all_inclusive_rounded,
-                  title: 'Gapless playback',
-                  subtitle: 'Reduce silence between queued tracks',
-                  value: _gaplessPlayback,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _gaplessKey,
-                        value,
-                        (next) => _gaplessPlayback = next,
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
-                _PreferenceSwitch(
-                  icon: Icons.notifications_none_rounded,
-                  title: 'Playback notifications',
-                  subtitle:
-                      'Keep lock-screen and notification controls visible',
-                  value: _playbackNotifications,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _notificationsKey,
-                        value,
-                        (next) => _playbackNotifications = next,
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.speed_rounded, color: tokens.accent),
@@ -189,20 +154,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             tokens: tokens,
             child: Column(
               children: <Widget>[
-                _PreferenceSwitch(
-                  icon: Icons.wifi_rounded,
-                  title: 'Cache on Wi-Fi only',
-                  subtitle: 'Avoid mobile-data downloads for offline audio',
-                  value: _cacheOnWifiOnly,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _wifiCacheKey,
-                        value,
-                        (next) => _cacheOnWifiOnly = next,
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
                 FutureBuilder<int>(
                   future: controller.audioHandler.cache.totalBytes(),
                   builder: (context, snapshot) {
@@ -235,14 +186,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          _SectionLabel(label: 'About Echo', tokens: tokens),
+          _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.graphic_eq_rounded, color: tokens.accent),
               title: const Text(
-                'Echo',
+                'YAZEN',
                 style: TextStyle(fontWeight: FontWeight.w900),
               ),
               subtitle: Text(
@@ -261,9 +212,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final preferences = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _cacheOnWifiOnly = preferences.getBool(_wifiCacheKey) ?? true;
-      _gaplessPlayback = preferences.getBool(_gaplessKey) ?? true;
-      _playbackNotifications = preferences.getBool(_notificationsKey) ?? true;
       _equalizerEnabled = preferences.getBool(_equalizerKey) ?? true;
       _surroundEnabled = preferences.getBool(_surroundKey) ?? false;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;

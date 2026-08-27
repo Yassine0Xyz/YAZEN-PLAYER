@@ -157,7 +157,7 @@ class YouTubeAudioCache {
       final request = await client.getUrl(streamUri);
       request.headers.set(
         HttpHeaders.userAgentHeader,
-        'Echo/1.0 (Flutter music player)',
+        'YAZEN/1.0 (Android music player)',
       );
       final response = await request.close();
       if (response.statusCode < 200 || response.statusCode >= 300) {

@@ -87,7 +87,7 @@ class HybridAudioHandler extends BaseAudioHandler
   DateTime? _sleepDeadline;
   Future<void> _lastResumeSave = Future<void>.value();
   Future<void> _navigationTail = Future<void>.value();
-  static const _effectsChannel = MethodChannel('echo/audio_effects');
+  static const _effectsChannel = MethodChannel('yazen/audio_effects');
   bool _threeDSurroundEnabled = false;
   // Kept fail-closed until a device-safe native effects implementation is
   // explicitly validated. Playback itself must remain effects-free and stable.

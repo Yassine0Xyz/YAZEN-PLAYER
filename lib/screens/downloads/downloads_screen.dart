@@ -347,7 +347,7 @@ class _EmptyDownloads extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Choose Download from Discover to keep audio or video offline.',
+              'Downloaded audio and video will appear here when they are ready offline.',
               textAlign: TextAlign.center,
               style: TextStyle(color: tokens.textSecondary),
             ),
