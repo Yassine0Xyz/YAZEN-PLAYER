@@ -148,43 +148,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          _SectionLabel(label: 'Storage', tokens: tokens),
-          _SettingsCard(
-            tokens: tokens,
-            child: Column(
-              children: <Widget>[
-                FutureBuilder<int>(
-                  future: controller.audioHandler.cache.totalBytes(),
-                  builder: (context, snapshot) {
-                    final size =
-                        snapshot.data == null
-                            ? 'Calculating…'
-                            : _formatBytes(snapshot.data!);
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.sd_storage_outlined,
-                        color: tokens.accent,
-                      ),
-                      title: const Text(
-                        'YouTube audio cache',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      subtitle: Text(
-                        '$size used · 512 MB maximum',
-                        style: TextStyle(color: tokens.textSecondary),
-                      ),
-                      trailing: TextButton(
-                        onPressed: () => _clearCache(controller),
-                        child: const Text('Clear'),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
           _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
@@ -296,41 +259,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       value,
       (next) => _surroundEnabled = next,
     );
-  }
-
-  Future<void> _clearCache(HybridMusicController controller) async {
-    final shouldClear = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Clear YouTube cache?'),
-            content: const Text(
-              'Completed offline audio will be removed. Your playlists and favorites will remain untouched.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Clear cache'),
-              ),
-            ],
-          ),
-    );
-    if (shouldClear != true) return;
-    await controller.audioHandler.cache.clearAll();
-    if (!mounted) return;
-    setState(() {});
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('YouTube cache cleared')));
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 

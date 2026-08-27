@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../services/linux_pcm_spectrum_service.dart';
 
 enum AudioVisualizerProfile { compact, full }
 
@@ -58,6 +61,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   String? _nativeMode;
   bool _nativeAttached = false;
   bool _pcmAttached = false;
+  bool _pcmUnavailable = false;
+  bool _linuxAttached = false;
+  bool _linuxUnavailable = false;
   bool _hasFftSignal = false;
   int _silentReadCount = 0;
   int _syncGeneration = 0;
@@ -104,6 +110,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
     _colorController.stop();
     _colorController.value = 0;
+    _pcmUnavailable = false;
+    _linuxUnavailable = false;
     _resetSignalState();
     if (!widget.playing) return;
 
@@ -115,7 +123,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     bool allowPcm = true,
   }) async {
     if (!mounted || !widget.playing || generation != _syncGeneration) return;
-    if (allowPcm && widget.sourceUri != null) {
+    if (Platform.isLinux && widget.sourceUri != null && !_linuxUnavailable) {
+      final started = await _startLinuxPcmSignal(generation);
+      if (started) return;
+      _linuxUnavailable = true;
+      _nativeMode = 'unavailable';
+      if (mounted) setState(() {});
+      return;
+    }
+    if (allowPcm && widget.sourceUri != null && !_pcmUnavailable) {
       final started = await _startPcmSignal(generation);
       if (started) return;
     }
@@ -176,6 +192,34 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     }
   }
 
+  Future<bool> _startLinuxPcmSignal(int generation) async {
+    final uri = widget.sourceUri;
+    if (uri == null ||
+        !mounted ||
+        !widget.playing ||
+        generation != _syncGeneration) {
+      return false;
+    }
+    final started = await LinuxPcmSpectrumService.instance.start(uri);
+    if (!mounted || !widget.playing || generation != _syncGeneration) {
+      if (started) await LinuxPcmSpectrumService.instance.stop();
+      return false;
+    }
+    _linuxAttached = started;
+    _pcmAttached = false;
+    _nativeAttached = false;
+    _nativeMode = started ? 'linux_pcm_file' : 'unavailable';
+    _hasFftSignal = false;
+    _silentReadCount = 0;
+    _poller?.cancel();
+    _poller =
+        started
+            ? Timer.periodic(_pollInterval, (_) => unawaited(_readFrame()))
+            : null;
+    if (mounted) setState(() {});
+    return started;
+  }
+
   Future<bool> _startPcmSignal(int generation) async {
     final uri = widget.sourceUri;
     if (uri == null ||
@@ -230,11 +274,33 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   Future<void> _readFrame() async {
-    if (_pcmAttached) {
+    if (_linuxAttached) {
+      _readLinuxSignal();
+    } else if (_pcmAttached) {
       await _readPcmSignal();
     } else {
       await _readNativeSignal();
     }
+  }
+
+  void _readLinuxSignal() {
+    if (!mounted || !widget.playing || !_linuxAttached) return;
+    final response = LinuxPcmSpectrumService.instance.read(
+      widget.position?.inMilliseconds ?? 0,
+    );
+    if (response['state'] != 'live') return;
+    final bands = (response['bands'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<num>()
+        .map((value) => value.toDouble().clamp(0.0, 1.0))
+        .toList(growable: false);
+    if (bands.isEmpty) return;
+    _logSignalDiagnostics(bands);
+    _silentReadCount = 0;
+    if (!_hasFftSignal) {
+      _hasFftSignal = true;
+      _colorController.repeat();
+    }
+    _applyPcmBands(bands);
   }
 
   Future<void> _readPcmSignal() async {
@@ -249,6 +315,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final state = response['state']?.toString();
       if (state == 'preparing') return;
       if (state != 'live') {
+        _pcmUnavailable = true;
         _pcmAttached = false;
         _hasFftSignal = false;
         await _channel.invokeMethod<void>('stopPcm');
@@ -270,9 +337,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       }
       _applyPcmBands(bands);
     } on MissingPluginException {
+      _pcmUnavailable = true;
       _pcmAttached = false;
       await _startNativeSignal(_syncGeneration, allowPcm: false);
     } on PlatformException {
+      _pcmUnavailable = true;
       _pcmAttached = false;
       await _startNativeSignal(_syncGeneration, allowPcm: false);
     }
@@ -469,8 +538,21 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _nativeMode = null;
     _nativeAttached = false;
     _pcmAttached = false;
+    _pcmUnavailable = false;
+    _linuxAttached = false;
+    _linuxUnavailable = false;
     _hasFftSignal = false;
     _silentReadCount = 0;
+    if (Platform.isLinux) {
+      await LinuxPcmSpectrumService.instance.stop();
+    }
+    try {
+      await _channel.invokeMethod<void>('stopPcm');
+    } on MissingPluginException {
+      // Some platforms do not expose the PCM bridge.
+    } on PlatformException {
+      // A missing PCM session is already stopped.
+    }
     try {
       await _channel.invokeMethod<void>('stop');
     } on MissingPluginException {
@@ -497,6 +579,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _syncGeneration++;
     _retryTimer?.cancel();
     _poller?.cancel();
+    if (Platform.isLinux) {
+      unawaited(LinuxPcmSpectrumService.instance.stop());
+    }
+    unawaited(_channel.invokeMethod<void>('stopPcm').catchError((_) {}));
     unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
     _colorController.dispose();
     super.dispose();
@@ -541,7 +627,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               phaseOffset: _seedValue(widget.seed),
               levels: _levels,
               peaks: _peaks,
-              useAudioSignal: _nativeAttached && _hasFftSignal,
+              useAudioSignal:
+                  (_nativeAttached || _pcmAttached || _linuxAttached) &&
+                  _hasFftSignal,
               profile: widget.profile,
               progress:
                   durationMs > 0

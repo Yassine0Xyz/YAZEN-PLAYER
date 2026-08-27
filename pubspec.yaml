@@ -1,5 +1,5 @@
 name: yazen
-description: A high-performance hybrid music player for local audio and YouTube streaming.
+description: A high-performance local-first media player for audio and video.
 publish_to: "none"
 version: 0.1.0+1
 
@@ -18,9 +18,8 @@ dependencies:
   audio_service: ^0.18.19
   audio_session: ^0.2.2
 
-  # Local media library and YouTube stream discovery.
+  # Local media library.
   on_audio_query: ^2.9.0
-  youtube_explode_dart: ^3.1.0
 
   # Lightweight reactive state propagation.
   provider: ^6.1.5+1
@@ -31,9 +30,6 @@ dependencies:
   http: ^1.5.0
 
   cupertino_icons: ^1.0.8
-  ffmpeg_kit_flutter_new_full: ^2.5.2
-  dio: ^5.11.0
-  flutter_downloader: ^1.12.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

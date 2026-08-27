@@ -1,28 +1,18 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
-
 import '../models/media_track.dart';
 import 'playback_state_store.dart';
-import 'youtube_audio_cache.dart';
-import 'youtube_service.dart';
 
 /// Single source of truth for audio playback, notification controls, and queue metadata.
 ///
-/// The handler resolves YouTube URLs just before playback because stream URLs are
-/// temporary, then stores the resulting audio bytes through [YouTubeAudioCache].
+/// Single source of truth for local audio playback and queue metadata.
 class HybridAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   factory HybridAudioHandler({
     AudioPlayer? player,
-    YoutubeExplode? youtube,
-    YoutubeService? youtubeService,
-    YouTubeAudioCache? cache,
     PlaybackStateStore? playbackStore,
     AndroidEqualizer? equalizer,
   }) {
@@ -34,8 +24,6 @@ class HybridAudioHandler extends BaseAudioHandler
         player ?? AudioPlayer(handleInterruptions: false, maxSkipsOnError: 2);
     return HybridAudioHandler._(
       player: resolvedPlayer,
-      youtubeService: youtubeService ?? YoutubeService(client: youtube),
-      cache: cache ?? YouTubeAudioCache(),
       playbackStore: playbackStore ?? const PlaybackStateStore(),
       equalizer: resolvedEqualizer,
     );
@@ -43,13 +31,9 @@ class HybridAudioHandler extends BaseAudioHandler
 
   HybridAudioHandler._({
     required AudioPlayer player,
-    required YoutubeService youtubeService,
-    required YouTubeAudioCache cache,
     required PlaybackStateStore playbackStore,
     required AndroidEqualizer equalizer,
   }) : _player = player,
-       _youtubeService = youtubeService,
-       _cache = cache,
        _playbackStore = playbackStore,
        _equalizer = equalizer {
     _subscriptions.add(
@@ -71,8 +55,6 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   final AudioPlayer _player;
-  final YoutubeService _youtubeService;
-  final YouTubeAudioCache _cache;
   final PlaybackStateStore _playbackStore;
   final AndroidEqualizer _equalizer;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -98,8 +80,6 @@ class HybridAudioHandler extends BaseAudioHandler
 
   AudioPlayer get player => _player;
   MediaTrack? get activeTrack => _activeTrack;
-  YouTubeAudioCache get cache => _cache;
-  YoutubeService get youtubeService => _youtubeService;
   AndroidEqualizer get equalizer => _equalizer;
   bool get threeDSurroundEnabled => _threeDSurroundEnabled;
   bool get equalizerAvailable => _equalizerAvailable;
@@ -222,51 +202,12 @@ class HybridAudioHandler extends BaseAudioHandler
     await _player.stop();
     if (!stillCurrent()) return;
 
-    Object? lastError;
     for (final source in sources) {
-      try {
-        await _player.setAudioSource(source);
-        if (!stillCurrent()) {
-          await _player.stop();
-          return;
-        }
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (track.isLocal) rethrow;
+      await _player.setAudioSource(source);
+      if (!stillCurrent()) {
+        await _player.stop();
+        return;
       }
-    }
-    if (lastError != null && !track.isLocal) {
-      try {
-        if (!stillCurrent()) return;
-        final fallbackUri = await _youtubeService.getFallbackAudioStreamUrl(
-          track.youtubeId!,
-        );
-        if (!stillCurrent()) return;
-        await _player.setAudioSource(
-          AudioSource.uri(
-            fallbackUri,
-            headers: const <String, String>{
-              'User-Agent': 'YAZEN/1.0 (Android)',
-              'Accept': '*/*',
-            },
-            tag: item,
-          ),
-        );
-        if (!stillCurrent()) {
-          await _player.stop();
-          return;
-        }
-        lastError = null;
-      } catch (fallbackError) {
-        lastError = fallbackError;
-      }
-    }
-    if (lastError != null) {
-      throw StateError(
-        'Voice only stream could not start after primary and backup attempts: $lastError',
-      );
     }
     if (!stillCurrent()) return;
     _queueTracks
@@ -274,84 +215,7 @@ class HybridAudioHandler extends BaseAudioHandler
       ..add(track);
     _publishQueueState(<MediaItem>[item], 0);
     _persistPlayback();
-    if (autoPlay) {
-      if (!stillCurrent()) return;
-      await play();
-      if (!track.isLocal) {
-        await _confirmYoutubePlayback(track, item, isCurrent: stillCurrent);
-      }
-    }
-  }
-
-  Future<void> _confirmYoutubePlayback(
-    MediaTrack track,
-    MediaItem item, {
-    bool Function()? isCurrent,
-  }) async {
-    bool stillCurrent() => isCurrent?.call() ?? true;
-    try {
-      await _waitForReady();
-      return;
-    } catch (error) {
-      await _player.stop();
-      if (!stillCurrent()) return;
-      final sources = await _resolveSources(track, item);
-      Object? lastError;
-      for (final source in sources) {
-        if (!stillCurrent()) return;
-        try {
-          await _player.setAudioSource(source);
-          if (!stillCurrent()) return;
-          await play();
-          await _waitForReady();
-          if (stillCurrent()) return;
-        } catch (retryError) {
-          lastError = retryError;
-          await _player.stop();
-        }
-      }
-      if (!stillCurrent()) return;
-      try {
-        final fallbackUri = await _youtubeService.getFallbackAudioStreamUrl(
-          track.youtubeId!,
-        );
-        if (!stillCurrent()) return;
-        await _player.setAudioSource(
-          AudioSource.uri(
-            fallbackUri,
-            headers: const <String, String>{
-              'User-Agent': 'YAZEN/1.0 (Android)',
-              'Accept': '*/*',
-            },
-            tag: item,
-          ),
-        );
-        if (!stillCurrent()) {
-          await _player.stop();
-          return;
-        }
-        await play();
-        await _waitForReady();
-        if (stillCurrent()) return;
-      } catch (fallbackError) {
-        lastError = fallbackError;
-      }
-      throw StateError(
-        'Voice only playback did not become ready: ${lastError ?? error}',
-      );
-    }
-  }
-
-  Future<void> _waitForReady() async {
-    if (_player.playing && _player.processingState == ProcessingState.ready) {
-      return;
-    }
-    await _player.playerStateStream
-        .firstWhere(
-          (state) =>
-              state.playing && state.processingState == ProcessingState.ready,
-        )
-        .timeout(const Duration(seconds: 8));
+    if (autoPlay && stillCurrent()) await play();
   }
 
   Future<void> playTrackQueue(
@@ -566,90 +430,21 @@ class HybridAudioHandler extends BaseAudioHandler
     await _playbackStore.clear();
   }
 
-  Future<void> cancelYouTubeDownload(String videoId) =>
-      _cache.cancelDownload(videoId);
-
-  Future<File> cacheYouTubeTrack(
-    MediaTrack track, {
-    void Function(double progress)? onProgress,
-  }) async {
-    final youtubeId = track.youtubeId;
-    if (!track.isLocal && youtubeId != null && youtubeId.isNotEmpty) {
-      if (await _cache.hasComplete(youtubeId)) {
-        return _cache.cachedFile(youtubeId);
-      }
-      final candidates = await _youtubeService.getAudioStreamCandidates(
-        youtubeId,
-      );
-      Object? lastError;
-      for (final streamUri in candidates) {
-        try {
-          return await _cache.downloadToCache(
-            videoId: youtubeId,
-            streamUri: streamUri,
-            onProgress: onProgress,
-          );
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      throw StateError(
-        'Offline audio cache failed after ${candidates.length} stream attempts: $lastError',
-      );
-    }
-    throw StateError(
-      'Only YouTube tracks can be downloaded to the offline cache.',
-    );
-  }
-
   Future<List<AudioSource>> _resolveSources(
     MediaTrack track,
     MediaItem item,
   ) async {
-    if (track.isLocal) {
-      final uri = track.uri;
-      if (uri == null) throw StateError('Local track is missing a file URI.');
-      return <AudioSource>[AudioSource.uri(uri, tag: item)];
+    if (!track.isLocal) {
+      throw StateError('Only local media is supported.');
     }
-
-    final youtubeId = track.youtubeId;
-    if (youtubeId == null || youtubeId.isEmpty) {
-      throw StateError('YouTube track is missing a video ID.');
-    }
-
-    if (await _cache.hasComplete(youtubeId)) {
-      final cachedFile = await _cache.cachedFile(youtubeId);
-      return <AudioSource>[
-        AudioSource.uri(Uri.file(cachedFile.path), tag: item),
-      ];
-    }
-
-    final uris = await _youtubeService.getAudioStreamCandidates(youtubeId);
-    return uris
-        .map(
-          (uri) => AudioSource.uri(
-            uri,
-            headers: const <String, String>{
-              'User-Agent':
-                  'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
-              'Accept': '*/*',
-            },
-            tag: item,
-          ),
-        )
-        .toList(growable: false);
+    final uri = track.uri;
+    if (uri == null) throw StateError('Local track is missing a file URI.');
+    return <AudioSource>[AudioSource.uri(uri, tag: item)];
   }
 
   Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
     final sources = await _resolveSources(track, item);
     return sources.first;
-  }
-
-  Future<List<MediaTrack>> searchYouTube(String query, {int limit = 20}) async {
-    final results = await _youtubeService.searchVideos(query, limit: limit);
-    return results
-        .map((result) => result.toMediaTrack())
-        .toList(growable: false);
   }
 
   @override
@@ -864,8 +659,6 @@ class HybridAudioHandler extends BaseAudioHandler
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
-    await _youtubeService.dispose();
-    await _cache.dispose();
     await _player.dispose();
   }
 }

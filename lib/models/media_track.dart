@@ -14,9 +14,6 @@ class MediaTrack {
     this.artworkUri,
     this.duration,
     this.folder,
-    this.youtubeId,
-    this.viewCount,
-    this.channelName,
     this.sizeBytes,
     this.modifiedAt,
   });
@@ -31,9 +28,6 @@ class MediaTrack {
   final Uri? artworkUri;
   final Duration? duration;
   final String? folder;
-  final String? youtubeId;
-  final int? viewCount;
-  final String? channelName;
   final int? sizeBytes;
   final DateTime? modifiedAt;
 
@@ -49,9 +43,6 @@ class MediaTrack {
       artworkUri: artworkUri,
       duration: duration,
       folder: folder,
-      youtubeId: youtubeId,
-      viewCount: viewCount,
-      channelName: channelName,
       sizeBytes: sizeBytes ?? this.sizeBytes,
       modifiedAt: modifiedAt ?? this.modifiedAt,
     );
@@ -72,7 +63,6 @@ class MediaTrack {
         'trackId': id,
         'source': source.name,
         'kind': kind.name,
-        'youtubeId': youtubeId,
       },
     );
   }
@@ -119,34 +109,11 @@ class MediaTrack {
       duration: duration,
     );
   }
-
-  factory MediaTrack.fromYoutube({
-    required String id,
-    required String title,
-    required String artist,
-    required Duration? duration,
-    Uri? artworkUri,
-    int? viewCount,
-    String? channelName,
-  }) {
-    return MediaTrack(
-      id: 'youtube:$id',
-      title: title,
-      artist: artist,
-      album: 'YouTube',
-      source: TrackSource.youtube,
-      artworkUri: artworkUri,
-      duration: duration,
-      youtubeId: id,
-      viewCount: viewCount,
-      channelName: channelName ?? artist,
-    );
-  }
 }
 
 enum MediaKind { audio, video }
 
-enum TrackSource { local, youtube }
+enum TrackSource { local }
 
 enum LibraryTab {
   videos('Local Videos'),

@@ -9,10 +9,13 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  MediaTrack track() => MediaTrack.fromYoutube(
-    id: 'abc123',
+  MediaTrack track() => MediaTrack(
+    id: 'local-song-1',
     title: 'Song',
-    artist: 'Channel',
+    artist: 'Artist',
+    album: 'Album',
+    source: TrackSource.local,
+    uri: Uri.parse('file:///music/song.mp3'),
     duration: const Duration(minutes: 3),
   );
 

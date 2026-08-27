@@ -67,9 +67,7 @@ class TrackListTile extends StatelessWidget {
                                 const SizedBox(width: 7),
                                 Expanded(
                                   child: Text(
-                                    track.isLocal
-                                        ? track.artist
-                                        : (track.channelName ?? track.artist),
+                                    track.artist,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -173,21 +171,16 @@ class _SourceBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: (track.isLocal ? tokens.accent : tokens.accentStrong).withValues(
-          alpha: 0.14,
-        ),
+        color: tokens.accent.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: (track.isLocal ? tokens.accent : tokens.accentStrong)
-              .withValues(alpha: 0.34),
-        ),
+        border: Border.all(color: tokens.accent.withValues(alpha: 0.34)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         child: Text(
-          track.isLocal ? 'LOCAL' : 'YOUTUBE',
+          'LOCAL',
           style: TextStyle(
-            color: track.isLocal ? tokens.accent : tokens.accentStrong,
+            color: tokens.accent,
             fontSize: 9,
             fontWeight: FontWeight.w900,
             letterSpacing: 0.35,
@@ -224,20 +217,7 @@ class TrackArtwork extends StatelessWidget {
       );
     }
 
-    final artwork = track.artworkUri;
-    if (artwork == null) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size * 0.22),
-      child: Image.network(
-        artwork.toString(),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        cacheWidth: (size * 3).round(),
-        cacheHeight: (size * 3).round(),
-        errorBuilder: (context, error, stackTrace) => fallback,
-      ),
-    );
+    return fallback;
   }
 }
 
@@ -250,8 +230,7 @@ class _ArtworkFallback extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    final accent =
-        source == TrackSource.youtube ? tokens.accentStrong : tokens.accent;
+    final accent = tokens.accent;
     return Container(
       width: size,
       height: size,
@@ -267,9 +246,7 @@ class _ArtworkFallback extends StatelessWidget {
         ),
       ),
       child: Icon(
-        source == TrackSource.youtube
-            ? Icons.ondemand_video_rounded
-            : Icons.music_note_rounded,
+        Icons.music_note_rounded,
         color:
             tokens.isLight
                 ? Colors.white

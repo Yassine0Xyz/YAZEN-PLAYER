@@ -6,13 +6,11 @@ Map<String, dynamic> mediaTrackToJson(MediaTrack track) => <String, dynamic>{
   'artist': track.artist,
   'album': track.album,
   'source': track.source.name,
+  'kind': track.kind.name,
   'uri': track.uri?.toString(),
   'artworkUri': track.artworkUri?.toString(),
   'durationMs': track.duration?.inMilliseconds,
   'folder': track.folder,
-  'youtubeId': track.youtubeId,
-  'viewCount': track.viewCount,
-  'channelName': track.channelName,
 };
 
 MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
@@ -21,6 +19,11 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     (item) => item.name == sourceName,
     orElse: () => TrackSource.local,
   );
+  final kindName = json['kind']?.toString() ?? MediaKind.audio.name;
+  final kind = MediaKind.values.firstWhere(
+    (item) => item.name == kindName,
+    orElse: () => MediaKind.audio,
+  );
   final durationMs = json['durationMs'];
   return MediaTrack(
     id: json['id']?.toString() ?? '',
@@ -28,14 +31,12 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     artist: json['artist']?.toString() ?? 'Unknown artist',
     album: json['album']?.toString() ?? 'Unknown album',
     source: source,
+    kind: kind,
     uri: _tryParseUri(json['uri']),
     artworkUri: _tryParseUri(json['artworkUri']),
     duration:
         durationMs is num ? Duration(milliseconds: durationMs.toInt()) : null,
     folder: json['folder']?.toString(),
-    youtubeId: json['youtubeId']?.toString(),
-    viewCount: (json['viewCount'] as num?)?.toInt(),
-    channelName: json['channelName']?.toString(),
   );
 }
 

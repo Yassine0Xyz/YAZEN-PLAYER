@@ -31,7 +31,7 @@ android {
 
     buildTypes {
         release {
-            // Keep optional YouTube/plugin transitive classes reliable in this test APK.
+            // Keep release builds debuggable for device validation.
             isMinifyEnabled = false
             isShrinkResources = false
             // Debug signing is intentional for device testing only.

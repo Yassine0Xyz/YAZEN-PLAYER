@@ -51,8 +51,7 @@ class FavoritesScreen extends StatelessWidget {
               ? const _EmptyCollection(
                 icon: Icons.favorite_border_rounded,
                 title: 'No favorites yet',
-                subtitle:
-                    'Tap the heart on any local or YouTube track to keep it here.',
+                subtitle: 'Tap the heart on any local track to keep it here.',
               )
               : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),

@@ -1095,8 +1095,7 @@ class _SourcePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    final isYouTube = source == 'youtube';
-    final color = isYouTube ? tokens.accentStrong : tokens.accent;
+    final color = tokens.accent;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
@@ -1108,16 +1107,10 @@ class _SourcePill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
-              isYouTube
-                  ? Icons.ondemand_video_rounded
-                  : Icons.phone_android_rounded,
-              size: 12,
-              color: color,
-            ),
+            Icon(Icons.phone_android_rounded, size: 12, color: color),
             const SizedBox(width: 5),
             Text(
-              isYouTube ? 'YOUTUBE STREAM' : 'LOCAL AUDIO',
+              'LOCAL AUDIO',
               style: TextStyle(
                 color: color,
                 fontSize: 9,

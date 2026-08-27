@@ -498,14 +498,9 @@ class _VideoPreviewCard extends StatelessWidget {
                         vertical: 3,
                       ),
                       child: Text(
-                        track.source == TrackSource.youtube
-                            ? 'ONLINE'
-                            : 'LOCAL',
+                        'LOCAL',
                         style: TextStyle(
-                          color:
-                              track.source == TrackSource.youtube
-                                  ? tokens.accentStrong
-                                  : tokens.accent,
+                          color: tokens.accent,
                           fontSize: 10,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 0.4,
@@ -551,7 +546,7 @@ class _VideoPreviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            track.channelName ?? track.artist,
+            track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: tokens.textSecondary, fontSize: 11.5),

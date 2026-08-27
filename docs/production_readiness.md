@@ -1,40 +1,48 @@
-# Echo production-readiness guide
+# YAZEN production-readiness guide
 
-## Required validation in a Flutter environment
+## Required validation
 
-Run the following commands from a machine with the Flutter stable channel and an Android SDK configured:
+Run the following commands from a Flutter environment with Android and Linux desktop prerequisites installed:
 
 ```bash
 flutter pub get
-flutter analyze
+flutter analyze --no-fatal-infos --no-fatal-warnings
 flutter test
-flutter build apk --release
+flutter build apk --release --split-per-abi --no-tree-shake-icons
+flutter build linux --debug
 ```
 
-Install the release APK on at least one Android 13 device and one Android 14+ device. Test cold start, locked-screen playback, notification controls, Bluetooth/headset unplugging, phone calls, media permission denial, offline cached playback, YouTube stream expiry, queue restore, playlist persistence, theme persistence, sleep timer, EQ, and party reconnect.
+The release candidate must pass static analysis, all automated tests, the Linux PCM integration test, Android packaging, and a physical-device playback check. A build result alone is not evidence that a particular phone can decode every local file.
 
 ## Data boundaries
 
-Echo stores only lightweight metadata in `SharedPreferences`: selected theme, audio preferences, favorites, custom playlists, and the last playback snapshot. Local audio files remain on the device, and YouTube audio bytes are owned by `YouTubeAudioCache`. Never place Pusher secrets, auth tokens, or private user data in Dart source, build logs, screenshots, or crash reports.
+YAZEN stores lightweight local metadata such as theme, playback preferences, favorites, custom playlists, and the last local queue snapshot. Audio and video files remain owned by the device media library. The local playback layer does not resolve network stream URLs and does not include an in-app media downloader.
 
-## YouTube reliability
+## Local playback checklist
 
-Direct YouTube stream URLs are temporary. Resolve them immediately before playback or caching, retry transient requests with the bounded service policy, and fall back to an existing complete cache file whenever available. Treat removed, restricted, live, and unavailable videos as recoverable UI errors. Re-test this path when upgrading `youtube_explode_dart` because upstream site behavior can change.
+Test cold start, media permission denial and recovery, local audio playback, background playback, locked-screen controls, notification controls, Bluetooth/headset interruption, becoming-noisy events, queue replacement, add/reorder/remove/clear, next and previous, repeat-off/one/all, queue restoration, favorites, playlists, local videos, artwork, lyrics, theme persistence, sleep timer, equalizer availability, and optional surround behavior.
 
-## Android release checklist
+## Visualizer checklist
 
-The Android manifest includes internet, network-state, Wi-Fi, wake-lock, notification, media-library, foreground-service, and media-playback foreground-service permissions. Android 13+ still requires the appropriate runtime permission flow. Verify the notification permission prompt, media-library prompt, and foreground notification behavior on physical devices rather than relying only on manifest inspection.
+For Android local audio, capture native diagnostics while opening the full player and playing a local file:
 
-`AudioServiceActivity` is the native bridge for background playback. The service is configured for `mediaPlayback`, and the handler explicitly responds to audio interruptions and becoming-noisy events. Do not remove the media-button receiver or the foreground service declaration from release variants.
+```bash
+adb logcat -c
+adb logcat -s YAZENVisualizer:* flutter:*
+```
+
+The expected successful path includes a PCM start message followed by `pcm ready ... frames=...`. The Flutter debug build reports the selected mode. The spectrum must be driven by decoded PCM and playback position. If decoding is unavailable, the UI must remain visibly idle or unavailable; random or timer-driven movement is not acceptable.
+
+For Linux, install `cmake`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libpulse-dev`, `clang`, and `ffmpeg`. Run `flutter build linux --debug`, launch the application, and run the Linux PCM test. Linux uses the actual local file decoded by `ffmpeg`; it does not use Android's output-capture API.
 
 ## Privacy and operational policy
 
-Publish a privacy policy that explains local media scanning, optional YouTube metadata/stream requests, cached audio storage, party synchronization data, and the absence of embedded Pusher secrets. Provide cache clearing and collection deletion controls. If diagnostics are introduced later, redact URLs, room codes, track titles where appropriate, and all authentication material.
+YAZEN's local-first build should document device media-library access, local artwork access, optional lyrics requests if enabled by the current lyrics service, and local preference storage. Diagnostics must not expose private file paths, track titles, or user data unnecessarily. Do not ship unused network, Tube, or download configuration.
 
-## Known compatibility boundary
+## Known compatibility boundaries
 
-The pinned `just_audio` release does not expose a built-in crossfade API. Echo therefore does not present a misleading crossfade toggle. Add crossfade only through a tested audio-engine adapter or a compatible plugin, then validate it with gapless local files, cached YouTube files, Bluetooth output, and background playback.
+The pinned `just_audio` version remains the playback engine and `audio_service` remains the background-control boundary. The Android PCM analyzer depends on `MediaExtractor` and `MediaCodec` accepting the selected local file. The Linux analyzer depends on the system `ffmpeg` executable. Unsupported or corrupt media must fail clearly without fabricating spectrum data.
 
-## Recommended release gates
+## Release gates
 
-A release candidate is acceptable only when static validation passes, `flutter analyze` reports no errors, all automated tests pass, and the manual device matrix has no blocker in playback, permissions, persistence, cache, or background audio. Keep a versioned migration path for future preference schema changes before changing any `echo.*.v1` storage key.
+A release is acceptable only when formatting, analyzer, automated tests, Linux PCM behavior, Android release packaging, and physical-device playback checks pass. Preserve the reversible Git backup branch for the local-only migration until the Android device confirms a native `pcm ready` session and the spectrum visibly follows the played file.

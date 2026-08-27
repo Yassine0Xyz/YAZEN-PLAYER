@@ -14,8 +14,6 @@ required = [
     ROOT / 'lib/core/theme/theme_tokens.dart',
     ROOT / 'lib/services/hybrid_audio_handler.dart',
     ROOT / 'lib/services/media_library_service.dart',
-    ROOT / 'lib/services/youtube_audio_cache.dart',
-    ROOT / 'lib/services/youtube_service.dart',
     ROOT / 'lib/services/local_playlist_manager.dart',
     ROOT / 'lib/services/media_track_codec.dart',
     ROOT / 'lib/services/playback_state_store.dart',
@@ -27,7 +25,6 @@ required = [
     ROOT / 'lib/screens/home/home_screen.dart',
     ROOT / 'lib/screens/player/full_player_screen.dart',
     ROOT / 'lib/screens/library/local_media_screen.dart',
-    ROOT / 'lib/screens/discover/youtube_search_screen.dart',
     ROOT / 'lib/screens/settings/settings_screen.dart',
     ROOT / 'lib/screens/queue/queue_screen.dart',
     ROOT / 'lib/screens/collections/favorites_screen.dart',
@@ -57,7 +54,7 @@ for path in required:
     assert path.exists(), f'Missing required file: {path}'
 
 pubspec = (ROOT / 'pubspec.yaml').read_text()
-for dependency in ('just_audio:', 'audio_service:', 'on_audio_query:', 'youtube_explode_dart:', 'provider:', 'path_provider:',     'http:', 'web_socket_channel:', 'pusher_channels_flutter:', 'nsd:', 'shared_preferences:'):
+for dependency in ('just_audio:', 'audio_service:', 'on_audio_query:', 'provider:', 'path_provider:', 'http:', 'web_socket_channel:', 'pusher_channels_flutter:', 'nsd:', 'shared_preferences:'):
 
     assert dependency in pubspec, f'Missing dependency: {dependency}'
 

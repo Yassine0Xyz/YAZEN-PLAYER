@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
-import '../../screens/downloads/downloads_screen.dart';
 import '../../models/media_track.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../screens/effects/equalizer_screen.dart';
@@ -74,14 +73,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 15, 20, 0),
                   child: _buildHeader(context),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-                  child: _TopQuickNav(
-                    onDownloads:
-                        () =>
-                            Navigator.of(context).push(DownloadsScreen.route()),
-                  ),
                 ),
                 LibraryTabs(
                   selected: controller.selectedTab,
@@ -427,73 +418,6 @@ class _HomeScreenState extends State<HomeScreen> {
     LibrarySort.nameAZ => 'Name: A–Z',
     LibrarySort.nameZA => 'Name: Z–A',
   };
-}
-
-class _TopQuickNav extends StatelessWidget {
-  const _TopQuickNav({required this.onDownloads});
-  final VoidCallback onDownloads;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
-    return SizedBox(
-      height: 34,
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: _QuickNavChip(
-              icon: Icons.download_rounded,
-              label: 'Downloads',
-              color: tokens.accent,
-              onTap: onDownloads,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickNavChip extends StatelessWidget {
-  const _QuickNavChip({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(icon, size: 17, color: color),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _EchoSoundHero extends StatefulWidget {

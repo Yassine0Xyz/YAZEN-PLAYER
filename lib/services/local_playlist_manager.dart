@@ -50,11 +50,10 @@ class EchoPlaylist {
   }
 }
 
-/// Persistent metadata for user-created playlists and favorites.
-/// Audio bytes remain owned by YouTubeAudioCache and never enter preferences.
+/// Persistent metadata for user-created playlists and favorites on this device.
 class LocalPlaylistManager extends ChangeNotifier {
-  static const _playlistsKey = 'echo.custom_playlists.v1';
-  static const _favoritesKey = 'echo.favorite_tracks.v1';
+  static const _playlistsKey = 'yazen.custom_playlists.v1';
+  static const _favoritesKey = 'yazen.favorite_tracks.v1';
 
   SharedPreferences? _preferences;
   List<EchoPlaylist> _playlists = const <EchoPlaylist>[];

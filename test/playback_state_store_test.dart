@@ -10,7 +10,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  test('round-trips local and YouTube tracks through the codec', () {
+  test('round-trips local audio and video tracks through the codec', () {
     final tracks = <MediaTrack>[
       MediaTrack(
         id: 'local-1',
@@ -20,13 +20,15 @@ void main() {
         source: TrackSource.local,
         uri: Uri.parse('file:///music/song.mp3'),
       ),
-      MediaTrack.fromYoutube(
-        id: 'abc123',
-        title: 'Online Song',
-        artist: 'Channel',
-        duration: const Duration(minutes: 3),
-        artworkUri: Uri.parse('https://example.com/art.jpg'),
-        viewCount: 1200,
+      MediaTrack(
+        id: 'local-video-1',
+        title: 'Local Video',
+        artist: 'On this device',
+        album: 'Local videos',
+        source: TrackSource.local,
+        kind: MediaKind.video,
+        uri: Uri.parse('file:///movies/video.mp4'),
+        artworkUri: Uri.parse('content://media/external/video/media/1'),
       ),
     ];
 
@@ -36,8 +38,8 @@ void main() {
       decoded.map((track) => track.id).toList(),
       tracks.map((track) => track.id).toList(),
     );
-    expect(decoded.last.youtubeId, 'abc123');
-    expect(decoded.last.viewCount, 1200);
+    expect(decoded.last.isVideo, isTrue);
+    expect(decoded.last.uri, tracks.last.uri);
   });
 
   test('saves and clamps a playback snapshot', () async {
