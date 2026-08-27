@@ -44,7 +44,7 @@ class DownloadsScreen extends StatelessWidget {
               : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder:
                     (context, index) => _DownloadTile(item: items[index]),
               ),
@@ -312,7 +312,7 @@ class _DownloadArtwork extends StatelessWidget {
                   item.artworkUri.toString(),
                   fit: BoxFit.cover,
                   errorBuilder:
-                      (_, __, ___) => ColoredBox(
+                      (_, _, _) => ColoredBox(
                         color: tokens.surfaceElevated,
                         child: Icon(
                           item.kind == DownloadKind.video

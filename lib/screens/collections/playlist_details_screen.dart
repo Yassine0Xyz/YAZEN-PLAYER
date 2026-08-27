@@ -74,9 +74,8 @@ class PlaylistDetailsScreen extends StatelessWidget {
               : ReorderableListView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
                 itemCount: activePlaylist.tracks.length + 1,
-                onReorder: (oldIndex, newIndex) async {
+                onReorderItem: (oldIndex, newIndex) async {
                   if (oldIndex == 0 || newIndex == 0) return;
-                  if (newIndex > oldIndex) newIndex -= 1;
                   await manager.moveWithinPlaylist(
                     activePlaylist.id,
                     oldIndex - 1,
@@ -169,8 +168,9 @@ class PlaylistDetailsScreen extends StatelessWidget {
           ),
     );
     nameController.dispose();
-    if (name != null && name.trim().isNotEmpty)
+    if (name != null && name.trim().isNotEmpty) {
       await manager.renamePlaylist(playlist.id, name);
+    }
   }
 
   Future<void> _delete(

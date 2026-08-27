@@ -52,8 +52,7 @@ class QueueScreen extends StatelessWidget {
           return ReorderableListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             itemCount: items.length,
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > oldIndex) newIndex -= 1;
+            onReorderItem: (oldIndex, newIndex) async {
               await handler.moveInQueue(oldIndex, newIndex);
             },
             itemBuilder: (context, index) {

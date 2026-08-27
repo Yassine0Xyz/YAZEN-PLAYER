@@ -108,8 +108,9 @@ class LocalPlaylistManager extends ChangeNotifier {
   Future<EchoPlaylist> createPlaylist(String name) async {
     _ensureReady();
     final normalized = name.trim();
-    if (normalized.isEmpty)
+    if (normalized.isEmpty) {
       throw const FormatException('Playlist name cannot be empty.');
+    }
     final playlist = EchoPlaylist(
       id: 'playlist-${DateTime.now().microsecondsSinceEpoch}',
       name: normalized,
@@ -127,8 +128,9 @@ class LocalPlaylistManager extends ChangeNotifier {
   Future<void> renamePlaylist(String playlistId, String name) async {
     _ensureReady();
     final normalized = name.trim();
-    if (normalized.isEmpty)
+    if (normalized.isEmpty) {
       throw const FormatException('Playlist name cannot be empty.');
+    }
     _playlists = List<EchoPlaylist>.unmodifiable(
       _playlists
           .map(
@@ -158,8 +160,9 @@ class LocalPlaylistManager extends ChangeNotifier {
       _playlists
           .map((playlist) {
             if (playlist.id != playlistId ||
-                playlist.tracks.any((item) => item.id == track.id))
+                playlist.tracks.any((item) => item.id == track.id)) {
               return playlist;
+            }
             return playlist.copyWith(
               tracks: <MediaTrack>[...playlist.tracks, track],
             );
@@ -183,8 +186,9 @@ class LocalPlaylistManager extends ChangeNotifier {
                 oldIndex < 0 ||
                 oldIndex >= playlist.tracks.length ||
                 newIndex < 0 ||
-                newIndex >= playlist.tracks.length)
+                newIndex >= playlist.tracks.length) {
               return playlist;
+            }
             final tracks = List<MediaTrack>.from(playlist.tracks);
             final track = tracks.removeAt(oldIndex);
             tracks.insert(newIndex, track);
@@ -222,10 +226,11 @@ class LocalPlaylistManager extends ChangeNotifier {
   }
 
   void _ensureReady() {
-    if (!_isReady)
+    if (!_isReady) {
       throw StateError(
         'LocalPlaylistManager.initialize() must complete before use.',
       );
+    }
   }
 
   Future<void> _persist() {

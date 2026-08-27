@@ -57,7 +57,7 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                   builder: (context, snapshot) {
                     final parameters = snapshot.data;
                     if (snapshot.hasError) {
-                      return _EffectUnavailable();
+                      return const _EffectUnavailable();
                     }
                     if (parameters == null) {
                       return const Center(child: CircularProgressIndicator());
@@ -218,7 +218,7 @@ class _HeroHeader extends StatelessWidget {
           Switch.adaptive(
             value: enabled,
             onChanged: onToggle,
-            activeColor: tokens.accent,
+            activeThumbColor: tokens.accent,
           ),
         ],
       ),
@@ -433,7 +433,7 @@ class _SurroundCard extends StatelessWidget {
           Switch.adaptive(
             value: enabled,
             onChanged: onToggle,
-            activeColor: tokens.accent,
+            activeThumbColor: tokens.accent,
           ),
         ],
       ),

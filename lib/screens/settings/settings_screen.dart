@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
-import '../../core/theme/theme_tokens.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -59,16 +58,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SectionLabel(label: 'Appearance', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
-            child: Column(
-              children: EchoThemePreset.values
-                  .map(
-                    (preset) => _ThemeOption(
-                      preset: preset,
-                      selected: theme.preset == preset,
-                      onSelected: () => theme.setPreset(preset),
-                    ),
-                  )
-                  .toList(growable: false),
+            child: RadioGroup<EchoThemePreset>(
+              groupValue: theme.preset,
+              onChanged: (value) {
+                if (value != null) theme.setPreset(value);
+              },
+              child: Column(
+                children: EchoThemePreset.values
+                    .map((preset) => _ThemeOption(preset: preset))
+                    .toList(growable: false),
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -379,21 +378,16 @@ class _SettingsCard extends StatelessWidget {
 }
 
 class _ThemeOption extends StatelessWidget {
-  const _ThemeOption({
-    required this.preset,
-    required this.selected,
-    required this.onSelected,
-  });
+  const _ThemeOption({required this.preset});
 
   final EchoThemePreset preset;
-  final bool selected;
-  final VoidCallback onSelected;
 
   @override
   Widget build(BuildContext context) {
     final tokens = ThemeTokens.fromPreset(preset);
     return InkWell(
-      onTap: onSelected,
+      onTap:
+          () => RadioGroup.maybeOf<EchoThemePreset>(context)?.onChanged(preset),
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -421,11 +415,7 @@ class _ThemeOption extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            Radio<EchoThemePreset>(
-              value: preset,
-              groupValue: selected ? preset : null,
-              onChanged: (_) => onSelected(),
-            ),
+            Radio<EchoThemePreset>(value: preset),
           ],
         ),
       ),

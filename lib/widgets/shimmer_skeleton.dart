@@ -74,16 +74,16 @@ class LibraryLoadingState extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: 6,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder:
-          (_, __) => Row(
+          (_, _) => const Row(
             children: <Widget>[
-              const ShimmerSkeleton(width: 56, height: 56, radius: 16),
-              const SizedBox(width: 14),
+              ShimmerSkeleton(width: 56, height: 56, radius: 16),
+              SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const <Widget>[
+                  children: <Widget>[
                     ShimmerSkeleton(
                       width: double.infinity,
                       height: 14,

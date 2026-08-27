@@ -28,7 +28,7 @@ Future<void> main() async {
   );
 
   final session = await AudioSession.instance;
-  await session.configure(AudioSessionConfiguration.music());
+  await session.configure(const AudioSessionConfiguration.music());
   await audioHandler.configureAudioSession(session);
 
   final themeProvider = ThemeProvider();

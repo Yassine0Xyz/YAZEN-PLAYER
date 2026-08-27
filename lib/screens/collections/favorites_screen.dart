@@ -57,7 +57,7 @@ class FavoritesScreen extends StatelessWidget {
               : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
                 itemCount: tracks.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 2),
+                separatorBuilder: (_, _) => const SizedBox(height: 2),
                 itemBuilder: (context, index) {
                   final track = tracks[index];
                   return TrackListTile(

@@ -311,7 +311,7 @@ class _MiniArtwork extends StatelessWidget {
         cacheWidth: 150,
         cacheHeight: 150,
         gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => fallback,
+        errorBuilder: (_, _, _) => fallback,
       ),
     );
   }

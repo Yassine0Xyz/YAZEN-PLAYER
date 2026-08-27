@@ -24,8 +24,8 @@ class FullPlayerScreen extends StatefulWidget {
 
   static Route<void> route() {
     return PageRouteBuilder<void>(
-      pageBuilder: (_, animation, __) => const FullPlayerScreen(),
-      transitionsBuilder: (_, animation, __, child) {
+      pageBuilder: (_, animation, _) => const FullPlayerScreen(),
+      transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(
           parent: animation,
           curve: Curves.easeOutCubic,
@@ -147,8 +147,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
               Navigator.of(sheetContext).pop();
               _retryLyrics();
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted)
+                if (mounted) {
                   _showFullLyrics(context, controller, item, handler);
+                }
               });
             },
           ),
@@ -231,8 +232,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                               }
                             },
                             onVerticalDragEnd: (details) {
-                              if ((details.primaryVelocity ?? 0) > 650)
+                              if ((details.primaryVelocity ?? 0) > 650) {
                                 Navigator.of(context).maybePop();
+                              }
                             },
                             child: SingleChildScrollView(
                               physics: const BouncingScrollPhysics(),
@@ -640,7 +642,7 @@ class _Artwork extends StatelessWidget {
     final tokens = context.read<ThemeProvider>().tokens;
     if (uri == null) {
       return ColoredBox(
-        color: Color(0xFF25213A),
+        color: const Color(0xFF25213A),
         child: Center(
           child: Icon(Icons.music_note_rounded, color: tokens.accent, size: 72),
         ),
@@ -652,8 +654,8 @@ class _Artwork extends StatelessWidget {
       cacheWidth: 720,
       cacheHeight: 720,
       errorBuilder:
-          (_, __, ___) => ColoredBox(
-            color: Color(0xFF25213A),
+          (_, _, _) => ColoredBox(
+            color: const Color(0xFF25213A),
             child: Center(
               child: Icon(
                 Icons.music_note_rounded,

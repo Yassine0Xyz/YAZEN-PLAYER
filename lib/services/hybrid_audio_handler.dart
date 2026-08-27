@@ -78,7 +78,6 @@ class HybridAudioHandler extends BaseAudioHandler
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final List<MediaTrack> _queueTracks = <MediaTrack>[];
   Future<void>? _queuePopulationFuture;
-  List<MediaTrack>? _pendingQueueTracks;
   int _queueGeneration = 0;
   int _selectionRequest = 0;
   bool _autoAdvanceInFlight = false;
@@ -194,7 +193,6 @@ class HybridAudioHandler extends BaseAudioHandler
     // playback backlog.
     final request = ++_selectionRequest;
     _queueGeneration++;
-    _pendingQueueTracks = null;
     _queuePopulationFuture = null;
     final generation = _queueGeneration;
     unawaited(_player.stop().catchError((_) {}));
@@ -365,14 +363,13 @@ class HybridAudioHandler extends BaseAudioHandler
     // view. A newer tap invalidates the whole older queue population.
     final request = ++_selectionRequest;
     _queueGeneration++;
-    _pendingQueueTracks = List<MediaTrack>.of(tracks);
     _queuePopulationFuture = null;
     final generation = _queueGeneration;
     final safeIndex = initialIndex.clamp(0, tracks.length - 1).toInt();
     unawaited(_player.stop().catchError((_) {}));
     if (_isDisposed) return;
 
-    final isCurrent = () => request == _selectionRequest;
+    bool isCurrent() => request == _selectionRequest;
     if (tracks.every((track) => track.isLocal)) {
       await _playLocalTrackQueue(
         tracks,
@@ -380,9 +377,6 @@ class HybridAudioHandler extends BaseAudioHandler
         generation: generation,
         isCurrent: isCurrent,
       );
-      if (generation == _queueGeneration && isCurrent()) {
-        _pendingQueueTracks = null;
-      }
       return;
     }
 
@@ -403,12 +397,9 @@ class HybridAudioHandler extends BaseAudioHandler
         population.whenComplete(() {
           if (generation == _queueGeneration && request == _selectionRequest) {
             _queuePopulationFuture = null;
-            _pendingQueueTracks = null;
           }
         }),
       );
-    } else if (generation == _queueGeneration && request == _selectionRequest) {
-      _pendingQueueTracks = null;
     }
   }
 
@@ -509,8 +500,9 @@ class HybridAudioHandler extends BaseAudioHandler
         try {
           final item = track.toMediaItem();
           final source = await _resolveSource(track, item);
-          if (sourceIndex <= snapshot.currentIndex)
+          if (sourceIndex <= snapshot.currentIndex) {
             restoredIndex = items.length;
+          }
           items.add(item);
           sources.add(source);
           restoredTracks.add(track);
@@ -549,8 +541,9 @@ class HybridAudioHandler extends BaseAudioHandler
     if (oldIndex < 0 ||
         oldIndex >= _queueTracks.length ||
         newIndex < 0 ||
-        newIndex >= _queueTracks.length)
+        newIndex >= _queueTracks.length) {
       return;
+    }
     await _player.moveAudioSource(oldIndex, newIndex);
     final track = _queueTracks.removeAt(oldIndex);
     _queueTracks.insert(newIndex, track);
@@ -563,7 +556,6 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> clearQueue() async {
     _selectionRequest++;
     _queueGeneration++;
-    _pendingQueueTracks = null;
     _queuePopulationFuture = null;
     await _player.stop();
     await _player.clearAudioSources();
@@ -609,9 +601,6 @@ class HybridAudioHandler extends BaseAudioHandler
       'Only YouTube tracks can be downloaded to the offline cache.',
     );
   }
-
-  Future<Uri> _resolveYoutubeStreamUri(String youtubeId) =>
-      _youtubeService.getAudioStreamUrl(youtubeId);
 
   Future<List<AudioSource>> _resolveSources(
     MediaTrack track,
@@ -681,7 +670,6 @@ class HybridAudioHandler extends BaseAudioHandler
     // can never release stale x2/x3/x4 requests later.
     _selectionRequest++;
     _queueGeneration++;
-    _pendingQueueTracks = null;
     _queuePopulationFuture = null;
     await _player.stop();
     _activeTrack = null;
@@ -770,7 +758,6 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> setSpeed(double speed) => _player.setSpeed(speed);
 
-  @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   @override

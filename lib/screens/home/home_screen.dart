@@ -301,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 : ListView.separated(
                                   itemCount: results.length,
                                   separatorBuilder:
-                                      (_, __) => const SizedBox(height: 2),
+                                      (_, _) => const SizedBox(height: 2),
                                   itemBuilder: (context, index) {
                                     final track = results[index];
                                     return ListTile(
@@ -391,13 +391,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 8),
-                ...LibrarySort.values.map(
-                  (sort) => RadioListTile<LibrarySort>(
-                    value: sort,
-                    groupValue: controller.librarySort,
-                    title: Text(_sortLabel(sort)),
-                    activeColor: tokens.accent,
-                    onChanged: (value) => Navigator.of(context).pop(value),
+                RadioGroup<LibrarySort>(
+                  groupValue: controller.librarySort,
+                  onChanged: (value) {
+                    if (value != null) Navigator.of(context).pop(value);
+                  },
+                  child: Column(
+                    children: <Widget>[
+                      ...LibrarySort.values.map(
+                        (sort) => RadioListTile<LibrarySort>(
+                          value: sort,
+                          title: Text(_sortLabel(sort)),
+                          activeColor: tokens.accent,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

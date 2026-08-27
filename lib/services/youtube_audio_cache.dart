@@ -72,6 +72,9 @@ class YouTubeAudioCache {
       return AudioSource.uri(Uri.file(audioFile.path), tag: tag);
     }
 
+    // This experimental source is intentionally isolated to the retained
+    // YouTube cache path; local playback does not depend on it.
+    // ignore: experimental_member_use
     final source = LockCachingAudioSource(
       streamUri,
       cacheFile: audioFile,

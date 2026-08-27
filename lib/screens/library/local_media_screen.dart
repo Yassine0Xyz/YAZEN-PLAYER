@@ -93,7 +93,7 @@ class _SongsView extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
       itemCount: tracks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 4),
+      separatorBuilder: (_, _) => const SizedBox(height: 4),
       itemBuilder: (_, index) {
         final track = tracks[index];
         return EchoReveal(
@@ -326,7 +326,7 @@ class _FoldersView extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       itemCount: folders.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final folder = folders[index];
         final count =
@@ -439,7 +439,7 @@ class _VideosView extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       itemCount: tracks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 24),
+      separatorBuilder: (_, _) => const SizedBox(height: 24),
       itemBuilder: (context, index) {
         final track = tracks[index];
         return _VideoPreviewCard(
@@ -614,7 +614,7 @@ class _PlaylistsView extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       itemCount: totalItems + 1,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         if (index == 0) {
           return Row(

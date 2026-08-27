@@ -98,7 +98,7 @@ class _LocalEntityTracksScreenState extends State<LocalEntityTracksScreen> {
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
             itemCount: tracks.length + 1,
-            separatorBuilder: (_, __) => const SizedBox(height: 4),
+            separatorBuilder: (_, _) => const SizedBox(height: 4),
             itemBuilder: (context, index) {
               if (index == 0) {
                 return Padding(

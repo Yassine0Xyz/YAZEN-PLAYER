@@ -226,7 +226,6 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     if (widget.compact) return _buildCompact(context, tokens, value);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final playerSize = Size(constraints.maxWidth, constraints.maxHeight);
         final bottomInset = MediaQuery.of(context).padding.bottom;
         return Stack(
           fit: StackFit.expand,
@@ -538,8 +537,8 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
             color: Colors.black,
             child: VideoPlayer(widget.controller),
           ),
-          DecoratedBox(
-            decoration: const BoxDecoration(
+          const DecoratedBox(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,

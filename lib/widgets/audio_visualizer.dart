@@ -118,12 +118,12 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         <String, Object?>{'sessionId': sessionId},
       );
       final started = switch (response) {
-        bool value => value,
-        Map<dynamic, dynamic> value => value['started'] == true,
+        final bool value => value,
+        final Map<dynamic, dynamic> value => value['started'] == true,
         _ => false,
       };
       final mode = switch (response) {
-        Map<dynamic, dynamic> value => value['mode']?.toString(),
+        final Map<dynamic, dynamic> value => value['mode']?.toString(),
         _ => null,
       };
       final currentSessionId = widget.audioSessionId ?? 0;

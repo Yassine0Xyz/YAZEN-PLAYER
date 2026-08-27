@@ -81,7 +81,7 @@ class YoutubeSearchPage {
   final Future<YoutubeSearchPage?> Function()? _next;
 
   Future<YoutubeSearchPage?> nextPage() =>
-      _next == null ? Future.value(null) : _next!();
+      _next == null ? Future.value(null) : _next();
 }
 
 class YoutubeService {
@@ -384,8 +384,9 @@ class YoutubeService {
   Future<YoutubeVideoResult> getVideo(String videoId) async {
     _ensureOpen();
     final normalizedId = videoId.trim();
-    if (normalizedId.isEmpty)
+    if (normalizedId.isEmpty) {
       throw const FormatException('A YouTube video ID is required.');
+    }
     final video = await _withRetry(() => _client.videos.get(normalizedId));
     return _mapVideo(video);
   }
@@ -429,8 +430,9 @@ class YoutubeService {
             (a['bitrate'] as num?)?.toInt() ?? 0,
           ),
         );
-        if (candidates.isNotEmpty)
+        if (candidates.isNotEmpty) {
           return Uri.tryParse(candidates.first['url'].toString());
+        }
       } catch (_) {}
     }
     return null;

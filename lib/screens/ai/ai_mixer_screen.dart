@@ -302,7 +302,7 @@ class _PulseIconState extends State<_PulseIcon>
     return AnimatedBuilder(
       animation: _controller,
       builder:
-          (_, __) => Container(
+          (_, _) => Container(
             width: 56,
             height: 56,
             decoration: BoxDecoration(
