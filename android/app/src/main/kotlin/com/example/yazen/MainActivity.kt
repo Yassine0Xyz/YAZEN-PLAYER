@@ -38,6 +38,7 @@ class MainActivity : AudioServiceActivity() {
     private var pcmGeneration = 0
     private var pcmState = "idle"
     private var pcmResult: PcmSpectrumAnalyzer.Result? = null
+    private var pcmProgressFrames: MutableList<FloatArray> = mutableListOf()
     private val pcmCache = object : LinkedHashMap<String, PcmSpectrumAnalyzer.Result>(
         4,
         0.75f,
@@ -179,6 +180,7 @@ class MainActivity : AudioServiceActivity() {
         val cached = pcmCache[uriString]
         if (cached != null) {
             pcmResult = cached
+            pcmProgressFrames = cached.frames.toMutableList()
             pcmState = "ready"
             pcmFailure = null
             Log.i(
@@ -196,6 +198,7 @@ class MainActivity : AudioServiceActivity() {
         }
         pcmState = "preparing"
         pcmResult = null
+        pcmProgressFrames = mutableListOf()
         pcmFailure = null
         Log.i(visualizerTag, "pcm start requested uri=$uriString")
         result.success(
@@ -208,16 +211,26 @@ class MainActivity : AudioServiceActivity() {
         pcmExecutor.execute {
             val analysis = PcmSpectrumAnalyzer(contentResolver) {
                 generation != pcmGeneration
-            }.analyze(Uri.parse(uriString))
+            }.analyze(Uri.parse(uriString)) { frames ->
+                mainHandler.post {
+                    if (generation != pcmGeneration) return@post
+                    pcmProgressFrames.addAll(frames)
+                }
+            }
             mainHandler.post {
                 if (generation != pcmGeneration) return@post
                 if (analysis == null) {
-                    pcmState = "unavailable"
-                    pcmFailure = "decoder_failed"
-                    Log.w(visualizerTag, "pcm analysis unavailable uri=$uriString")
+                    if (pcmProgressFrames.isEmpty()) {
+                        pcmState = "unavailable"
+                        pcmFailure = "decoder_failed"
+                    } else {
+                        pcmState = "ready"
+                    }
+                    Log.w(visualizerTag, "pcm analysis unavailable uri=$uriString frames=${pcmProgressFrames.size}")
                 } else {
                     pcmCache[uriString] = analysis
                     pcmResult = analysis
+                    pcmProgressFrames = analysis.frames.toMutableList()
                     pcmState = "ready"
                     Log.i(
                         visualizerTag,
@@ -232,11 +245,27 @@ class MainActivity : AudioServiceActivity() {
 
     private fun readPcmAnalyzer(positionMs: Long, result: MethodChannel.Result) {
         val analysis = pcmResult
-        if (pcmState == "preparing") {
+        val frameDurationMs = analysis?.frameDurationMs ?: 40L
+        val frames = if (analysis != null) analysis.frames else pcmProgressFrames
+        if (frames.isEmpty()) {
+            if (pcmState == "preparing") {
+                result.success(mapOf<String, Any>("state" to "preparing"))
+            } else {
+                result.success(
+                    mapOf<String, Any>(
+                        "state" to "unavailable",
+                        "error" to (pcmFailure ?: "not_ready"),
+                    ),
+                )
+            }
+            return
+        }
+        val index = (positionMs / frameDurationMs).coerceAtLeast(0L).toInt()
+        if (index >= frames.size) {
             result.success(mapOf<String, Any>("state" to "preparing"))
             return
         }
-        if (pcmState != "ready" || analysis == null) {
+        if (pcmState != "ready" && pcmState != "preparing") {
             result.success(
                 mapOf<String, Any>(
                     "state" to "unavailable",
@@ -245,16 +274,13 @@ class MainActivity : AudioServiceActivity() {
             )
             return
         }
-        val index = (positionMs / analysis.frameDurationMs)
-            .coerceIn(0L, (analysis.frames.size - 1).toLong())
-            .toInt()
-        val frame = analysis.frames[index]
+        val frame = frames[index]
         result.success(
             mapOf<String, Any>(
                 "state" to "live",
                 "frameIndex" to index,
-                "frameCount" to analysis.frames.size,
-                "frameDurationMs" to analysis.frameDurationMs,
+                "frameCount" to frames.size,
+                "frameDurationMs" to frameDurationMs,
                 "bands" to frame.toList(),
             ),
         )
@@ -264,6 +290,7 @@ class MainActivity : AudioServiceActivity() {
         pcmGeneration++
         pcmState = "idle"
         pcmResult = null
+        pcmProgressFrames = mutableListOf()
         pcmFailure = null
     }
 

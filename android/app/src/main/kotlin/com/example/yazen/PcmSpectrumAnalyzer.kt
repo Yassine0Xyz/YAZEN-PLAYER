@@ -1,6 +1,7 @@
 package com.example.yazen
 
 import android.content.ContentResolver
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -32,7 +33,11 @@ class PcmSpectrumAnalyzer(
         val channels: Int,
     )
 
-    fun analyze(uri: Uri, bandCount: Int = 40): Result? {
+    fun analyze(
+        uri: Uri,
+        bandCount: Int = 40,
+        onFrames: ((List<FloatArray>) -> Unit)? = null,
+    ): Result? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         var descriptor: ParcelFileDescriptor? = null
@@ -60,8 +65,13 @@ class PcmSpectrumAnalyzer(
             val initialRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE, 44100)
             val initialChannels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT, 1)
             val frames = ArrayList<FloatArray>()
+            val pendingCallbacks = ArrayList<FloatArray>(32)
             var sampleRate = initialRate
             var channels = initialChannels
+            var pcmEncoding = format.getInteger(
+                MediaFormat.KEY_PCM_ENCODING,
+                AudioFormat.ENCODING_PCM_16BIT,
+            )
             val windowSize = 2048
             val hopSize = max(256, (sampleRate * 0.040).toInt())
             var pending = FloatArray(windowSize * 3)
@@ -121,6 +131,10 @@ class PcmSpectrumAnalyzer(
                             MediaFormat.KEY_CHANNEL_COUNT,
                             channels,
                         )
+                        pcmEncoding = outputFormat.getInteger(
+                            MediaFormat.KEY_PCM_ENCODING,
+                            pcmEncoding,
+                        )
                     }
                     else -> if (outputIndex >= 0) {
                         if (bufferInfo.size > 0) {
@@ -129,24 +143,38 @@ class PcmSpectrumAnalyzer(
                                 output.position(bufferInfo.offset)
                                 output.limit(bufferInfo.offset + bufferInfo.size)
                                 val pcm = output.slice().order(ByteOrder.LITTLE_ENDIAN)
-                                val bytesPerSample = 2 * max(1, channels)
+                                val bytesPerChannel = when (pcmEncoding) {
+                                    AudioFormat.ENCODING_PCM_FLOAT,
+                                    AudioFormat.ENCODING_PCM_32BIT,
+                                    -> 4
+                                    AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+                                    AudioFormat.ENCODING_PCM_8BIT -> 1
+                                    else -> 2
+                                }
+                                val bytesPerSample = bytesPerChannel * max(1, channels)
                                 while (pcm.remaining() >= bytesPerSample) {
                                     if (pendingCount >= pending.size) {
                                         pending = pending.copyOf(pending.size * 2)
                                     }
                                     var mono = 0f
                                     repeat(max(1, channels)) {
-                                        mono += pcm.short.toInt() / 32768f
+                                        mono += readSample(pcm, pcmEncoding)
                                     }
                                     pending[pendingCount++] = mono / max(1, channels)
 
                                     while (pendingCount >= windowSize) {
-                                        frames += computeSpectrum(
+                                        val frame = computeSpectrum(
                                             pending,
                                             windowSize,
                                             sampleRate,
                                             bandCount,
                                         )
+                                        frames += frame
+                                        pendingCallbacks += frame
+                                        if (pendingCallbacks.size >= 32) {
+                                            onFrames?.invoke(pendingCallbacks.toList())
+                                            pendingCallbacks.clear()
+                                        }
                                         if (pendingCount == hopSize) {
                                             pendingCount = 0
                                         } else {
@@ -168,6 +196,9 @@ class PcmSpectrumAnalyzer(
                         codec.releaseOutputBuffer(outputIndex, false)
                     }
                 }
+            }
+            if (pendingCallbacks.isNotEmpty() && !isCancelled()) {
+                onFrames?.invoke(pendingCallbacks.toList())
             }
             if (isCancelled() || frames.isEmpty()) return null
             return Result(
@@ -211,6 +242,25 @@ class PcmSpectrumAnalyzer(
         val path = uri.path ?: throw IllegalArgumentException("Audio URI has no path")
         extractor.setDataSource(path)
         return null
+    }
+
+    private fun readSample(buffer: ByteBuffer, encoding: Int): Float {
+        return when (encoding) {
+            AudioFormat.ENCODING_PCM_FLOAT -> buffer.float.coerceIn(-1f, 1f)
+            AudioFormat.ENCODING_PCM_32BIT ->
+                (buffer.int.toLong().toDouble() / 2147483648.0).toFloat()
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> {
+                val b0 = buffer.get().toInt() and 0xff
+                val b1 = buffer.get().toInt() and 0xff
+                val b2 = buffer.get().toInt()
+                val value = b0 or (b1 shl 8) or (b2 shl 16)
+                val signed = if ((value and 0x800000) != 0) value or -0x1000000 else value
+                (signed / 8388608f).coerceIn(-1f, 1f)
+            }
+            AudioFormat.ENCODING_PCM_8BIT ->
+                ((buffer.get().toInt() and 0xff) - 128) / 128f
+            else -> buffer.short.toInt() / 32768f
+        }
     }
 
     private fun computeSpectrum(
