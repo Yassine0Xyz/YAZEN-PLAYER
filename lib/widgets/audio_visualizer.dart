@@ -20,6 +20,7 @@ class AudioVisualizer extends StatefulWidget {
     this.color,
     this.seed,
     this.position,
+    this.positionStream,
     this.duration,
     this.onSeek,
     this.profile = AudioVisualizerProfile.compact,
@@ -34,6 +35,7 @@ class AudioVisualizer extends StatefulWidget {
   final Color? color;
   final String? seed;
   final Duration? position;
+  final Stream<Duration>? positionStream;
   final Duration? duration;
   final ValueChanged<Duration>? onSeek;
   final AudioVisualizerProfile profile;
@@ -51,6 +53,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   late final AnimationController _colorController;
   Timer? _poller;
   Timer? _retryTimer;
+  StreamSubscription<Duration>? _positionSubscription;
   Future<void> _syncTail = Future<void>.value();
   List<double> _levels = const <double>[];
   List<double> _peaks = const <double>[];
@@ -68,6 +71,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   int _silentReadCount = 0;
   int _syncGeneration = 0;
   DateTime? _lastDiagnosticsAt;
+  Duration? _livePosition;
 
   @override
   void initState() {
@@ -76,6 +80,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       vsync: this,
       duration: const Duration(seconds: 18),
     );
+    _livePosition = widget.position;
+    _bindPositionStream();
     _resetSignalState();
     _syncPlayback();
   }
@@ -83,6 +89,12 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void didUpdateWidget(covariant AudioVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.positionStream != widget.positionStream) {
+      _bindPositionStream();
+    }
+    if (widget.positionStream == null) {
+      _livePosition = widget.position;
+    }
     if (oldWidget.playing != widget.playing ||
         oldWidget.audioSessionId != widget.audioSessionId ||
         oldWidget.sourceUri != widget.sourceUri ||
@@ -90,9 +102,24 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         oldWidget.seed != widget.seed) {
       // A new track can keep the same Android audio session. The seed change
       // is therefore also a source-switch signal and must restart capture.
+      _livePosition = widget.position ?? Duration.zero;
       _resetSignalState();
       _syncPlayback();
     }
+  }
+
+  void _bindPositionStream() {
+    _positionSubscription?.cancel();
+    final stream = widget.positionStream;
+    if (stream == null) {
+      _positionSubscription = null;
+      return;
+    }
+    _positionSubscription = stream.listen((position) {
+      if (!mounted) return;
+      _livePosition = position;
+      setState(() {});
+    });
   }
 
   void _syncPlayback() {
@@ -306,10 +333,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   Future<void> _readPcmSignal() async {
     if (!mounted || !widget.playing || !_pcmAttached) return;
     try {
-      final response = await _channel.invokeMethod<dynamic>(
-        'readPcm',
-        <String, Object?>{'positionMs': widget.position?.inMilliseconds ?? 0},
-      );
+      final response = await _channel
+          .invokeMethod<dynamic>('readPcm', <String, Object?>{
+            'positionMs':
+                _livePosition?.inMilliseconds ??
+                widget.position?.inMilliseconds ??
+                0,
+          });
       if (!mounted || !widget.playing || !_pcmAttached) return;
       if (response is! Map<dynamic, dynamic>) return;
       final state = response['state']?.toString();
@@ -579,6 +609,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _syncGeneration++;
     _retryTimer?.cancel();
     _poller?.cancel();
+    unawaited(_positionSubscription?.cancel());
+    _positionSubscription = null;
     if (Platform.isLinux) {
       unawaited(LinuxPcmSpectrumService.instance.stop());
     }
@@ -633,7 +665,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               profile: widget.profile,
               progress:
                   durationMs > 0
-                      ? ((widget.position?.inMilliseconds ?? 0) / durationMs)
+                      ? ((_livePosition?.inMilliseconds ??
+                                  widget.position?.inMilliseconds ??
+                                  0) /
+                              durationMs)
                           .clamp(0.0, 1.0)
                           .toDouble()
                       : null,
