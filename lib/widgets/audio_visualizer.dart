@@ -47,7 +47,7 @@ class AudioVisualizer extends StatefulWidget {
 class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
   static const _channel = MethodChannel('yazen/audio_visualizer');
-  static const _pollInterval = Duration(milliseconds: 72);
+  static const _pollInterval = Duration(milliseconds: 50);
   static const _silentReadLimit = 4;
 
   late final AnimationController _colorController;
@@ -72,6 +72,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   int _syncGeneration = 0;
   DateTime? _lastDiagnosticsAt;
   Duration? _livePosition;
+  bool _readInFlight = false;
 
   @override
   void initState() {
@@ -301,19 +302,25 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   Future<void> _readFrame() async {
-    if (_linuxAttached) {
-      _readLinuxSignal();
-    } else if (_pcmAttached) {
-      await _readPcmSignal();
-    } else {
-      await _readNativeSignal();
+    if (_readInFlight) return;
+    _readInFlight = true;
+    try {
+      if (_linuxAttached) {
+        _readLinuxSignal();
+      } else if (_pcmAttached) {
+        await _readPcmSignal();
+      } else {
+        await _readNativeSignal();
+      }
+    } finally {
+      _readInFlight = false;
     }
   }
 
   void _readLinuxSignal() {
     if (!mounted || !widget.playing || !_linuxAttached) return;
     final response = LinuxPcmSpectrumService.instance.read(
-      widget.position?.inMilliseconds ?? 0,
+      _livePosition?.inMilliseconds ?? widget.position?.inMilliseconds ?? 0,
     );
     if (response['state'] != 'live') return;
     final bands = (response['bands'] as List<dynamic>? ?? const <dynamic>[])
@@ -392,13 +399,17 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       );
       final target = bands[sourceIndex].clamp(0.0, 1.0);
       final current = previous[index];
+      // Interpolate toward each real FFT target. This removes visible
+      // stair-stepping without inventing intermediate audio data.
       final level =
-          current + (target - current) * (target > current ? 0.72 : 0.28);
-      final peak = math.max(level, previousPeaks[index] * 0.91);
+          current + (target - current) * (target > current ? 0.46 : 0.20);
+      final peak = math.max(level, previousPeaks[index] * 0.93);
       next[index] = level;
       nextPeaks[index] = peak.clamp(0.0, 1.0);
     }
-    if (!mounted || !widget.playing || !_pcmAttached) return;
+    if (!mounted || !widget.playing || (!_pcmAttached && !_linuxAttached)) {
+      return;
+    }
     setState(() {
       _levels = next;
       _peaks = nextPeaks;
