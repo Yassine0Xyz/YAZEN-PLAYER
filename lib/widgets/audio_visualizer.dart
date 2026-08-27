@@ -11,6 +11,7 @@ class AudioVisualizer extends StatefulWidget {
   const AudioVisualizer({
     required this.playing,
     this.audioSessionId,
+    this.sourceUri,
     this.height = 34,
     this.barCount = 28,
     this.color,
@@ -24,6 +25,7 @@ class AudioVisualizer extends StatefulWidget {
 
   final bool playing;
   final int? audioSessionId;
+  final String? sourceUri;
   final double height;
   final int barCount;
   final Color? color;
@@ -55,6 +57,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   int? _nativeSessionId;
   String? _nativeMode;
   bool _nativeAttached = false;
+  bool _pcmAttached = false;
   bool _hasFftSignal = false;
   int _silentReadCount = 0;
   int _syncGeneration = 0;
@@ -76,6 +79,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.playing != widget.playing ||
         oldWidget.audioSessionId != widget.audioSessionId ||
+        oldWidget.sourceUri != widget.sourceUri ||
         oldWidget.barCount != widget.barCount ||
         oldWidget.seed != widget.seed) {
       // A new track can keep the same Android audio session. The seed change
@@ -106,8 +110,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     await _startNativeSignal(generation);
   }
 
-  Future<void> _startNativeSignal(int generation) async {
+  Future<void> _startNativeSignal(
+    int generation, {
+    bool allowPcm = true,
+  }) async {
     if (!mounted || !widget.playing || generation != _syncGeneration) return;
+    if (allowPcm && widget.sourceUri != null) {
+      final started = await _startPcmSignal(generation);
+      if (started) return;
+    }
 
     // A valid just_audio session is preferred, but Android can still try the
     // global output mix when that session is unavailable or rejected.
@@ -144,7 +155,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _poller =
           started
               ? Timer.periodic(_pollInterval, (_) {
-                unawaited(_readNativeSignal());
+                unawaited(_readFrame());
               })
               : null;
 
@@ -165,6 +176,49 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     }
   }
 
+  Future<bool> _startPcmSignal(int generation) async {
+    final uri = widget.sourceUri;
+    if (uri == null ||
+        !mounted ||
+        !widget.playing ||
+        generation != _syncGeneration) {
+      return false;
+    }
+    try {
+      final response = await _channel.invokeMethod<dynamic>(
+        'startPcm',
+        <String, Object?>{'uri': uri},
+      );
+      final started = switch (response) {
+        final Map<dynamic, dynamic> value => value['started'] == true,
+        _ => false,
+      };
+      if (!mounted || !widget.playing || generation != _syncGeneration) {
+        if (started) unawaited(_channel.invokeMethod<void>('stopPcm'));
+        return false;
+      }
+      _pcmAttached = started;
+      _nativeAttached = false;
+      _nativeMode = started ? 'pcm_file' : null;
+      _hasFftSignal = false;
+      _silentReadCount = 0;
+      _poller?.cancel();
+      _poller =
+          started
+              ? Timer.periodic(_pollInterval, (_) {
+                unawaited(_readFrame());
+              })
+              : null;
+      if (!started) _scheduleRetry(generation);
+      if (mounted) setState(() {});
+      return started;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   void _scheduleRetry(int generation) {
     _retryTimer?.cancel();
     if (!mounted || !widget.playing || generation != _syncGeneration) return;
@@ -172,6 +226,83 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       if (mounted && widget.playing && generation == _syncGeneration) {
         unawaited(_startNativeSignal(generation));
       }
+    });
+  }
+
+  Future<void> _readFrame() async {
+    if (_pcmAttached) {
+      await _readPcmSignal();
+    } else {
+      await _readNativeSignal();
+    }
+  }
+
+  Future<void> _readPcmSignal() async {
+    if (!mounted || !widget.playing || !_pcmAttached) return;
+    try {
+      final response = await _channel.invokeMethod<dynamic>(
+        'readPcm',
+        <String, Object?>{'positionMs': widget.position?.inMilliseconds ?? 0},
+      );
+      if (!mounted || !widget.playing || !_pcmAttached) return;
+      if (response is! Map<dynamic, dynamic>) return;
+      final state = response['state']?.toString();
+      if (state == 'preparing') return;
+      if (state != 'live') {
+        _pcmAttached = false;
+        _hasFftSignal = false;
+        await _channel.invokeMethod<void>('stopPcm');
+        if (mounted && widget.playing) {
+          await _startNativeSignal(_syncGeneration, allowPcm: false);
+        }
+        return;
+      }
+      final bands = (response['bands'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<num>()
+          .map((value) => value.toDouble().clamp(0.0, 1.0))
+          .toList(growable: false);
+      if (bands.isEmpty) return;
+      _logSignalDiagnostics(bands);
+      _silentReadCount = 0;
+      if (!_hasFftSignal) {
+        _hasFftSignal = true;
+        _colorController.repeat();
+      }
+      _applyPcmBands(bands);
+    } on MissingPluginException {
+      _pcmAttached = false;
+      await _startNativeSignal(_syncGeneration, allowPcm: false);
+    } on PlatformException {
+      _pcmAttached = false;
+      await _startNativeSignal(_syncGeneration, allowPcm: false);
+    }
+  }
+
+  void _applyPcmBands(List<double> bands) {
+    final count = math.max(1, widget.barCount);
+    final previous =
+        _levels.length == count ? _levels : List<double>.filled(count, 0);
+    final previousPeaks =
+        _peaks.length == count ? _peaks : List<double>.filled(count, 0);
+    final next = List<double>.filled(count, 0);
+    final nextPeaks = List<double>.filled(count, 0);
+    for (var index = 0; index < count; index++) {
+      final sourceIndex = ((index + 0.5) * bands.length / count).floor().clamp(
+        0,
+        bands.length - 1,
+      );
+      final target = bands[sourceIndex].clamp(0.0, 1.0);
+      final current = previous[index];
+      final level =
+          current + (target - current) * (target > current ? 0.72 : 0.28);
+      final peak = math.max(level, previousPeaks[index] * 0.91);
+      next[index] = level;
+      nextPeaks[index] = peak.clamp(0.0, 1.0);
+    }
+    if (!mounted || !widget.playing || !_pcmAttached) return;
+    setState(() {
+      _levels = next;
+      _peaks = nextPeaks;
     });
   }
 
@@ -337,6 +468,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _nativeSessionId = null;
     _nativeMode = null;
     _nativeAttached = false;
+    _pcmAttached = false;
     _hasFftSignal = false;
     _silentReadCount = 0;
     try {

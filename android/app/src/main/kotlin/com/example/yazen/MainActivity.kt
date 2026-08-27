@@ -11,6 +11,8 @@ import android.media.AudioManager
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
@@ -20,6 +22,9 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.util.LinkedHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 class MainActivity : AudioServiceActivity() {
@@ -28,6 +33,21 @@ class MainActivity : AudioServiceActivity() {
     private var audioVisualizer: Visualizer? = null
     private var activeVisualizerSessionId: Int? = null
     private var lastFftDiagnosticMs = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pcmExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private var pcmGeneration = 0
+    private var pcmState = "idle"
+    private var pcmResult: PcmSpectrumAnalyzer.Result? = null
+    private val pcmCache = object : LinkedHashMap<String, PcmSpectrumAnalyzer.Result>(
+        4,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, PcmSpectrumAnalyzer.Result>?,
+        ): Boolean = size > 3
+    }
+    private var pcmFailure: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,8 +70,18 @@ class MainActivity : AudioServiceActivity() {
                 when (call.method) {
                     "start" -> startAudioVisualizer(call.argument<Int>("sessionId"), result)
                     "read" -> readAudioVisualizer(result)
+                    "startPcm" -> startPcmAnalyzer(call.argument<String>("uri"), result)
+                    "readPcm" -> readPcmAnalyzer(
+                        call.argument<Number>("positionMs")?.toLong() ?: 0L,
+                        result,
+                    )
+                    "stopPcm" -> {
+                        stopPcmAnalyzer()
+                        result.success(null)
+                    }
                     "stop" -> {
                         stopAudioVisualizer()
+                        stopPcmAnalyzer()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -139,6 +169,104 @@ class MainActivity : AudioServiceActivity() {
         result.success(mapOf<String, Any>("started" to false, "mode" to "unavailable"))
     }
 
+    private fun startPcmAnalyzer(uriString: String?, result: MethodChannel.Result) {
+        stopPcmAnalyzer()
+        if (uriString.isNullOrBlank()) {
+            result.success(mapOf<String, Any>("started" to false, "state" to "unavailable"))
+            return
+        }
+        val generation = ++pcmGeneration
+        val cached = pcmCache[uriString]
+        if (cached != null) {
+            pcmResult = cached
+            pcmState = "ready"
+            pcmFailure = null
+            Log.i(
+                visualizerTag,
+                "pcm cache hit uri=$uriString frames=${cached.frames.size}",
+            )
+            result.success(
+                mapOf<String, Any>(
+                    "started" to true,
+                    "mode" to "pcm_file_cache",
+                    "state" to "ready",
+                ),
+            )
+            return
+        }
+        pcmState = "preparing"
+        pcmResult = null
+        pcmFailure = null
+        Log.i(visualizerTag, "pcm start requested uri=$uriString")
+        result.success(
+            mapOf<String, Any>(
+                "started" to true,
+                "mode" to "pcm_file",
+                "state" to "preparing",
+            ),
+        )
+        pcmExecutor.execute {
+            val analysis = PcmSpectrumAnalyzer(contentResolver) {
+                generation != pcmGeneration
+            }.analyze(Uri.parse(uriString))
+            mainHandler.post {
+                if (generation != pcmGeneration) return@post
+                if (analysis == null) {
+                    pcmState = "unavailable"
+                    pcmFailure = "decoder_failed"
+                    Log.w(visualizerTag, "pcm analysis unavailable uri=$uriString")
+                } else {
+                    pcmCache[uriString] = analysis
+                    pcmResult = analysis
+                    pcmState = "ready"
+                    Log.i(
+                        visualizerTag,
+                        "pcm ready uri=$uriString frames=${analysis.frames.size} " +
+                            "frameMs=${analysis.frameDurationMs} sampleRate=${analysis.sampleRate} " +
+                            "channels=${analysis.channels}",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun readPcmAnalyzer(positionMs: Long, result: MethodChannel.Result) {
+        val analysis = pcmResult
+        if (pcmState == "preparing") {
+            result.success(mapOf<String, Any>("state" to "preparing"))
+            return
+        }
+        if (pcmState != "ready" || analysis == null) {
+            result.success(
+                mapOf<String, Any>(
+                    "state" to "unavailable",
+                    "error" to (pcmFailure ?: "not_ready"),
+                ),
+            )
+            return
+        }
+        val index = (positionMs / analysis.frameDurationMs)
+            .coerceIn(0L, (analysis.frames.size - 1).toLong())
+            .toInt()
+        val frame = analysis.frames[index]
+        result.success(
+            mapOf<String, Any>(
+                "state" to "live",
+                "frameIndex" to index,
+                "frameCount" to analysis.frames.size,
+                "frameDurationMs" to analysis.frameDurationMs,
+                "bands" to frame.toList(),
+            ),
+        )
+    }
+
+    private fun stopPcmAnalyzer() {
+        pcmGeneration++
+        pcmState = "idle"
+        pcmResult = null
+        pcmFailure = null
+    }
+
     private fun readAudioVisualizer(result: MethodChannel.Result) {
         val visualizer = audioVisualizer
         if (visualizer == null || !visualizer.enabled) {
@@ -207,6 +335,8 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onDestroy() {
         stopAudioVisualizer()
+        stopPcmAnalyzer()
+        pcmExecutor.shutdownNow()
         super.onDestroy()
     }
 
