@@ -94,21 +94,25 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun startAudioVisualizer(sessionId: Int?, result: MethodChannel.Result) {
-        if (sessionId == null || sessionId <= 0) {
-            result.success(false)
-            return
-        }
-        try {
-            stopAudioVisualizer()
-            audioVisualizer = Visualizer(sessionId).apply {
-                captureSize = Visualizer.getCaptureSizeRange()[1]
-                enabled = true
+        // Prefer just_audio's session. If it is unavailable or rejected by the
+        // device, use Android's global output mix. Both paths read real FFT
+        // data; the fallback is not a synthetic animation.
+        val candidates = listOfNotNull(sessionId?.takeIf { it > 0 }, 0)
+        stopAudioVisualizer()
+        for (candidate in candidates.distinct()) {
+            try {
+                audioVisualizer = Visualizer(candidate).apply {
+                    captureSize = Visualizer.getCaptureSizeRange()[1]
+                    scalingMode = Visualizer.SCALING_MODE_NORMALIZED
+                    enabled = true
+                }
+                result.success(true)
+                return
+            } catch (_: Throwable) {
+                stopAudioVisualizer()
             }
-            result.success(true)
-        } catch (_: Throwable) {
-            stopAudioVisualizer()
-            result.success(false)
         }
+        result.success(false)
     }
 
     private fun readAudioVisualizer(result: MethodChannel.Result) {

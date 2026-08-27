@@ -44,6 +44,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   late final AnimationController _colorController;
   Timer? _poller;
+  Timer? _retryTimer;
   List<double> _levels = const <double>[];
   List<double> _peaks = const <double>[];
   List<double> _noiseFloors = const <double>[];
@@ -90,8 +91,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   Future<void> _startNativeSignal() async {
-    final sessionId = widget.audioSessionId;
-    if (!widget.playing || sessionId == null || sessionId <= 0) return;
+    if (!widget.playing) return;
+    // A valid just_audio session is preferred, but a missing session must not
+    // make the real FFT rail disappear. Android will try the global output mix.
+    final sessionId = widget.audioSessionId ?? 0;
     if (_nativeSessionId == sessionId && _poller != null) return;
     if (_syncInFlight) return;
     _syncInFlight = true;
@@ -101,11 +104,18 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             'sessionId': sessionId,
           }) ??
           false;
-      if (!mounted || !widget.playing || widget.audioSessionId != sessionId) {
+      final currentSessionId = widget.audioSessionId ?? 0;
+      if (!mounted || !widget.playing || currentSessionId != sessionId) {
         return;
       }
       _nativeSessionId = started ? sessionId : null;
       _nativeSignal = started;
+      _retryTimer?.cancel();
+      if (!started && mounted && widget.playing) {
+        _retryTimer = Timer(const Duration(milliseconds: 500), () {
+          if (mounted && widget.playing) unawaited(_startNativeSignal());
+        });
+      }
       _poller?.cancel();
       _poller =
           started
@@ -251,6 +261,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   Future<void> _stopNativeSignal() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _poller?.cancel();
     _poller = null;
     _nativeSessionId = null;
@@ -285,6 +297,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _poller?.cancel();
     unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
     _colorController.dispose();
@@ -384,10 +397,10 @@ class _VisualizerPainter extends CustomPainter {
     );
     final width = math.max(1.7, (size.width - gap * (barCount - 1)) / barCount);
     final verticalCenter = size.height * 0.46;
-    final t = animation.value * math.pi * 2;
     final baseHsl = HSLColor.fromColor(color);
     final paint = Paint()..strokeCap = StrokeCap.round;
     final hasSignal = useAudioSignal && levels.length == barCount;
+    final t = hasSignal ? animation.value * math.pi * 2 : 0.0;
 
     for (var index = 0; index < barCount; index++) {
       final x = index * (width + gap) + width / 2;
