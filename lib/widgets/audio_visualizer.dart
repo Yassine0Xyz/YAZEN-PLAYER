@@ -61,6 +61,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   Future<void> _lifecycleTail = Future<void>.value();
 
   Duration _livePosition = Duration.zero;
+  DateTime? _positionAnchorAt;
   List<double> _targetLevels = const <double>[];
   List<double> _displayLevels = const <double>[];
   List<double> _displayPeaks = const <double>[];
@@ -75,6 +76,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   void initState() {
     super.initState();
     _livePosition = widget.position ?? Duration.zero;
+    _positionAnchorAt = widget.playing ? DateTime.now() : null;
     _renderTicker = createTicker(_onRenderTick);
     _bindPositionStream();
     _resetBands();
@@ -89,6 +91,14 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     }
     if (widget.positionStream == null) {
       _livePosition = widget.position ?? Duration.zero;
+    }
+    if (oldWidget.playing != widget.playing) {
+      if (!widget.playing) {
+        _livePosition = _effectivePosition;
+        _positionAnchorAt = null;
+      } else {
+        _positionAnchorAt = DateTime.now();
+      }
     }
     if (oldWidget.playing != widget.playing ||
         oldWidget.sourceUri != widget.sourceUri ||
@@ -110,7 +120,18 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _positionSubscription = stream.listen((position) {
       if (!mounted) return;
       _livePosition = position;
+      _positionAnchorAt = widget.playing ? DateTime.now() : null;
     });
+  }
+
+  Duration get _effectivePosition {
+    final anchorAt = _positionAnchorAt;
+    if (!widget.playing || anchorAt == null) return _livePosition;
+    final elapsed = DateTime.now().difference(anchorAt);
+    final estimated = _livePosition + elapsed;
+    final duration = widget.duration;
+    if (duration != null && estimated > duration) return duration;
+    return estimated;
   }
 
   void _synchronize() {
@@ -156,6 +177,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     }
 
     _attached = started;
+    _positionAnchorAt = started && widget.playing ? DateTime.now() : null;
     _mode = started ? mode : 'unavailable';
     _hasRealSignal = false;
     _readInFlight = false;
@@ -175,11 +197,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final response =
           Platform.isLinux
               ? LinuxPcmSpectrumService.instance.read(
-                _livePosition.inMilliseconds,
+                _effectivePosition.inMilliseconds,
               )
               : await _channel.invokeMethod<dynamic>(
                 'readPcm',
-                <String, Object?>{'positionMs': _livePosition.inMilliseconds},
+                <String, Object?>{
+                  'positionMs': _effectivePosition.inMilliseconds,
+                },
               );
       if (!mounted ||
           !widget.playing ||
@@ -234,8 +258,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             ? 1.0 / 60.0
             : (elapsed - previousTick).inMicroseconds /
                 Duration.microsecondsPerSecond;
-    final riseAlpha = 1.0 - math.exp(-dt / 0.075);
-    final fallAlpha = 1.0 - math.exp(-dt / 0.14);
+    // Short time constants keep the bars close to the real decoded frame
+    // while the ticker fills the visual gap between 40 ms source frames.
+    final riseAlpha = 1.0 - math.exp(-dt / 0.035);
+    final fallAlpha = 1.0 - math.exp(-dt / 0.065);
     final count = math.max(1, widget.barCount);
     if (_displayLevels.length != count) {
       _displayLevels = List<double>.filled(count, 0.0);
@@ -275,6 +301,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _readTimer = null;
     _renderTicker.stop();
     _lastTick = null;
+    _positionAnchorAt = null;
     _readInFlight = false;
     _attached = false;
     _hasRealSignal = false;
@@ -328,7 +355,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final durationMs = widget.duration?.inMilliseconds ?? 0;
     final progress =
         durationMs > 0
-            ? (_livePosition.inMilliseconds / durationMs).clamp(0.0, 1.0)
+            ? (_effectivePosition.inMilliseconds / durationMs).clamp(0.0, 1.0)
             : null;
     final label =
         _hasRealSignal
