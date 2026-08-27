@@ -37,6 +37,35 @@ class MediaLibraryService {
       orderType: OrderType.ASC_OR_SMALLER,
       ignoreCase: true,
     );
+    return _toMediaTracks(songs);
+  }
+
+  Future<List<MediaTrack>> querySongsFrom(
+    AudiosFromType type,
+    Object where,
+  ) async {
+    if (!await ensurePermission()) return const <MediaTrack>[];
+    final songs = await _audioQuery.queryAudiosFrom(
+      type,
+      where,
+      sortType: SongSortType.TITLE,
+      orderType: OrderType.ASC_OR_SMALLER,
+      ignoreCase: true,
+    );
+    return _toMediaTracks(songs);
+  }
+
+  Future<List<MediaTrack>> querySongsInFolder(String folder) async {
+    final songs = await querySongs();
+    return songs
+        .where((track) {
+          final path = track.folder ?? '';
+          return p.basename(p.normalize(path)) == folder || path == folder;
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<MediaTrack>> _toMediaTracks(Iterable<SongModel> songs) async {
     final tracks = <MediaTrack>[];
     for (final song in songs) {
       final track = MediaTrack.fromSong(song);

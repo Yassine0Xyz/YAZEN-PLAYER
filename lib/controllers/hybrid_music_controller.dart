@@ -63,6 +63,10 @@ class HybridMusicController extends ChangeNotifier {
       LibraryTab.albums => _localSongs,
       LibraryTab.songs => _localSongs,
     };
+    return orderedTracks(tracks);
+  }
+
+  List<MediaTrack> orderedTracks(Iterable<MediaTrack> tracks) {
     final sorted = List<MediaTrack>.of(tracks);
     sorted.sort(_compareTracks);
     return sorted;
@@ -134,6 +138,18 @@ class HybridMusicController extends ChangeNotifier {
   }
 
   Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);
+
+  Future<List<MediaTrack>> tracksForArtist(int artistId) =>
+      _library.querySongsFrom(AudiosFromType.ARTIST_ID, artistId);
+
+  Future<List<MediaTrack>> tracksForAlbum(int albumId) =>
+      _library.querySongsFrom(AudiosFromType.ALBUM_ID, albumId);
+
+  Future<List<MediaTrack>> tracksForDevicePlaylist(int playlistId) =>
+      _library.querySongsFrom(AudiosFromType.PLAYLIST, playlistId);
+
+  Future<List<MediaTrack>> tracksForFolder(String folder) =>
+      _library.querySongsInFolder(folder);
 
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 

@@ -16,6 +16,7 @@ import '../home/widgets/track_list_tile.dart';
 import '../collections/favorites_screen.dart';
 import '../collections/playlist_details_screen.dart';
 import '../player/yazen_video_player_screen.dart';
+import 'entity_tracks_screen.dart';
 
 class LocalMediaScreen extends StatelessWidget {
   const LocalMediaScreen({
@@ -134,54 +135,76 @@ class _ArtistsView extends StatelessWidget {
         mainAxisSpacing: 14,
       ),
       itemCount: artists.length,
-      itemBuilder: (context, index) => _ArtistCard(artist: artists[index]),
+      itemBuilder: (context, index) {
+        final artist = artists[index];
+        final controller = context.read<HybridMusicController>();
+        return _ArtistCard(
+          artist: artist,
+          onTap:
+              () => Navigator.of(context).push(
+                LocalEntityTracksScreen.route(
+                  title:
+                      artist.artist.trim().isEmpty
+                          ? 'Unknown artist'
+                          : artist.artist,
+                  subtitle: 'Tracks by this artist will appear here.',
+                  loadTracks: () => controller.tracksForArtist(artist.id),
+                ),
+              ),
+        );
+      },
     );
   }
 }
 
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.artist});
+  const _ArtistCard({required this.artist, required this.onTap});
 
   final ArtistModel artist;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: _cardDecoration(context),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          Hero(
-            tag: 'artist-art-${artist.id}',
-            child: ClipOval(
-              child: QueryArtworkWidget(
-                id: artist.id,
-                type: ArtworkType.ARTIST,
-                artworkWidth: 82,
-                artworkHeight: 82,
-                size: 240,
-                nullArtworkWidget: const _EntityArtwork(
-                  icon: Icons.person_rounded,
-                  circular: true,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: _cardDecoration(context),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Hero(
+              tag: 'artist-art-${artist.id}',
+              child: ClipOval(
+                child: QueryArtworkWidget(
+                  id: artist.id,
+                  type: ArtworkType.ARTIST,
+                  artworkWidth: 82,
+                  artworkHeight: 82,
+                  size: 240,
+                  nullArtworkWidget: const _EntityArtwork(
+                    icon: Icons.person_rounded,
+                    circular: true,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            artist.artist.trim().isEmpty ? 'Unknown artist' : artist.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${artist.numberOfTracks ?? 0} songs',
-            style: TextStyle(color: tokens.textSecondary, fontSize: 12),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              artist.artist.trim().isEmpty ? 'Unknown artist' : artist.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${artist.numberOfTracks ?? 0} songs',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -210,55 +233,77 @@ class _AlbumsView extends StatelessWidget {
         mainAxisSpacing: 18,
       ),
       itemCount: albums.length,
-      itemBuilder: (context, index) => _AlbumCard(album: albums[index]),
+      itemBuilder: (context, index) {
+        final album = albums[index];
+        final controller = context.read<HybridMusicController>();
+        return _AlbumCard(
+          album: album,
+          onTap:
+              () => Navigator.of(context).push(
+                LocalEntityTracksScreen.route(
+                  title:
+                      album.album.trim().isEmpty
+                          ? 'Unknown album'
+                          : album.album,
+                  subtitle: 'Tracks from this album will appear here.',
+                  loadTracks: () => controller.tracksForAlbum(album.id),
+                ),
+              ),
+        );
+      },
     );
   }
 }
 
 class _AlbumCard extends StatelessWidget {
-  const _AlbumCard({required this.album});
+  const _AlbumCard({required this.album, required this.onTap});
 
   final AlbumModel album;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Hero(
-          tag: 'album-art-${album.id}',
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: QueryArtworkWidget(
-              id: album.id,
-              type: ArtworkType.ALBUM,
-              artworkWidth: double.infinity,
-              artworkHeight: 180,
-              size: 600,
-              nullArtworkWidget: const _EntityArtwork(
-                icon: Icons.album_rounded,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Hero(
+            tag: 'album-art-${album.id}',
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: QueryArtworkWidget(
+                id: album.id,
+                type: ArtworkType.ALBUM,
+                artworkWidth: double.infinity,
+                artworkHeight: 180,
+                size: 600,
+                nullArtworkWidget: const _EntityArtwork(
+                  icon: Icons.album_rounded,
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          album.album.trim().isEmpty ? 'Unknown album' : album.album,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          '${album.artist ?? 'Unknown artist'}  •  ${album.numOfSongs} songs',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: context.read<ThemeProvider>().tokens.textSecondary,
-            fontSize: 12,
+          const SizedBox(height: 10),
+          Text(
+            album.album.trim().isEmpty ? 'Unknown album' : album.album,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
-        ),
-      ],
+          const SizedBox(height: 3),
+          Text(
+            '${album.artist ?? 'Unknown artist'}  •  ${album.numOfSongs} songs',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: context.read<ThemeProvider>().tokens.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -288,66 +333,89 @@ class _FoldersView extends StatelessWidget {
             tracks
                 .where((track) => track.folder?.endsWith(folder) ?? false)
                 .length;
-        return _FolderRow(folder: folder, count: count);
+        return _FolderRow(
+          folder: folder,
+          count: count,
+          onTap:
+              () => Navigator.of(context).push(
+                LocalEntityTracksScreen.route(
+                  title: folder,
+                  subtitle: 'Audio files in this folder will appear here.',
+                  loadTracks:
+                      () => context
+                          .read<HybridMusicController>()
+                          .tracksForFolder(folder),
+                ),
+              ),
+        );
       },
     );
   }
 }
 
 class _FolderRow extends StatelessWidget {
-  const _FolderRow({required this.folder, required this.count});
+  const _FolderRow({
+    required this.folder,
+    required this.count,
+    required this.onTap,
+  });
 
   final String folder;
   final int count;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDecoration(context),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(15),
-              color: context.read<ThemeProvider>().tokens.accent.withValues(
-                alpha: 0.12,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDecoration(context),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                color: context.read<ThemeProvider>().tokens.accent.withValues(
+                  alpha: 0.12,
+                ),
+              ),
+              child: Icon(
+                Icons.folder_rounded,
+                color: context.read<ThemeProvider>().tokens.accent,
               ),
             ),
-            child: Icon(
-              Icons.folder_rounded,
-              color: context.read<ThemeProvider>().tokens.accent,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  folder,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '$count audio ${count == 1 ? 'file' : 'files'}',
-                  style: TextStyle(
-                    color: context.read<ThemeProvider>().tokens.textSecondary,
-                    fontSize: 12,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    folder,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 5),
+                  Text(
+                    '$count audio ${count == 1 ? 'file' : 'files'}',
+                    style: TextStyle(
+                      color: context.read<ThemeProvider>().tokens.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Icon(
-            Icons.chevron_right_rounded,
-            color: context.read<ThemeProvider>().tokens.textSecondary,
-          ),
-        ],
+            Icon(
+              Icons.chevron_right_rounded,
+              color: context.read<ThemeProvider>().tokens.textSecondary,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -599,6 +667,16 @@ class _PlaylistsView extends StatelessWidget {
           title: playlist.playlist,
           subtitle: 'Device playlist',
           count: playlist.numOfSongs,
+          onTap:
+              () => Navigator.of(context).push(
+                LocalEntityTracksScreen.route(
+                  title: playlist.playlist,
+                  subtitle:
+                      'Tracks from this device playlist will appear here.',
+                  loadTracks:
+                      () => controller.tracksForDevicePlaylist(playlist.id),
+                ),
+              ),
         );
       },
     );
