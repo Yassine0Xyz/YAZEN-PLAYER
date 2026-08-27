@@ -11,7 +11,9 @@ import android.media.AudioManager
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.util.Log
 import android.util.Rational
 import android.util.Size
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -22,7 +24,10 @@ import kotlin.math.roundToInt
 
 class MainActivity : AudioServiceActivity() {
     private val channelName = "yazen/local_media"
+    private val visualizerTag = "YAZENVisualizer"
     private var audioVisualizer: Visualizer? = null
+    private var activeVisualizerSessionId: Int? = null
+    private var lastFftDiagnosticMs = 0L
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -97,22 +102,41 @@ class MainActivity : AudioServiceActivity() {
         // Prefer just_audio's session. If it is unavailable or rejected by the
         // device, use Android's global output mix. Both paths read real FFT
         // data; the fallback is not a synthetic animation.
-        val candidates = listOfNotNull(sessionId?.takeIf { it > 0 }, 0)
+        val candidates = listOfNotNull(sessionId?.takeIf { it > 0 }, 0).distinct()
+        Log.d(visualizerTag, "start requested sessionId=${sessionId ?: 0} candidates=$candidates")
         stopAudioVisualizer()
-        for (candidate in candidates.distinct()) {
+        for (candidate in candidates) {
             try {
+                val captureSize = Visualizer.getCaptureSizeRange()[1]
                 audioVisualizer = Visualizer(candidate).apply {
-                    captureSize = Visualizer.getCaptureSizeRange()[1]
+                    this.captureSize = captureSize
                     scalingMode = Visualizer.SCALING_MODE_NORMALIZED
                     enabled = true
                 }
-                result.success(true)
+                val mode = if (candidate == 0) "global_mix" else "track_session"
+                activeVisualizerSessionId = candidate
+                Log.i(
+                    visualizerTag,
+                    "attached mode=$mode sessionId=$candidate captureSize=$captureSize",
+                )
+                result.success(
+                    mapOf<String, Any>(
+                        "started" to true,
+                        "mode" to mode,
+                        "sessionId" to candidate,
+                    ),
+                )
                 return
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                Log.w(
+                    visualizerTag,
+                    "attach failed sessionId=$candidate type=${error::class.java.simpleName} message=${error.message}",
+                )
                 stopAudioVisualizer()
             }
         }
-        result.success(false)
+        Log.e(visualizerTag, "no visualizer session could be attached")
+        result.success(mapOf<String, Any>("started" to false, "mode" to "unavailable"))
     }
 
     private fun readAudioVisualizer(result: MethodChannel.Result) {
@@ -126,7 +150,9 @@ class MainActivity : AudioServiceActivity() {
             // DC component and convert each bin to a normalized magnitude so
             // Dart can render genuine Bass-to-Treble energy bands.
             val fft = ByteArray(visualizer.captureSize)
-            if (visualizer.getFft(fft) != Visualizer.SUCCESS) {
+            val fftResult = visualizer.getFft(fft)
+            if (fftResult != Visualizer.SUCCESS) {
+                Log.w(visualizerTag, "getFft failed result=$fftResult")
                 result.success(null)
                 return
             }
@@ -141,23 +167,42 @@ class MainActivity : AudioServiceActivity() {
                 levels.add(magnitude.coerceIn(0f, 1f))
                 index += 2
             }
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastFftDiagnosticMs >= 2000L) {
+                lastFftDiagnosticMs = now
+                val maximum = levels.maxOrNull() ?: 0f
+                val average = if (levels.isEmpty()) 0f else levels.average().toFloat()
+                Log.d(
+                    visualizerTag,
+                    "fft ok session=${activeVisualizerSessionId ?: 0} bins=${levels.size} max=${"%.3f".format(maximum)} avg=${"%.3f".format(average)}",
+                )
+            }
             result.success(levels)
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            Log.e(
+                visualizerTag,
+                "read failed type=${error::class.java.simpleName} message=${error.message}",
+            )
             stopAudioVisualizer()
             result.success(null)
         }
     }
 
     private fun stopAudioVisualizer() {
+        val hadVisualizer = audioVisualizer != null
         try {
             audioVisualizer?.enabled = false
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            Log.w(visualizerTag, "disable failed message=${error.message}")
         }
         try {
             audioVisualizer?.release()
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            Log.w(visualizerTag, "release failed message=${error.message}")
         }
         audioVisualizer = null
+        activeVisualizerSessionId = null
+        if (hadVisualizer) Log.d(visualizerTag, "stopped")
     }
 
     override fun onDestroy() {

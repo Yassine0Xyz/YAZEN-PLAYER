@@ -41,18 +41,23 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
   static const _channel = MethodChannel('yazen/audio_visualizer');
   static const _pollInterval = Duration(milliseconds: 72);
+  static const _silentReadLimit = 4;
 
   late final AnimationController _colorController;
   Timer? _poller;
   Timer? _retryTimer;
+  Future<void> _syncTail = Future<void>.value();
   List<double> _levels = const <double>[];
   List<double> _peaks = const <double>[];
   List<double> _noiseFloors = const <double>[];
   List<double> _ceilings = const <double>[];
   List<int> _peakHoldFrames = const <int>[];
   int? _nativeSessionId;
-  bool _nativeSignal = false;
-  bool _syncInFlight = false;
+  String? _nativeMode;
+  bool _nativeAttached = false;
+  bool _hasFftSignal = false;
+  int _silentReadCount = 0;
+  int _syncGeneration = 0;
   DateTime? _lastDiagnosticsAt;
 
   @override
@@ -62,6 +67,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       vsync: this,
       duration: const Duration(seconds: 18),
     );
+    _resetSignalState();
     _syncPlayback();
   }
 
@@ -70,52 +76,70 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.playing != widget.playing ||
         oldWidget.audioSessionId != widget.audioSessionId ||
-        oldWidget.barCount != widget.barCount) {
+        oldWidget.barCount != widget.barCount ||
+        oldWidget.seed != widget.seed) {
+      // A new track can keep the same Android audio session. The seed change
+      // is therefore also a source-switch signal and must restart capture.
       _resetSignalState();
       _syncPlayback();
     }
   }
 
   void _syncPlayback() {
-    if (widget.playing) {
-      // This controller only drives the slow color sweep. Bar movement is
-      // never generated here; it comes from the native FFT signal below.
-      _colorController.repeat();
-      unawaited(_startNativeSignal());
-    } else {
-      _colorController.stop();
-      _colorController.value = 0;
-      unawaited(_stopNativeSignal());
-      _resetSignalState();
-    }
+    final generation = ++_syncGeneration;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _syncTail = _syncTail.then((_) async {
+      await _synchronizePlayback(generation);
+    });
   }
 
-  Future<void> _startNativeSignal() async {
+  Future<void> _synchronizePlayback(int generation) async {
+    await _stopNativeSignal();
+    if (!mounted || generation != _syncGeneration) return;
+
+    _colorController.stop();
+    _colorController.value = 0;
+    _resetSignalState();
     if (!widget.playing) return;
-    // A valid just_audio session is preferred, but a missing session must not
-    // make the real FFT rail disappear. Android will try the global output mix.
+
+    await _startNativeSignal(generation);
+  }
+
+  Future<void> _startNativeSignal(int generation) async {
+    if (!mounted || !widget.playing || generation != _syncGeneration) return;
+
+    // A valid just_audio session is preferred, but Android can still try the
+    // global output mix when that session is unavailable or rejected.
     final sessionId = widget.audioSessionId ?? 0;
-    if (_nativeSessionId == sessionId && _poller != null) return;
-    if (_syncInFlight) return;
-    _syncInFlight = true;
     try {
-      final started =
-          await _channel.invokeMethod<bool>('start', <String, Object?>{
-            'sessionId': sessionId,
-          }) ??
-          false;
+      final response = await _channel.invokeMethod<dynamic>(
+        'start',
+        <String, Object?>{'sessionId': sessionId},
+      );
+      final started = switch (response) {
+        bool value => value,
+        Map<dynamic, dynamic> value => value['started'] == true,
+        _ => false,
+      };
+      final mode = switch (response) {
+        Map<dynamic, dynamic> value => value['mode']?.toString(),
+        _ => null,
+      };
       final currentSessionId = widget.audioSessionId ?? 0;
-      if (!mounted || !widget.playing || currentSessionId != sessionId) {
+      if (!mounted ||
+          !widget.playing ||
+          generation != _syncGeneration ||
+          currentSessionId != sessionId) {
+        if (started) unawaited(_channel.invokeMethod<void>('stop'));
         return;
       }
+
       _nativeSessionId = started ? sessionId : null;
-      _nativeSignal = started;
-      _retryTimer?.cancel();
-      if (!started && mounted && widget.playing) {
-        _retryTimer = Timer(const Duration(milliseconds: 500), () {
-          if (mounted && widget.playing) unawaited(_startNativeSignal());
-        });
-      }
+      _nativeMode = mode;
+      _nativeAttached = started;
+      _hasFftSignal = false;
+      _silentReadCount = 0;
       _poller?.cancel();
       _poller =
           started
@@ -123,26 +147,62 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                 unawaited(_readNativeSignal());
               })
               : null;
-      if (started) _resetSignalState();
-      setState(() {});
+
+      if (!started) {
+        _scheduleRetry(generation);
+      }
+      if (mounted) setState(() {});
     } on MissingPluginException {
-      _nativeSignal = false;
-    } on PlatformException {
-      _nativeSignal = false;
-    } finally {
-      _syncInFlight = false;
+      _nativeAttached = false;
+      _nativeMode = 'unavailable';
+      _scheduleRetry(generation);
+      if (mounted) setState(() {});
+    } on PlatformException catch (error) {
+      _nativeAttached = false;
+      _nativeMode = 'error:${error.code}';
+      _scheduleRetry(generation);
+      if (mounted) setState(() {});
     }
   }
 
+  void _scheduleRetry(int generation) {
+    _retryTimer?.cancel();
+    if (!mounted || !widget.playing || generation != _syncGeneration) return;
+    _retryTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted && widget.playing && generation == _syncGeneration) {
+        unawaited(_startNativeSignal(generation));
+      }
+    });
+  }
+
   Future<void> _readNativeSignal() async {
-    if (!mounted || !widget.playing || !_nativeSignal) return;
+    if (!mounted || !widget.playing || !_nativeAttached) return;
     try {
       final raw = await _channel.invokeMethod<List<dynamic>>('read');
-      if (!mounted || raw == null || raw.isEmpty || !widget.playing) return;
+      if (!mounted || !widget.playing || !_nativeAttached) return;
+      if (raw == null || raw.isEmpty) {
+        _registerSilentRead();
+        return;
+      }
       final samples = raw
-          .map((value) => (value as num).toDouble().clamp(0.0, 1.0))
+          .whereType<num>()
+          .map((value) => value.toDouble().clamp(0.0, 1.0))
           .toList(growable: false);
+      if (samples.isEmpty || samples.reduce(math.max) <= 0.002) {
+        _registerSilentRead();
+        return;
+      }
+
+      _silentReadCount = 0;
+      final signalBecameAvailable = !_hasFftSignal;
+      _hasFftSignal = true;
+      if (signalBecameAvailable) {
+        // Color travel is allowed only after a real non-silent FFT frame.
+        _colorController.repeat();
+        if (mounted) setState(() {});
+      }
       _logSignalDiagnostics(samples);
+
       final count = math.max(1, widget.barCount);
       final previous =
           _levels.length == count ? _levels : List<double>.filled(count, 0);
@@ -186,19 +246,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         }
         final sampleCount = math.max(1, end - start);
         final rmsEnergy = math.sqrt(sumSquares / sampleCount);
-        // RMS is stable, while a peak catches short kick/snare transients.
-        // Combining both keeps the rail responsive without inventing motion.
         final rawEnergy = math.max(rmsEnergy * 1.32, bandPeak * 0.82);
 
-        // The floor follows silence slowly and follows active signal almost
-        // not at all. This removes device noise without removing quiet music.
         var floor = previousFloors[index];
         final floorRate = rawEnergy < floor ? 0.075 : 0.012;
         floor += (rawEnergy - floor) * floorRate;
         final gatedEnergy = math.max(0.0, rawEnergy - floor * 1.18 - 0.003);
 
-        // Each band has its own short-term ceiling, so a loud bass hit cannot
-        // flatten the treble and one quiet song cannot make the next one tiny.
         var ceiling = previousCeilings[index] * 0.992;
         ceiling = math.max(0.18, ceiling);
         if (gatedEnergy > ceiling) ceiling = gatedEnergy;
@@ -229,7 +283,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         nextHolds[index] = hold;
       }
 
-      if (!mounted || !widget.playing) return;
+      if (!mounted || !widget.playing || !_nativeAttached) return;
       setState(() {
         _levels = next;
         _peaks = nextPeaks;
@@ -244,6 +298,21 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     }
   }
 
+  void _registerSilentRead() {
+    _silentReadCount++;
+    if (_hasFftSignal && _silentReadCount >= _silentReadLimit) {
+      _hasFftSignal = false;
+      _colorController.stop();
+      _colorController.value = 0;
+      if (mounted) {
+        setState(() {
+          _levels = List<double>.filled(math.max(1, widget.barCount), 0);
+          _peaks = List<double>.filled(math.max(1, widget.barCount), 0);
+        });
+      }
+    }
+  }
+
   void _logSignalDiagnostics(List<double> samples) {
     if (!kDebugMode || samples.isEmpty) return;
     final now = DateTime.now();
@@ -254,7 +323,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final average =
         samples.reduce((sum, value) => sum + value) / samples.length;
     debugPrint(
-      '[YAZEN][Visualizer] session=$_nativeSessionId '
+      '[YAZEN][Visualizer] session=$_nativeSessionId mode=$_nativeMode '
       'bins=${samples.length} max=${maximum.toStringAsFixed(3)} '
       'avg=${average.toStringAsFixed(3)}',
     );
@@ -266,7 +335,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _poller?.cancel();
     _poller = null;
     _nativeSessionId = null;
-    _nativeSignal = false;
+    _nativeMode = null;
+    _nativeAttached = false;
+    _hasFftSignal = false;
+    _silentReadCount = 0;
     try {
       await _channel.invokeMethod<void>('stop');
     } on MissingPluginException {
@@ -278,25 +350,19 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   void _resetSignalState() {
     final count = math.max(1, widget.barCount);
-    if (!mounted) {
-      _levels = List<double>.filled(count, 0);
-      _peaks = List<double>.filled(count, 0);
-      _noiseFloors = List<double>.filled(count, 0.012);
-      _ceilings = List<double>.filled(count, 0.24);
-      _peakHoldFrames = List<int>.filled(count, 0);
-      return;
-    }
-    setState(() {
-      _levels = List<double>.filled(count, 0);
-      _peaks = List<double>.filled(count, 0);
-      _noiseFloors = List<double>.filled(count, 0.012);
-      _ceilings = List<double>.filled(count, 0.24);
-      _peakHoldFrames = List<int>.filled(count, 0);
-    });
+    _levels = List<double>.filled(count, 0);
+    _peaks = List<double>.filled(count, 0);
+    _noiseFloors = List<double>.filled(count, 0.012);
+    _ceilings = List<double>.filled(count, 0.24);
+    _peakHoldFrames = List<int>.filled(count, 0);
+    _hasFftSignal = false;
+    _silentReadCount = 0;
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _syncGeneration++;
     _retryTimer?.cancel();
     _poller?.cancel();
     unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
@@ -309,9 +375,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
     final durationMs = widget.duration?.inMilliseconds ?? 0;
     final canSeek = widget.onSeek != null && durationMs > 0;
+    final signalLabel =
+        _hasFftSignal
+            ? 'Audio spectrum, live FFT signal'
+            : 'Audio spectrum, idle until real FFT signal is available';
     return Semantics(
       button: canSeek,
-      label: canSeek ? 'Seekable audio spectrum' : 'Audio spectrum',
+      label: signalLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown:
@@ -339,7 +409,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               phaseOffset: _seedValue(widget.seed),
               levels: _levels,
               peaks: _peaks,
-              useAudioSignal: _nativeSignal,
+              useAudioSignal: _nativeAttached && _hasFftSignal,
               profile: widget.profile,
               progress:
                   durationMs > 0
@@ -411,12 +481,11 @@ class _VisualizerPainter extends CustomPainter {
               ? peaks[index].clamp(0.0, 1.0)
               : 0.0;
       final barHeight =
-          hasSignal ? math.max(3.0, size.height * (0.12 + energy * 0.82)) : 3.0;
+          hasSignal ? math.max(3.0, size.height * (0.12 + energy * 0.82)) : 2.6;
       final top = verticalCenter - barHeight / 2;
       final bottom = verticalCenter + barHeight / 2;
 
-      // Slow, theme-anchored color travel. Audio energy changes brightness;
-      // it does not trigger random color changes.
+      // Slow, theme-anchored color travel is enabled only by real FFT data.
       final hue =
           (baseHsl.hue + ratio * 46 + math.sin(t * 0.16 + phaseOffset) * 9) %
           360;
@@ -424,7 +493,7 @@ class _VisualizerPainter extends CustomPainter {
         0.34,
         0.82,
       );
-      final alpha = active ? 0.50 + energy * 0.46 : 0.20;
+      final alpha = hasSignal ? 0.50 + energy * 0.46 : 0.20;
       paint
         ..color =
             HSLColor.fromAHSL(
