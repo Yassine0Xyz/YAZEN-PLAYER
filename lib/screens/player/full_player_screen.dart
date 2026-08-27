@@ -918,7 +918,7 @@ class _TransportControls extends StatelessWidget {
                       size: 48,
                     ),
                     EchoIconButton(
-                      tooltip: 'Repeat mode',
+                      tooltip: 'Repeat: ${_repeatLabel(loopMode)}',
                       icon:
                           loopMode == LoopMode.one
                               ? Icons.repeat_one_rounded
@@ -961,8 +961,16 @@ class _TransportControls extends StatelessWidget {
   AudioServiceRepeatMode _nextRepeatMode(LoopMode mode) {
     return switch (mode) {
       LoopMode.off => AudioServiceRepeatMode.one,
-      LoopMode.one => AudioServiceRepeatMode.none,
-      LoopMode.all => AudioServiceRepeatMode.one,
+      LoopMode.one => AudioServiceRepeatMode.all,
+      LoopMode.all => AudioServiceRepeatMode.none,
+    };
+  }
+
+  String _repeatLabel(LoopMode mode) {
+    return switch (mode) {
+      LoopMode.off => 'off',
+      LoopMode.one => 'one',
+      LoopMode.all => 'all',
     };
   }
 }

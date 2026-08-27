@@ -274,9 +274,7 @@ class HybridAudioHandler extends BaseAudioHandler
     _queueTracks
       ..clear()
       ..add(track);
-    _activeTrack = track;
-    mediaItem.add(item);
-    queue.add(<MediaItem>[item]);
+    _publishQueueState(<MediaItem>[item], 0);
     _persistPlayback();
     if (autoPlay) {
       if (!stillCurrent()) return;
@@ -442,9 +440,7 @@ class HybridAudioHandler extends BaseAudioHandler
     _queueTracks
       ..clear()
       ..addAll(tracks);
-    _activeTrack = tracks[initialIndex];
-    queue.add(items);
-    mediaItem.add(items[initialIndex]);
+    _publishQueueState(items, initialIndex);
     _persistPlayback();
     if (stillCurrent()) await play();
   }
@@ -527,15 +523,13 @@ class HybridAudioHandler extends BaseAudioHandler
       _queueTracks
         ..clear()
         ..addAll(restoredTracks);
-      queue.add(items);
+      final index = restoredIndex.clamp(0, items.length - 1).toInt();
       await _player.setAudioSources(
         sources,
-        initialIndex: restoredIndex.clamp(0, items.length - 1).toInt(),
+        initialIndex: index,
         initialPosition: snapshot.position,
       );
-      final index = restoredIndex.clamp(0, items.length - 1).toInt();
-      _activeTrack = _queueTracks[index];
-      mediaItem.add(items[index]);
+      _publishQueueState(items, index);
     } catch (_) {
       await _playbackStore.clear();
     }
@@ -804,7 +798,19 @@ class HybridAudioHandler extends BaseAudioHandler
     final track = _queueTracks[index];
     _activeTrack = track;
     mediaItem.add(track.toMediaItem());
+    _broadcastPlaybackState();
     _persistPlayback();
+  }
+
+  void _publishQueueState(List<MediaItem> items, int index) {
+    if (_queueTracks.isEmpty || items.isEmpty) return;
+    final safeIndex = index.clamp(0, _queueTracks.length - 1).toInt();
+    _activeTrack = _queueTracks[safeIndex];
+    // These synchronous subjects are updated in one method so consumers do
+    // not receive a newly selected item with an old queue context.
+    queue.add(List<MediaItem>.unmodifiable(items));
+    mediaItem.add(items[safeIndex]);
+    _broadcastPlaybackState();
   }
 
   void _persistPlayback() {
