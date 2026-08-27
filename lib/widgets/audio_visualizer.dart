@@ -5,11 +5,17 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../services/linux_pcm_spectrum_service.dart';
 
 enum AudioVisualizerProfile { compact, full }
 
+/// A source-driven spectrum view for local audio.
+///
+/// The widget has one responsibility: read real spectrum frames for the
+/// current playback position and render them smoothly. It never creates a
+/// frame when the source has not supplied one.
 class AudioVisualizer extends StatefulWidget {
   const AudioVisualizer({
     required this.playing,
@@ -47,44 +53,32 @@ class AudioVisualizer extends StatefulWidget {
 class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
   static const _channel = MethodChannel('yazen/audio_visualizer');
-  static const _pollInterval = Duration(milliseconds: 50);
-  static const _silentReadLimit = 4;
+  static const _readInterval = Duration(milliseconds: 40);
 
-  late final AnimationController _colorController;
-  Timer? _poller;
-  Timer? _retryTimer;
+  Timer? _readTimer;
   StreamSubscription<Duration>? _positionSubscription;
-  Future<void> _syncTail = Future<void>.value();
-  List<double> _levels = const <double>[];
-  List<double> _peaks = const <double>[];
-  List<double> _noiseFloors = const <double>[];
-  List<double> _ceilings = const <double>[];
-  List<int> _peakHoldFrames = const <int>[];
-  int? _nativeSessionId;
-  String? _nativeMode;
-  bool _nativeAttached = false;
-  bool _pcmAttached = false;
-  bool _pcmUnavailable = false;
-  bool _linuxAttached = false;
-  bool _linuxUnavailable = false;
-  bool _hasFftSignal = false;
-  int _silentReadCount = 0;
-  int _syncGeneration = 0;
-  DateTime? _lastDiagnosticsAt;
-  Duration? _livePosition;
+  late final Ticker _renderTicker;
+  Future<void> _lifecycleTail = Future<void>.value();
+
+  Duration _livePosition = Duration.zero;
+  List<double> _targetLevels = const <double>[];
+  List<double> _displayLevels = const <double>[];
+  List<double> _displayPeaks = const <double>[];
+  bool _attached = false;
+  bool _hasRealSignal = false;
   bool _readInFlight = false;
+  int _generation = 0;
+  String _mode = 'idle';
+  Duration? _lastTick;
 
   @override
   void initState() {
     super.initState();
-    _colorController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 18),
-    );
-    _livePosition = widget.position;
+    _livePosition = widget.position ?? Duration.zero;
+    _renderTicker = createTicker(_onRenderTick);
     _bindPositionStream();
-    _resetSignalState();
-    _syncPlayback();
+    _resetBands();
+    _synchronize();
   }
 
   @override
@@ -94,18 +88,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _bindPositionStream();
     }
     if (widget.positionStream == null) {
-      _livePosition = widget.position;
+      _livePosition = widget.position ?? Duration.zero;
     }
     if (oldWidget.playing != widget.playing ||
-        oldWidget.audioSessionId != widget.audioSessionId ||
         oldWidget.sourceUri != widget.sourceUri ||
         oldWidget.barCount != widget.barCount ||
         oldWidget.seed != widget.seed) {
-      // A new track can keep the same Android audio session. The seed change
-      // is therefore also a source-switch signal and must restart capture.
       _livePosition = widget.position ?? Duration.zero;
-      _resetSignalState();
-      _syncPlayback();
+      _resetBands();
+      _synchronize();
     }
   }
 
@@ -119,515 +110,215 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _positionSubscription = stream.listen((position) {
       if (!mounted) return;
       _livePosition = position;
-      setState(() {});
     });
   }
 
-  void _syncPlayback() {
-    final generation = ++_syncGeneration;
-    _retryTimer?.cancel();
-    _retryTimer = null;
-    _syncTail = _syncTail.then((_) async {
-      await _synchronizePlayback(generation);
+  void _synchronize() {
+    final generation = ++_generation;
+    _lifecycleTail = _lifecycleTail.then((_) async {
+      await _stopSource();
+      if (!mounted || generation != _generation || !widget.playing) return;
+      await _startSource(generation);
     });
   }
 
-  Future<void> _synchronizePlayback(int generation) async {
-    await _stopNativeSignal();
-    if (!mounted || generation != _syncGeneration) return;
-
-    _colorController.stop();
-    _colorController.value = 0;
-    _pcmUnavailable = false;
-    _linuxUnavailable = false;
-    _resetSignalState();
-    if (!widget.playing) return;
-
-    await _startNativeSignal(generation);
-  }
-
-  Future<void> _startNativeSignal(
-    int generation, {
-    bool allowPcm = true,
-  }) async {
-    if (!mounted || !widget.playing || generation != _syncGeneration) return;
-    if (Platform.isLinux && widget.sourceUri != null && !_linuxUnavailable) {
-      final started = await _startLinuxPcmSignal(generation);
-      if (started) return;
-      _linuxUnavailable = true;
-      _nativeMode = 'unavailable';
-      if (mounted) setState(() {});
+  Future<void> _startSource(int generation) async {
+    final uri = widget.sourceUri;
+    if (uri == null || uri.isEmpty) {
+      _setUnavailable('waiting_for_local_source');
       return;
     }
-    if (allowPcm && widget.sourceUri != null && !_pcmUnavailable) {
-      final started = await _startPcmSignal(generation);
-      if (started) return;
-    }
 
-    // A valid just_audio session is preferred, but Android can still try the
-    // global output mix when that session is unavailable or rejected.
-    final sessionId = widget.audioSessionId ?? 0;
+    bool started = false;
+    String mode = 'unavailable';
     try {
-      final response = await _channel.invokeMethod<dynamic>(
-        'start',
-        <String, Object?>{'sessionId': sessionId},
-      );
-      final started = switch (response) {
-        final bool value => value,
-        final Map<dynamic, dynamic> value => value['started'] == true,
-        _ => false,
-      };
-      final mode = switch (response) {
-        final Map<dynamic, dynamic> value => value['mode']?.toString(),
-        _ => null,
-      };
-      final currentSessionId = widget.audioSessionId ?? 0;
-      if (!mounted ||
-          !widget.playing ||
-          generation != _syncGeneration ||
-          currentSessionId != sessionId) {
-        if (started) unawaited(_channel.invokeMethod<void>('stop'));
-        return;
+      if (Platform.isLinux) {
+        started = await LinuxPcmSpectrumService.instance.start(uri);
+        mode = 'linux_pcm_file';
+      } else if (Platform.isAndroid) {
+        final response = await _channel.invokeMethod<dynamic>(
+          'startPcm',
+          <String, Object?>{'uri': uri},
+        );
+        started =
+            response is Map<dynamic, dynamic> && response['started'] == true;
+        mode = 'android_pcm_file';
       }
-
-      _nativeSessionId = started ? sessionId : null;
-      _nativeMode = mode;
-      _nativeAttached = started;
-      _hasFftSignal = false;
-      _silentReadCount = 0;
-      _poller?.cancel();
-      _poller =
-          started
-              ? Timer.periodic(_pollInterval, (_) {
-                unawaited(_readFrame());
-              })
-              : null;
-
-      if (!started) {
-        _scheduleRetry(generation);
-      }
-      if (mounted) setState(() {});
     } on MissingPluginException {
-      _nativeAttached = false;
-      _nativeMode = 'unavailable';
-      _scheduleRetry(generation);
-      if (mounted) setState(() {});
-    } on PlatformException catch (error) {
-      _nativeAttached = false;
-      _nativeMode = 'error:${error.code}';
-      _scheduleRetry(generation);
-      if (mounted) setState(() {});
+      started = false;
+    } on PlatformException {
+      started = false;
     }
-  }
 
-  Future<bool> _startLinuxPcmSignal(int generation) async {
-    final uri = widget.sourceUri;
-    if (uri == null ||
-        !mounted ||
-        !widget.playing ||
-        generation != _syncGeneration) {
-      return false;
+    if (!mounted || generation != _generation || !widget.playing) {
+      if (started) await _stopSource();
+      return;
     }
-    final started = await LinuxPcmSpectrumService.instance.start(uri);
-    if (!mounted || !widget.playing || generation != _syncGeneration) {
-      if (started) await LinuxPcmSpectrumService.instance.stop();
-      return false;
-    }
-    _linuxAttached = started;
-    _pcmAttached = false;
-    _nativeAttached = false;
-    _nativeMode = started ? 'linux_pcm_file' : 'unavailable';
-    _hasFftSignal = false;
-    _silentReadCount = 0;
-    _poller?.cancel();
-    _poller =
+
+    _attached = started;
+    _mode = started ? mode : 'unavailable';
+    _hasRealSignal = false;
+    _readInFlight = false;
+    _readTimer?.cancel();
+    _readTimer =
         started
-            ? Timer.periodic(_pollInterval, (_) => unawaited(_readFrame()))
+            ? Timer.periodic(_readInterval, (_) => unawaited(_readFrame()))
             : null;
     if (mounted) setState(() {});
-    return started;
-  }
-
-  Future<bool> _startPcmSignal(int generation) async {
-    final uri = widget.sourceUri;
-    if (uri == null ||
-        !mounted ||
-        !widget.playing ||
-        generation != _syncGeneration) {
-      return false;
-    }
-    try {
-      final response = await _channel.invokeMethod<dynamic>(
-        'startPcm',
-        <String, Object?>{'uri': uri},
-      );
-      final started = switch (response) {
-        final Map<dynamic, dynamic> value => value['started'] == true,
-        _ => false,
-      };
-      if (!mounted || !widget.playing || generation != _syncGeneration) {
-        if (started) unawaited(_channel.invokeMethod<void>('stopPcm'));
-        return false;
-      }
-      _pcmAttached = started;
-      _nativeAttached = false;
-      _nativeMode = started ? 'pcm_file' : null;
-      _hasFftSignal = false;
-      _silentReadCount = 0;
-      _poller?.cancel();
-      _poller =
-          started
-              ? Timer.periodic(_pollInterval, (_) {
-                unawaited(_readFrame());
-              })
-              : null;
-      if (!started) _scheduleRetry(generation);
-      if (mounted) setState(() {});
-      return started;
-    } on MissingPluginException {
-      return false;
-    } on PlatformException {
-      return false;
-    }
-  }
-
-  void _scheduleRetry(int generation) {
-    _retryTimer?.cancel();
-    if (!mounted || !widget.playing || generation != _syncGeneration) return;
-    _retryTimer = Timer(const Duration(milliseconds: 700), () {
-      if (mounted && widget.playing && generation == _syncGeneration) {
-        unawaited(_startNativeSignal(generation));
-      }
-    });
   }
 
   Future<void> _readFrame() async {
-    if (_readInFlight) return;
+    if (!_attached || !widget.playing || _readInFlight) return;
+    final generation = _generation;
     _readInFlight = true;
     try {
-      if (_linuxAttached) {
-        _readLinuxSignal();
-      } else if (_pcmAttached) {
-        await _readPcmSignal();
-      } else {
-        await _readNativeSignal();
+      final response =
+          Platform.isLinux
+              ? LinuxPcmSpectrumService.instance.read(
+                _livePosition.inMilliseconds,
+              )
+              : await _channel.invokeMethod<dynamic>(
+                'readPcm',
+                <String, Object?>{'positionMs': _livePosition.inMilliseconds},
+              );
+      if (!mounted ||
+          !widget.playing ||
+          !_attached ||
+          generation != _generation) {
+        return;
       }
+      if (response is! Map<dynamic, dynamic>) return;
+      if (response['state']?.toString() != 'live') return;
+      final rawBands = response['bands'];
+      if (rawBands is! List<dynamic>) return;
+      final bands = rawBands
+          .whereType<num>()
+          .map((value) => value.toDouble().clamp(0.0, 1.0))
+          .toList(growable: false);
+      if (bands.isEmpty) return;
+      _setRealFrame(bands);
+    } on MissingPluginException {
+      if (generation == _generation) _setUnavailable('pcm_bridge_missing');
+    } on PlatformException {
+      if (generation == _generation) _setUnavailable('pcm_read_failed');
     } finally {
       _readInFlight = false;
     }
   }
 
-  void _readLinuxSignal() {
-    if (!mounted || !widget.playing || !_linuxAttached) return;
-    final response = LinuxPcmSpectrumService.instance.read(
-      _livePosition?.inMilliseconds ?? widget.position?.inMilliseconds ?? 0,
-    );
-    if (response['state'] != 'live') return;
-    final bands = (response['bands'] as List<dynamic>? ?? const <dynamic>[])
-        .whereType<num>()
-        .map((value) => value.toDouble().clamp(0.0, 1.0))
-        .toList(growable: false);
-    if (bands.isEmpty) return;
-    _logSignalDiagnostics(bands);
-    _silentReadCount = 0;
-    if (!_hasFftSignal) {
-      _hasFftSignal = true;
-      _colorController.repeat();
-    }
-    _applyPcmBands(bands);
-  }
-
-  Future<void> _readPcmSignal() async {
-    if (!mounted || !widget.playing || !_pcmAttached) return;
-    try {
-      final response = await _channel
-          .invokeMethod<dynamic>('readPcm', <String, Object?>{
-            'positionMs':
-                _livePosition?.inMilliseconds ??
-                widget.position?.inMilliseconds ??
-                0,
-          });
-      if (!mounted || !widget.playing || !_pcmAttached) return;
-      if (response is! Map<dynamic, dynamic>) return;
-      final state = response['state']?.toString();
-      if (state == 'preparing') return;
-      if (state != 'live') {
-        _pcmUnavailable = true;
-        _pcmAttached = false;
-        _hasFftSignal = false;
-        await _channel.invokeMethod<void>('stopPcm');
-        if (mounted && widget.playing) {
-          await _startNativeSignal(_syncGeneration, allowPcm: false);
-        }
-        return;
-      }
-      final bands = (response['bands'] as List<dynamic>? ?? const <dynamic>[])
-          .whereType<num>()
-          .map((value) => value.toDouble().clamp(0.0, 1.0))
-          .toList(growable: false);
-      if (bands.isEmpty) return;
-      _logSignalDiagnostics(bands);
-      _silentReadCount = 0;
-      if (!_hasFftSignal) {
-        _hasFftSignal = true;
-        _colorController.repeat();
-      }
-      _applyPcmBands(bands);
-    } on MissingPluginException {
-      _pcmUnavailable = true;
-      _pcmAttached = false;
-      await _startNativeSignal(_syncGeneration, allowPcm: false);
-    } on PlatformException {
-      _pcmUnavailable = true;
-      _pcmAttached = false;
-      await _startNativeSignal(_syncGeneration, allowPcm: false);
-    }
-  }
-
-  void _applyPcmBands(List<double> bands) {
+  void _setRealFrame(List<double> bands) {
     final count = math.max(1, widget.barCount);
-    final previous =
-        _levels.length == count ? _levels : List<double>.filled(count, 0);
-    final previousPeaks =
-        _peaks.length == count ? _peaks : List<double>.filled(count, 0);
-    final next = List<double>.filled(count, 0);
-    final nextPeaks = List<double>.filled(count, 0);
-    for (var index = 0; index < count; index++) {
-      final sourceIndex = ((index + 0.5) * bands.length / count).floor().clamp(
+    final next = List<double>.generate(count, (index) {
+      final source = ((index + 0.5) * bands.length / count).floor().clamp(
         0,
         bands.length - 1,
       );
-      final target = bands[sourceIndex].clamp(0.0, 1.0);
-      final current = previous[index];
-      // Interpolate toward each real FFT target. This removes visible
-      // stair-stepping without inventing intermediate audio data.
-      final level =
-          current + (target - current) * (target > current ? 0.46 : 0.20);
-      final peak = math.max(level, previousPeaks[index] * 0.93);
-      next[index] = level;
-      nextPeaks[index] = peak.clamp(0.0, 1.0);
-    }
-    if (!mounted || !widget.playing || (!_pcmAttached && !_linuxAttached)) {
-      return;
-    }
-    setState(() {
-      _levels = next;
-      _peaks = nextPeaks;
+      return bands[source].clamp(0.0, 1.0);
     });
-  }
-
-  Future<void> _readNativeSignal() async {
-    if (!mounted || !widget.playing || !_nativeAttached) return;
-    try {
-      final raw = await _channel.invokeMethod<List<dynamic>>('read');
-      if (!mounted || !widget.playing || !_nativeAttached) return;
-      if (raw == null || raw.isEmpty) {
-        _registerSilentRead();
-        return;
-      }
-      final samples = raw
-          .whereType<num>()
-          .map((value) => value.toDouble().clamp(0.0, 1.0))
-          .toList(growable: false);
-      if (samples.isEmpty || samples.reduce(math.max) <= 0.002) {
-        _registerSilentRead();
-        return;
-      }
-
-      _silentReadCount = 0;
-      final signalBecameAvailable = !_hasFftSignal;
-      _hasFftSignal = true;
-      if (signalBecameAvailable) {
-        // Color travel is allowed only after a real non-silent FFT frame.
-        _colorController.repeat();
-        if (mounted) setState(() {});
-      }
-      _logSignalDiagnostics(samples);
-
-      final count = math.max(1, widget.barCount);
-      final previous =
-          _levels.length == count ? _levels : List<double>.filled(count, 0);
-      final previousPeaks =
-          _peaks.length == count ? _peaks : List<double>.filled(count, 0);
-      final previousFloors =
-          _noiseFloors.length == count
-              ? _noiseFloors
-              : List<double>.filled(count, 0.012);
-      final previousCeilings =
-          _ceilings.length == count
-              ? _ceilings
-              : List<double>.filled(count, 0.24);
-      final previousHolds =
-          _peakHoldFrames.length == count
-              ? _peakHoldFrames
-              : List<int>.filled(count, 0);
-
-      final next = List<double>.filled(count, 0);
-      final nextPeaks = List<double>.filled(count, 0);
-      final nextFloors = List<double>.filled(count, 0);
-      final nextCeilings = List<double>.filled(count, 0);
-      final nextHolds = List<int>.filled(count, 0);
-
-      for (var index = 0; index < count; index++) {
-        // Log-spaced bands keep bass readable on the left while distributing
-        // the shorter treble bins across the right side.
-        final startRatio = math.pow(index / count, 2.05).toDouble();
-        final endRatio = math.pow((index + 1) / count, 2.05).toDouble();
-        final start = (startRatio * (samples.length - 1)).floor();
-        final end = math
-            .max(start + 1, (endRatio * (samples.length - 1)).ceil())
-            .clamp(start + 1, samples.length);
-
-        var sumSquares = 0.0;
-        var bandPeak = 0.0;
-        for (var sampleIndex = start; sampleIndex < end; sampleIndex++) {
-          final sample = samples[sampleIndex];
-          sumSquares += sample * sample;
-          bandPeak = math.max(bandPeak, sample);
-        }
-        final sampleCount = math.max(1, end - start);
-        final rmsEnergy = math.sqrt(sumSquares / sampleCount);
-        final rawEnergy = math.max(rmsEnergy * 1.32, bandPeak * 0.82);
-
-        var floor = previousFloors[index];
-        final floorRate = rawEnergy < floor ? 0.075 : 0.012;
-        floor += (rawEnergy - floor) * floorRate;
-        final gatedEnergy = math.max(0.0, rawEnergy - floor * 1.18 - 0.003);
-
-        var ceiling = previousCeilings[index] * 0.992;
-        ceiling = math.max(0.18, ceiling);
-        if (gatedEnergy > ceiling) ceiling = gatedEnergy;
-        final normalized = (gatedEnergy / math.max(ceiling * 0.58, 0.06)).clamp(
-          0.0,
-          1.0,
-        );
-        final target = math.pow(normalized, 0.72).toDouble().clamp(0.0, 1.0);
-        final current = previous[index];
-        final smoothing = target > current ? 0.62 : 0.18;
-        final level = current + (target - current) * smoothing;
-
-        var hold = previousHolds[index];
-        var peak = previousPeaks[index];
-        if (level >= peak) {
-          peak = level;
-          hold = 3;
-        } else if (hold > 0) {
-          hold -= 1;
-        } else {
-          peak *= 0.89;
-        }
-
-        next[index] = level;
-        nextPeaks[index] = peak.clamp(0.0, 1.0);
-        nextFloors[index] = floor.clamp(0.0, 1.0);
-        nextCeilings[index] = ceiling.clamp(0.18, 1.0);
-        nextHolds[index] = hold;
-      }
-
-      if (!mounted || !widget.playing || !_nativeAttached) return;
-      setState(() {
-        _levels = next;
-        _peaks = nextPeaks;
-        _noiseFloors = nextFloors;
-        _ceilings = nextCeilings;
-        _peakHoldFrames = nextHolds;
-      });
-    } on MissingPluginException {
-      await _stopNativeSignal();
-    } on PlatformException {
-      await _stopNativeSignal();
+    _targetLevels = next;
+    if (!_hasRealSignal) {
+      _hasRealSignal = true;
+      _mode = _mode == 'idle' ? 'pcm' : _mode;
+      _lastTick = null;
+      _renderTicker.start();
+      if (mounted) setState(() {});
     }
   }
 
-  void _registerSilentRead() {
-    _silentReadCount++;
-    if (_hasFftSignal && _silentReadCount >= _silentReadLimit) {
-      _hasFftSignal = false;
-      _colorController.stop();
-      _colorController.value = 0;
-      if (mounted) {
-        setState(() {
-          _levels = List<double>.filled(math.max(1, widget.barCount), 0);
-          _peaks = List<double>.filled(math.max(1, widget.barCount), 0);
-        });
-      }
+  void _onRenderTick(Duration elapsed) {
+    if (!mounted || !_hasRealSignal || !widget.playing) return;
+    final previousTick = _lastTick;
+    _lastTick = elapsed;
+    final dt =
+        previousTick == null
+            ? 1.0 / 60.0
+            : (elapsed - previousTick).inMicroseconds /
+                Duration.microsecondsPerSecond;
+    final riseAlpha = 1.0 - math.exp(-dt / 0.075);
+    final fallAlpha = 1.0 - math.exp(-dt / 0.14);
+    final count = math.max(1, widget.barCount);
+    if (_displayLevels.length != count) {
+      _displayLevels = List<double>.filled(count, 0.0);
+      _displayPeaks = List<double>.filled(count, 0.0);
     }
+    var changed = false;
+    for (var index = 0; index < count; index++) {
+      final target = index < _targetLevels.length ? _targetLevels[index] : 0.0;
+      final current = _displayLevels[index];
+      final alpha = target >= current ? riseAlpha : fallAlpha;
+      final next = current + (target - current) * alpha;
+      final nextPeak = math.max(next, _displayPeaks[index] - dt * 0.52);
+      if ((next - current).abs() > 0.0002 ||
+          (nextPeak - _displayPeaks[index]).abs() > 0.0002) {
+        changed = true;
+      }
+      _displayLevels[index] = next.clamp(0.0, 1.0);
+      _displayPeaks[index] = nextPeak.clamp(0.0, 1.0);
+    }
+    if (changed) setState(() {});
   }
 
-  void _logSignalDiagnostics(List<double> samples) {
-    if (!kDebugMode || samples.isEmpty) return;
-    final now = DateTime.now();
-    final previous = _lastDiagnosticsAt;
-    if (previous != null && now.difference(previous).inSeconds < 2) return;
-    _lastDiagnosticsAt = now;
-    final maximum = samples.reduce(math.max);
-    final average =
-        samples.reduce((sum, value) => sum + value) / samples.length;
-    debugPrint(
-      '[YAZEN][Visualizer] session=$_nativeSessionId mode=$_nativeMode '
-      'bins=${samples.length} max=${maximum.toStringAsFixed(3)} '
-      'avg=${average.toStringAsFixed(3)}',
-    );
+  void _setUnavailable(String mode) {
+    _attached = false;
+    _hasRealSignal = false;
+    _mode = mode;
+    _readTimer?.cancel();
+    _readTimer = null;
+    _renderTicker.stop();
+    _lastTick = null;
+    _resetBands();
+    if (mounted) setState(() {});
   }
 
-  Future<void> _stopNativeSignal() async {
-    _retryTimer?.cancel();
-    _retryTimer = null;
-    _poller?.cancel();
-    _poller = null;
-    _nativeSessionId = null;
-    _nativeMode = null;
-    _nativeAttached = false;
-    _pcmAttached = false;
-    _pcmUnavailable = false;
-    _linuxAttached = false;
-    _linuxUnavailable = false;
-    _hasFftSignal = false;
-    _silentReadCount = 0;
+  Future<void> _stopSource() async {
+    _readTimer?.cancel();
+    _readTimer = null;
+    _renderTicker.stop();
+    _lastTick = null;
+    _readInFlight = false;
+    _attached = false;
+    _hasRealSignal = false;
+    _mode = 'idle';
+    _resetBands();
     if (Platform.isLinux) {
       await LinuxPcmSpectrumService.instance.stop();
     }
     try {
       await _channel.invokeMethod<void>('stopPcm');
     } on MissingPluginException {
-      // Some platforms do not expose the PCM bridge.
+      // No native bridge exists on this platform.
     } on PlatformException {
-      // A missing PCM session is already stopped.
-    }
-    try {
-      await _channel.invokeMethod<void>('stop');
-    } on MissingPluginException {
-      // The native bridge is optional on non-Android targets.
-    } on PlatformException {
-      // Some devices deny Visualizer access; the rail remains safely still.
+      // There is no active PCM session to stop.
     }
   }
 
-  void _resetSignalState() {
+  void _resetBands() {
     final count = math.max(1, widget.barCount);
-    _levels = List<double>.filled(count, 0);
-    _peaks = List<double>.filled(count, 0);
-    _noiseFloors = List<double>.filled(count, 0.012);
-    _ceilings = List<double>.filled(count, 0.24);
-    _peakHoldFrames = List<int>.filled(count, 0);
-    _hasFftSignal = false;
-    _silentReadCount = 0;
+    _targetLevels = List<double>.filled(count, 0.0);
+    _displayLevels = List<double>.filled(count, 0.0);
+    _displayPeaks = List<double>.filled(count, 0.0);
     if (mounted) setState(() {});
+  }
+
+  void _seekFromTap(TapUpDetails details, BuildContext context) {
+    final durationMs = widget.duration?.inMilliseconds ?? 0;
+    if (widget.onSeek == null || durationMs <= 0) return;
+    final width = context.size?.width ?? 0;
+    if (width <= 0) return;
+    final fraction = (details.localPosition.dx / width).clamp(0.0, 1.0);
+    widget.onSeek!(Duration(milliseconds: (durationMs * fraction).round()));
   }
 
   @override
   void dispose() {
-    _syncGeneration++;
-    _retryTimer?.cancel();
-    _poller?.cancel();
-    unawaited(_positionSubscription?.cancel());
-    _positionSubscription = null;
+    _generation++;
+    _positionSubscription?.cancel();
+    _readTimer?.cancel();
+    _renderTicker.dispose();
     if (Platform.isLinux) {
       unawaited(LinuxPcmSpectrumService.instance.stop());
     }
     unawaited(_channel.invokeMethod<void>('stopPcm').catchError((_) {}));
-    unawaited(_channel.invokeMethod<void>('stop').catchError((_) {}));
-    _colorController.dispose();
     super.dispose();
   }
 
@@ -635,187 +326,141 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   Widget build(BuildContext context) {
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
     final durationMs = widget.duration?.inMilliseconds ?? 0;
-    final canSeek = widget.onSeek != null && durationMs > 0;
-    final signalLabel =
-        _hasFftSignal
-            ? 'Audio spectrum, live FFT signal'
-            : 'Audio spectrum, idle until real FFT signal is available';
+    final progress =
+        durationMs > 0
+            ? (_livePosition.inMilliseconds / durationMs).clamp(0.0, 1.0)
+            : null;
+    final label =
+        _hasRealSignal
+            ? 'Audio spectrum, live PCM signal'
+            : 'Audio spectrum, waiting for real PCM signal';
     return Semantics(
-      button: canSeek,
-      label: signalLabel,
+      label: label,
+      button: widget.onSeek != null && durationMs > 0,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown:
-            canSeek
-                ? (details) {
-                  final width = context.size?.width ?? 0;
-                  if (width <= 0) return;
-                  final fraction = (details.localPosition.dx / width).clamp(
-                    0.0,
-                    1.0,
-                  );
-                  widget.onSeek!(
-                    Duration(milliseconds: (durationMs * fraction).round()),
-                  );
-                }
-                : null,
+        onTapUp: (details) => _seekFromTap(details, context),
         child: RepaintBoundary(
           child: CustomPaint(
             size: Size(double.infinity, widget.height),
-            painter: _VisualizerPainter(
-              animation: _colorController,
+            painter: _SourceSpectrumPainter(
               color: color,
               barCount: widget.barCount,
-              active: widget.playing,
-              phaseOffset: _seedValue(widget.seed),
-              levels: _levels,
-              peaks: _peaks,
-              useAudioSignal:
-                  (_nativeAttached || _pcmAttached || _linuxAttached) &&
-                  _hasFftSignal,
+              height: widget.height,
               profile: widget.profile,
-              progress:
-                  durationMs > 0
-                      ? ((_livePosition?.inMilliseconds ??
-                                  widget.position?.inMilliseconds ??
-                                  0) /
-                              durationMs)
-                          .clamp(0.0, 1.0)
-                          .toDouble()
-                      : null,
+              levels: _displayLevels,
+              peaks: _displayPeaks,
+              hasSignal: _hasRealSignal,
+              progress: progress,
             ),
           ),
         ),
       ),
     );
   }
-
-  double _seedValue(String? seed) {
-    var hash = 17;
-    for (final unit in (seed ?? 'yazen').codeUnits) {
-      hash = (hash * 31 + unit) & 0x7fffffff;
-    }
-    return (hash % 360) * math.pi / 180;
-  }
 }
 
-class _VisualizerPainter extends CustomPainter {
-  _VisualizerPainter({
-    required this.animation,
+class _SourceSpectrumPainter extends CustomPainter {
+  const _SourceSpectrumPainter({
     required this.color,
     required this.barCount,
-    required this.active,
-    required this.phaseOffset,
+    required this.height,
+    required this.profile,
     required this.levels,
     required this.peaks,
-    required this.useAudioSignal,
-    required this.profile,
+    required this.hasSignal,
     required this.progress,
-  }) : super(repaint: animation);
+  });
 
-  final Animation<double> animation;
   final Color color;
   final int barCount;
-  final bool active;
-  final double phaseOffset;
+  final double height;
+  final AudioVisualizerProfile profile;
   final List<double> levels;
   final List<double> peaks;
-  final bool useAudioSignal;
-  final AudioVisualizerProfile profile;
+  final bool hasSignal;
   final double? progress;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
     final gap = math.max(
-      profile == AudioVisualizerProfile.full ? 2.2 : 2.8,
-      size.width * (profile == AudioVisualizerProfile.full ? 0.007 : 0.01),
+      profile == AudioVisualizerProfile.full ? 2.0 : 2.6,
+      size.width * (profile == AudioVisualizerProfile.full ? 0.0065 : 0.009),
     );
-    final width = math.max(1.7, (size.width - gap * (barCount - 1)) / barCount);
-    final verticalCenter = size.height * 0.46;
-    final baseHsl = HSLColor.fromColor(color);
+    final barWidth = math.max(
+      1.6,
+      (size.width - gap * (barCount - 1)) / barCount,
+    );
+    final center = size.height * 0.46;
+    final base = HSLColor.fromColor(color);
     final paint = Paint()..strokeCap = StrokeCap.round;
-    final hasSignal = useAudioSignal && levels.length == barCount;
-    final t = hasSignal ? animation.value * math.pi * 2 : 0.0;
 
     for (var index = 0; index < barCount; index++) {
-      final x = index * (width + gap) + width / 2;
       final ratio = barCount <= 1 ? 0.0 : index / (barCount - 1);
-      final energy = hasSignal ? levels[index].clamp(0.0, 1.0) : 0.0;
+      final level =
+          hasSignal && index < levels.length
+              ? levels[index].clamp(0.0, 1.0)
+              : 0.0;
       final peak =
-          hasSignal && peaks.length == barCount
+          hasSignal && index < peaks.length
               ? peaks[index].clamp(0.0, 1.0)
               : 0.0;
       final barHeight =
-          hasSignal ? math.max(3.0, size.height * (0.12 + energy * 0.82)) : 2.6;
-      final top = verticalCenter - barHeight / 2;
-      final bottom = verticalCenter + barHeight / 2;
-
-      // Slow, theme-anchored color travel is enabled only by real FFT data.
-      final hue =
-          (baseHsl.hue + ratio * 46 + math.sin(t * 0.16 + phaseOffset) * 9) %
-          360;
-      final lightness = (baseHsl.lightness + 0.08 + energy * 0.12).clamp(
-        0.34,
-        0.82,
-      );
-      final alpha = hasSignal ? 0.50 + energy * 0.46 : 0.20;
+          hasSignal ? math.max(3.0, size.height * (0.10 + level * 0.84)) : 2.4;
+      final x = index * (barWidth + gap) + barWidth / 2;
+      final hue = (base.hue + ratio * 58 + level * 18) % 360;
+      final lightness = (base.lightness +
+              (hasSignal ? 0.08 + level * 0.10 : 0.0))
+          .clamp(0.34, 0.84);
       paint
         ..color =
             HSLColor.fromAHSL(
-              alpha,
+              hasSignal ? 0.58 + level * 0.38 : 0.18,
               hue,
-              (baseHsl.saturation + 0.12).clamp(0.45, 1.0),
+              (base.saturation + 0.14).clamp(0.45, 1.0),
               lightness,
             ).toColor()
-        ..strokeWidth = width;
-      canvas.drawLine(Offset(x, top), Offset(x, bottom), paint);
+        ..strokeWidth = barWidth;
+      canvas.drawLine(
+        Offset(x, center - barHeight / 2),
+        Offset(x, center + barHeight / 2),
+        paint,
+      );
 
-      if (profile == AudioVisualizerProfile.full &&
-          hasSignal &&
-          peak > energy) {
-        final peakY = verticalCenter - size.height * (0.12 + peak * 0.82) / 2;
+      if (hasSignal && peak > level + 0.025) {
         paint
-          ..color =
-              HSLColor.fromAHSL(
-                0.72,
-                (hue + 16) % 360,
-                (baseHsl.saturation + 0.16).clamp(0.55, 1.0),
-                (lightness + 0.10).clamp(0.42, 0.92),
-              ).toColor()
-          ..strokeWidth = math.max(1.4, width * 0.72);
-        canvas.drawLine(
-          Offset(x - width * 0.34, peakY),
-          Offset(x + width * 0.34, peakY),
-          paint,
-        );
+          ..color = paint.color.withValues(alpha: 0.72)
+          ..strokeWidth = math.max(1.2, barWidth * 0.62);
+        final peakY = center - size.height * (0.05 + peak * 0.39);
+        canvas.drawLine(Offset(x, peakY), Offset(x, peakY), paint);
       }
     }
 
-    if (progress != null) {
+    final progressValue = progress;
+    if (progressValue != null) {
       final progressPaint =
           Paint()
-            ..color = color.withValues(alpha: 0.92)
-            ..strokeWidth = profile == AudioVisualizerProfile.full ? 2.4 : 1.8
+            ..color = color.withValues(alpha: 0.48)
+            ..strokeWidth = 1.2
             ..strokeCap = StrokeCap.round;
-      final x = size.width * progress!.clamp(0.0, 1.0);
       canvas.drawLine(
-        Offset(0, size.height - 1.2),
-        Offset(x, size.height - 1.2),
+        Offset(0, size.height - 1),
+        Offset(size.width * progressValue, size.height - 1),
         progressPaint,
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _VisualizerPainter oldDelegate) =>
-      oldDelegate.color != color ||
-      oldDelegate.barCount != barCount ||
-      oldDelegate.active != active ||
-      oldDelegate.phaseOffset != phaseOffset ||
-      oldDelegate.levels != levels ||
-      oldDelegate.peaks != peaks ||
-      oldDelegate.useAudioSignal != useAudioSignal ||
-      oldDelegate.profile != profile ||
-      oldDelegate.progress != progress;
+  bool shouldRepaint(covariant _SourceSpectrumPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.barCount != barCount ||
+        oldDelegate.height != height ||
+        oldDelegate.profile != profile ||
+        oldDelegate.hasSignal != hasSignal ||
+        oldDelegate.progress != progress ||
+        !listEquals(oldDelegate.levels, levels) ||
+        !listEquals(oldDelegate.peaks, peaks);
+  }
 }
