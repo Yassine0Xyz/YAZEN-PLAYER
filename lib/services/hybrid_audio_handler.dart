@@ -642,7 +642,10 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> onTaskRemoved() async {
-    await stop();
+    // Android may call this when the user swipes YAZEN away from Recents.
+    // Keep the media foreground service alive so an active local track keeps
+    // playing. The explicit Stop/X media control remains the only user-facing
+    // action that terminates playback and releases the service.
   }
 
   Future<void> dispose() async {

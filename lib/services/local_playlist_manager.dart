@@ -261,17 +261,29 @@ class LocalPlaylistManager extends ChangeNotifier {
     await _persist();
   }
 
-  Future<void> removeFromPlaylist(String playlistId, String trackId) async {
+  Future<void> removeFromPlaylist(String playlistId, String trackId) =>
+      removeTracksFromPlaylist(playlistId, <String>{trackId});
+
+  Future<void> removeTracksFromPlaylist(
+    String playlistId,
+    Iterable<String> trackIds,
+  ) async {
     _ensureReady();
+    final ids = trackIds.toSet();
+    if (ids.isEmpty) return;
     _playlists = List<EchoPlaylist>.unmodifiable(
       _playlists
           .map((playlist) {
             if (playlist.id != playlistId) return playlist;
-            return playlist.copyWith(
-              tracks: playlist.tracks
-                  .where((track) => track.id != trackId)
-                  .toList(growable: false),
-            );
+            final tracks = playlist.tracks
+                .where((track) => !ids.contains(track.id))
+                .toList(growable: false);
+            final coverId = playlist.coverTrackId;
+            final nextCoverId =
+                coverId != null && tracks.any((track) => track.id == coverId)
+                    ? coverId
+                    : (tracks.isEmpty ? null : tracks.last.id);
+            return playlist.copyWith(tracks: tracks, coverTrackId: nextCoverId);
           })
           .toList(growable: false),
     );

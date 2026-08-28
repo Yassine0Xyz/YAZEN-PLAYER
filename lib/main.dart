@@ -21,8 +21,10 @@ Future<void> main() async {
         androidNotificationChannelId: 'com.example.yazen.channel.audio',
         androidNotificationChannelName: 'Music playback',
         androidNotificationIcon: 'drawable/yazen_notification_icon',
-        androidNotificationOngoing: false,
-        androidStopForegroundOnPause: false,
+        // Keep the media notification present while playback is active. The
+        // explicit Stop/X action is responsible for releasing the service.
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
       ),
     );
   } catch (_) {
