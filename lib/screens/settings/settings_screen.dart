@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../services/visualizer_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -148,6 +149,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          _SectionLabel(label: 'Visualizer', tokens: tokens),
+          AnimatedBuilder(
+            animation: VisualizerSettings.instance,
+            builder: (context, _) {
+              final settings = VisualizerSettings.instance;
+              return _SettingsCard(
+                tokens: tokens,
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.graphic_eq_rounded,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Sensitivity',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        '${(settings.sensitivity * 100).round()}%',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                    ),
+                    Slider(
+                      value: settings.sensitivity,
+                      min: 0.6,
+                      max: 1.8,
+                      divisions: 12,
+                      label: '${(settings.sensitivity * 100).round()}%',
+                      onChanged:
+                          settings.loaded
+                              ? (value) => settings.setSensitivity(value)
+                              : null,
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.speed_rounded, color: tokens.accent),
+                      title: const Text(
+                        'Response',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        _responseLabel(settings.response),
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      trailing: DropdownButton<VisualizerResponse>(
+                        value: settings.response,
+                        items: const <DropdownMenuItem<VisualizerResponse>>[
+                          DropdownMenuItem(
+                            value: VisualizerResponse.smooth,
+                            child: Text('Smooth'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerResponse.balanced,
+                            child: Text('Balanced'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerResponse.fast,
+                            child: Text('Fast'),
+                          ),
+                        ],
+                        onChanged:
+                            settings.loaded
+                                ? (value) {
+                                  if (value != null) {
+                                    settings.setResponse(value);
+                                  }
+                                }
+                                : null,
+                      ),
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.noise_aware_rounded,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Minimum signal',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        'Ignore very quiet background noise',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                    ),
+                    Slider(
+                      value: settings.noiseGate,
+                      min: 0.0,
+                      max: 0.08,
+                      divisions: 16,
+                      label: settings.noiseGate.toStringAsFixed(3),
+                      onChanged:
+                          settings.loaded
+                              ? (value) => settings.setNoiseGate(value)
+                              : null,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
           _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
@@ -172,6 +279,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadPreferences() async {
     final preferences = await SharedPreferences.getInstance();
+    await VisualizerSettings.instance.load();
     if (!mounted) return;
     setState(() {
       _equalizerEnabled = preferences.getBool(_equalizerKey) ?? true;
@@ -190,6 +298,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await controller.audioHandler.setSpeed(value);
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble(_speedKey, value);
+  }
+
+  String _responseLabel(VisualizerResponse response) {
+    switch (response) {
+      case VisualizerResponse.smooth:
+        return 'Gentle and fluid';
+      case VisualizerResponse.balanced:
+        return 'Balanced movement';
+      case VisualizerResponse.fast:
+        return 'Quick beat response';
+    }
   }
 
   String _sleepTimerLabel(HybridMusicController controller) {

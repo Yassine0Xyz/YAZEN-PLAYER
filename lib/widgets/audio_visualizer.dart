@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/linux_pcm_spectrum_service.dart';
+import '../services/visualizer_settings.dart';
 
 enum AudioVisualizerProfile { compact, full }
 
@@ -59,10 +60,12 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   StreamSubscription<Duration>? _positionSubscription;
   late final Ticker _renderTicker;
   Future<void> _lifecycleTail = Future<void>.value();
+  final _visualizerSettings = VisualizerSettings.instance;
 
   Duration _livePosition = Duration.zero;
   DateTime? _positionAnchorAt;
   List<double> _targetLevels = const <double>[];
+  List<double> _lastRawBands = const <double>[];
   List<double> _displayLevels = const <double>[];
   List<double> _displayPeaks = const <double>[];
   bool _attached = false;
@@ -78,6 +81,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _livePosition = widget.position ?? Duration.zero;
     _positionAnchorAt = widget.playing ? DateTime.now() : null;
     _renderTicker = createTicker(_onRenderTick);
+    _visualizerSettings.addListener(_onVisualizerSettingsChanged);
+    unawaited(_visualizerSettings.load());
     _bindPositionStream();
     _resetBands();
     _synchronize();
@@ -108,6 +113,12 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _resetBands();
       _synchronize();
     }
+  }
+
+  void _onVisualizerSettingsChanged() {
+    if (!mounted) return;
+    if (_lastRawBands.isNotEmpty) _setRealFrame(_lastRawBands);
+    setState(() {});
   }
 
   void _bindPositionStream() {
@@ -231,13 +242,21 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   void _setRealFrame(List<double> bands) {
+    _lastRawBands = List<double>.unmodifiable(bands);
     final count = math.max(1, widget.barCount);
+    final sensitivity = _visualizerSettings.sensitivity;
+    final gate = _visualizerSettings.noiseGate;
     final next = List<double>.generate(count, (index) {
       final source = ((index + 0.5) * bands.length / count).floor().clamp(
         0,
         bands.length - 1,
       );
-      return bands[source].clamp(0.0, 1.0);
+      final raw = bands[source].clamp(0.0, 1.0);
+      final gated = raw <= gate ? 0.0 : (raw - gate) / (1.0 - gate);
+      return math
+          .pow(gated.clamp(0.0, 1.0), 1.0 / sensitivity)
+          .toDouble()
+          .clamp(0.0, 1.0);
     });
     _targetLevels = next;
     if (!_hasRealSignal) {
@@ -258,10 +277,16 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             ? 1.0 / 60.0
             : (elapsed - previousTick).inMicroseconds /
                 Duration.microsecondsPerSecond;
-    // Short time constants keep the bars close to the real decoded frame
-    // while the ticker fills the visual gap between 40 ms source frames.
-    final riseAlpha = 1.0 - math.exp(-dt / 0.035);
-    final fallAlpha = 1.0 - math.exp(-dt / 0.065);
+    // The ticker fills the visual gap between 40 ms source frames. These
+    // constants affect only how quickly the display approaches real targets.
+    final riseSeconds =
+        _visualizerSettings.riseTime.inMicroseconds /
+        Duration.microsecondsPerSecond;
+    final fallSeconds =
+        _visualizerSettings.fallTime.inMicroseconds /
+        Duration.microsecondsPerSecond;
+    final riseAlpha = 1.0 - math.exp(-dt / riseSeconds);
+    final fallAlpha = 1.0 - math.exp(-dt / fallSeconds);
     final count = math.max(1, widget.barCount);
     if (_displayLevels.length != count) {
       _displayLevels = List<double>.filled(count, 0.0);
@@ -322,6 +347,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   void _resetBands() {
     final count = math.max(1, widget.barCount);
     _targetLevels = List<double>.filled(count, 0.0);
+    _lastRawBands = const <double>[];
     _displayLevels = List<double>.filled(count, 0.0);
     _displayPeaks = List<double>.filled(count, 0.0);
     if (mounted) setState(() {});
@@ -339,6 +365,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void dispose() {
     _generation++;
+    _visualizerSettings.removeListener(_onVisualizerSettingsChanged);
     _positionSubscription?.cancel();
     _readTimer?.cancel();
     _renderTicker.dispose();
@@ -419,7 +446,7 @@ class _SourceSpectrumPainter extends CustomPainter {
       1.6,
       (size.width - gap * (barCount - 1)) / barCount,
     );
-    final center = size.height * 0.46;
+    final baselineY = size.height - 3.0;
     final base = HSLColor.fromColor(color);
     final paint = Paint()..strokeCap = StrokeCap.round;
 
@@ -433,8 +460,9 @@ class _SourceSpectrumPainter extends CustomPainter {
           hasSignal && index < peaks.length
               ? peaks[index].clamp(0.0, 1.0)
               : 0.0;
+      // The baseline is fixed at the bottom. Energy can only grow upward.
       final barHeight =
-          hasSignal ? math.max(3.0, size.height * (0.10 + level * 0.84)) : 2.4;
+          hasSignal ? math.max(2.4, (size.height - 7.0) * level) : 2.4;
       final x = index * (barWidth + gap) + barWidth / 2;
       final hue = (base.hue + ratio * 58 + level * 18) % 360;
       final lightness = (base.lightness +
@@ -450,8 +478,8 @@ class _SourceSpectrumPainter extends CustomPainter {
             ).toColor()
         ..strokeWidth = barWidth;
       canvas.drawLine(
-        Offset(x, center - barHeight / 2),
-        Offset(x, center + barHeight / 2),
+        Offset(x, baselineY - barHeight),
+        Offset(x, baselineY),
         paint,
       );
 
@@ -459,10 +487,21 @@ class _SourceSpectrumPainter extends CustomPainter {
         paint
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);
-        final peakY = center - size.height * (0.05 + peak * 0.39);
+        final peakY = baselineY - (size.height - 7.0) * peak;
         canvas.drawLine(Offset(x, peakY), Offset(x, peakY), paint);
       }
     }
+
+    final baselinePaint =
+        Paint()
+          ..color = color.withValues(alpha: hasSignal ? 0.34 : 0.20)
+          ..strokeWidth = 1.0
+          ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(0, baselineY),
+      Offset(size.width, baselineY),
+      baselinePaint,
+    );
 
     final progressValue = progress;
     if (progressValue != null) {
