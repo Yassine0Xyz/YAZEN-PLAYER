@@ -69,12 +69,14 @@ class EchoPressable extends StatefulWidget {
   const EchoPressable({
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.borderRadius,
     super.key,
   });
 
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final BorderRadius? borderRadius;
 
   @override
@@ -108,6 +110,7 @@ class _EchoPressableState extends State<EchoPressable> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         onTapDown: (_) => _setPressed(true),
         onTapUp: (_) => _setPressed(false),
         onTapCancel: () => _setPressed(false),

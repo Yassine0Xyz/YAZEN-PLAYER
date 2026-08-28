@@ -80,8 +80,6 @@ class HybridAudioHandler extends BaseAudioHandler
   // The effect is attached through just_audio's AudioPipeline on Android.
   // The native platform reports parameter failures through the guarded methods.
   bool _equalizerAvailable = false;
-  bool _interruptedPlayback = false;
-
   MediaTrack? _activeTrack;
   bool _isDisposed = false;
 
@@ -102,21 +100,10 @@ class HybridAudioHandler extends BaseAudioHandler
 
   Future<void> configureAudioSession(AudioSession session) async {
     _subscriptions.add(session.becomingNoisyEventStream.listen((_) => pause()));
-    _subscriptions.add(
-      session.interruptionEventStream.listen((event) async {
-        if (event.begin) {
-          if (event.type == AudioInterruptionType.pause ||
-              event.type == AudioInterruptionType.unknown) {
-            _interruptedPlayback = _player.playing;
-            if (_player.playing) await pause();
-          }
-        } else if (event.type == AudioInterruptionType.pause &&
-            _interruptedPlayback) {
-          _interruptedPlayback = false;
-          await play();
-        }
-      }),
-    );
+    // Keep playback alive when another media app opens. Android may still
+    // attenuate or revoke audio focus for calls, alarms, or exclusive apps,
+    // but YAZEN must not pause itself in response to a normal app switch.
+    _subscriptions.add(session.interruptionEventStream.listen((_) {}));
   }
 
   void setSleepTimer(Duration? duration) {

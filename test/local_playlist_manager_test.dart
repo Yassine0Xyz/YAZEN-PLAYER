@@ -35,6 +35,35 @@ void main() {
     expect(restored.isFavorite(track()), isTrue);
   });
 
+  test('bulk actions persist and use the last added track as cover', () async {
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final playlist = await manager.createPlaylist('Batch mix');
+    final second = MediaTrack(
+      id: 'local-song-2',
+      title: 'Second song',
+      artist: 'Artist',
+      album: 'Album',
+      source: TrackSource.local,
+      uri: Uri.parse('file:///music/second.mp3'),
+      duration: const Duration(minutes: 3),
+    );
+    await manager.addToFavorites(<MediaTrack>[track(), second]);
+    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[
+      track(),
+      second,
+    ]);
+
+    final saved = manager.playlists.single;
+    expect(manager.favorites, hasLength(2));
+    expect(saved.tracks, hasLength(2));
+    expect(saved.coverTrack?.id, 'local-song-2');
+
+    final restored = LocalPlaylistManager();
+    await restored.initialize();
+    expect(restored.playlists.single.coverTrack?.id, 'local-song-2');
+  });
+
   test('renames and deletes a playlist', () async {
     final manager = LocalPlaylistManager();
     await manager.initialize();

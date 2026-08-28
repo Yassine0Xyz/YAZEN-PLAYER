@@ -13,6 +13,8 @@ class TrackListTile extends StatelessWidget {
     this.isFavorite = false,
     this.onFavorite,
     this.onAddToPlaylist,
+    this.onLongPress,
+    this.selected = false,
     super.key,
   });
 
@@ -21,6 +23,8 @@ class TrackListTile extends StatelessWidget {
   final bool isFavorite;
   final VoidCallback? onFavorite;
   final VoidCallback? onAddToPlaylist;
+  final VoidCallback? onLongPress;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +36,7 @@ class TrackListTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 7),
           child: EchoPressable(
             onTap: onTap,
+            onLongPress: onLongPress,
             borderRadius: BorderRadius.circular(18),
             child: Material(
               color: Colors.transparent,
@@ -39,11 +44,33 @@ class TrackListTile extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
                 onTap: onTap,
+                onLongPress: onLongPress,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(2, 3, 2, 3),
                   child: Row(
                     children: <Widget>[
-                      TrackArtwork(track: track, size: compact ? 58 : 64),
+                      Stack(
+                        children: <Widget>[
+                          TrackArtwork(track: track, size: compact ? 58 : 64),
+                          if (selected)
+                            Positioned.fill(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: tokens.accent.withValues(alpha: 0.55),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.check_rounded,
+                                  color:
+                                      tokens.isLight
+                                          ? Colors.white
+                                          : Colors.black,
+                                  size: compact ? 28 : 32,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(

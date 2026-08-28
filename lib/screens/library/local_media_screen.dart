@@ -75,38 +75,219 @@ class LocalMediaScreen extends StatelessWidget {
   }
 }
 
-class _SongsView extends StatelessWidget {
+class _SongsView extends StatefulWidget {
   const _SongsView({required this.tracks});
 
   final List<MediaTrack> tracks;
 
   @override
+  State<_SongsView> createState() => _SongsViewState();
+}
+
+class _SongsViewState extends State<_SongsView> {
+  final Set<String> _selectedIds = <String>{};
+
+  bool get _selectionMode => _selectedIds.isNotEmpty;
+  List<MediaTrack> get _selectedTracks => widget.tracks
+      .where((track) => _selectedIds.contains(track.id))
+      .toList(growable: false);
+
+  void _toggleSelection(MediaTrack track) {
+    setState(() {
+      if (!_selectedIds.add(track.id)) _selectedIds.remove(track.id);
+    });
+  }
+
+  void _clearSelection() => setState(_selectedIds.clear);
+
+  void _selectAll() {
+    setState(() {
+      if (_selectedIds.length == widget.tracks.length) {
+        _selectedIds.clear();
+      } else {
+        _selectedIds
+          ..clear()
+          ..addAll(widget.tracks.map((track) => track.id));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _SongsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final available = widget.tracks.map((track) => track.id).toSet();
+    _selectedIds.removeWhere((id) => !available.contains(id));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
-    if (tracks.isEmpty) {
+    if (widget.tracks.isEmpty) {
       return const _CategoryEmptyState(
         icon: Icons.library_music_outlined,
         title: 'Your library is waiting',
         subtitle: 'Music found on this device will appear here.',
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
-      itemCount: tracks.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 4),
-      itemBuilder: (_, index) {
-        final track = tracks[index];
-        return EchoReveal(
-          delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
-          child: TrackListTile(
-            track: track,
-            onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
-            isFavorite: controller.isFavorite(track),
-            onFavorite: () => controller.toggleFavorite(track),
-            onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
+    return Column(
+      children: <Widget>[
+        if (_selectionMode)
+          _SelectionToolbar(
+            selectedCount: _selectedIds.length,
+            allSelected: _selectedIds.length == widget.tracks.length,
+            onSelectAll: _selectAll,
+            onClear: _clearSelection,
+            onFavorites: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              await controller.playlistManager.addToFavorites(_selectedTracks);
+              if (!mounted) return;
+              final count = _selectedIds.length;
+              _clearSelection();
+              messenger.showSnackBar(
+                SnackBar(content: Text('Added $count to favorites')),
+              );
+            },
+            onPlaylist: () async {
+              final sheetContext = context;
+              final tracks = _selectedTracks;
+              await showAddTracksToPlaylistSheet(sheetContext, tracks);
+              if (mounted) _clearSelection();
+            },
+            onQueue: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final tracks = _selectedTracks;
+              for (final track in tracks) {
+                await controller.addToQueue(track);
+              }
+              if (!mounted) return;
+              _clearSelection();
+              messenger.showSnackBar(
+                SnackBar(content: Text('Added ${tracks.length} to queue')),
+              );
+            },
           ),
-        );
-      },
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+            itemCount: widget.tracks.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 4),
+            itemBuilder: (_, index) {
+              final track = widget.tracks[index];
+              final selected = _selectedIds.contains(track.id);
+              return EchoReveal(
+                delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
+                child: TrackListTile(
+                  track: track,
+                  selected: selected,
+                  onLongPress: () => _toggleSelection(track),
+                  onTap: () {
+                    if (_selectionMode) {
+                      _toggleSelection(track);
+                    } else {
+                      controller.playTrackQueue(
+                        widget.tracks,
+                        initialIndex: index,
+                      );
+                    }
+                  },
+                  isFavorite: controller.isFavorite(track),
+                  onFavorite:
+                      _selectionMode
+                          ? null
+                          : () => controller.toggleFavorite(track),
+                  onAddToPlaylist:
+                      _selectionMode
+                          ? null
+                          : () => showAddToPlaylistSheet(context, track),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectionToolbar extends StatelessWidget {
+  const _SelectionToolbar({
+    required this.selectedCount,
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onClear,
+    required this.onFavorites,
+    required this.onPlaylist,
+    required this.onQueue,
+  });
+
+  final int selectedCount;
+  final bool allSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onClear;
+  final VoidCallback onFavorites;
+  final VoidCallback onPlaylist;
+  final VoidCallback onQueue;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: tokens.surfaceElevated,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: tokens.accent.withValues(alpha: 0.35)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  tooltip: 'Exit selection',
+                  onPressed: onClear,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+                SizedBox(
+                  width: 112,
+                  child: Text(
+                    '$selectedCount selected',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: allSelected ? 'Clear all' : 'Select all',
+                  onPressed: onSelectAll,
+                  icon: Icon(
+                    allSelected
+                        ? Icons.deselect_rounded
+                        : Icons.select_all_rounded,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Add to favorites',
+                  onPressed: onFavorites,
+                  icon: const Icon(Icons.favorite_border_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Add to playlist',
+                  onPressed: onPlaylist,
+                  icon: const Icon(Icons.playlist_add_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Add to queue',
+                  onPressed: onQueue,
+                  icon: const Icon(Icons.queue_music_rounded),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -644,6 +825,10 @@ class _PlaylistsView extends StatelessWidget {
           final playlist = customPlaylists[customIndex];
           return _CollectionCard(
             icon: Icons.queue_music_rounded,
+            artwork:
+                playlist.coverTrack == null
+                    ? null
+                    : TrackArtwork(track: playlist.coverTrack!, size: 82),
             title: playlist.name,
             subtitle: 'Custom playlist',
             count: playlist.tracks.length,
@@ -717,6 +902,7 @@ class _CollectionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.count,
+    this.artwork,
     this.onTap,
     this.onDelete,
   });
@@ -725,6 +911,7 @@ class _CollectionCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final int count;
+  final Widget? artwork;
   final VoidCallback? onDelete;
   final VoidCallback? onTap;
 
@@ -739,7 +926,7 @@ class _CollectionCard extends StatelessWidget {
 
         child: Row(
           children: <Widget>[
-            _EntityArtwork(icon: icon),
+            artwork ?? _EntityArtwork(icon: icon),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

@@ -11,17 +11,33 @@ class EchoPlaylist {
     required this.id,
     required this.name,
     required this.tracks,
+    this.coverTrackId,
   });
 
   final String id;
   final String name;
   final List<MediaTrack> tracks;
+  final String? coverTrackId;
 
-  EchoPlaylist copyWith({String? name, List<MediaTrack>? tracks}) {
+  MediaTrack? get coverTrack {
+    final id = coverTrackId;
+    if (id == null) return tracks.isEmpty ? null : tracks.last;
+    for (final track in tracks) {
+      if (track.id == id) return track;
+    }
+    return tracks.isEmpty ? null : tracks.last;
+  }
+
+  EchoPlaylist copyWith({
+    String? name,
+    List<MediaTrack>? tracks,
+    String? coverTrackId,
+  }) {
     return EchoPlaylist(
       id: id,
       name: name ?? this.name,
       tracks: List<MediaTrack>.unmodifiable(tracks ?? this.tracks),
+      coverTrackId: coverTrackId ?? this.coverTrackId,
     );
   }
 
@@ -29,6 +45,7 @@ class EchoPlaylist {
     'id': id,
     'name': name,
     'tracks': tracks.map(mediaTrackToJson).toList(growable: false),
+    if (coverTrackId != null) 'coverTrackId': coverTrackId,
   };
 
   factory EchoPlaylist.fromJson(Map<String, dynamic> json) {
@@ -46,6 +63,7 @@ class EchoPlaylist {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Untitled playlist',
       tracks: List<MediaTrack>.unmodifiable(tracks),
+      coverTrackId: json['coverTrackId']?.toString(),
     );
   }
 }
@@ -153,6 +171,17 @@ class LocalPlaylistManager extends ChangeNotifier {
     await _persist();
   }
 
+  Future<void> addToFavorites(Iterable<MediaTrack> tracks) async {
+    _ensureReady();
+    final next = List<MediaTrack>.from(_favorites);
+    for (final track in tracks) {
+      if (!next.any((item) => item.id == track.id)) next.add(track);
+    }
+    _favorites = List<MediaTrack>.unmodifiable(next);
+    notifyListeners();
+    await _persist();
+  }
+
   Future<void> addToPlaylist(String playlistId, MediaTrack track) async {
     _ensureReady();
     _playlists = List<EchoPlaylist>.unmodifiable(
@@ -164,7 +193,40 @@ class LocalPlaylistManager extends ChangeNotifier {
             }
             return playlist.copyWith(
               tracks: <MediaTrack>[...playlist.tracks, track],
+              coverTrackId: track.id,
             );
+          })
+          .toList(growable: false),
+    );
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> addTracksToPlaylist(
+    String playlistId,
+    Iterable<MediaTrack> tracks,
+  ) async {
+    _ensureReady();
+    final additions = <MediaTrack>[];
+    for (final track in tracks) {
+      if (!additions.any((item) => item.id == track.id)) additions.add(track);
+    }
+    if (additions.isEmpty) return;
+    _playlists = List<EchoPlaylist>.unmodifiable(
+      _playlists
+          .map((playlist) {
+            if (playlist.id != playlistId) return playlist;
+            final next = List<MediaTrack>.from(playlist.tracks);
+            MediaTrack? lastAdded;
+            for (final track in additions) {
+              if (!next.any((item) => item.id == track.id)) {
+                next.add(track);
+                lastAdded = track;
+              }
+            }
+            return lastAdded == null
+                ? playlist
+                : playlist.copyWith(tracks: next, coverTrackId: lastAdded.id);
           })
           .toList(growable: false),
     );

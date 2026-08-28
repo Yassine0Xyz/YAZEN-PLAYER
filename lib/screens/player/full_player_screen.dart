@@ -220,16 +220,40 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     math.max(220, constraints.maxHeight * 0.40),
                                   )
                                   .toDouble();
+                          var horizontalTravel = 0.0;
+                          var verticalTravel = 0.0;
                           return GestureDetector(
                             behavior: HitTestBehavior.translucent,
+                            onHorizontalDragStart: (_) {
+                              horizontalTravel = 0;
+                              verticalTravel = 0;
+                            },
+                            onHorizontalDragUpdate: (details) {
+                              horizontalTravel += details.delta.dx;
+                              verticalTravel += details.delta.dy.abs();
+                            },
+                            onHorizontalDragCancel: () {
+                              horizontalTravel = 0;
+                              verticalTravel = 0;
+                            },
                             onHorizontalDragEnd: (details) async {
                               final velocity = details.primaryVelocity ?? 0;
-                              if (velocity.abs() < 380) return;
+                              const minimumTravel = 110.0;
+                              if (horizontalTravel.abs() < minimumTravel ||
+                                  horizontalTravel.abs() <
+                                      verticalTravel * 1.35 ||
+                                  velocity.abs() < 220) {
+                                horizontalTravel = 0;
+                                verticalTravel = 0;
+                                return;
+                              }
                               if (velocity < 0) {
                                 await handler.skipToNext();
                               } else {
                                 await handler.skipToPrevious();
                               }
+                              horizontalTravel = 0;
+                              verticalTravel = 0;
                             },
                             onVerticalDragEnd: (details) {
                               if ((details.primaryVelocity ?? 0) > 650) {

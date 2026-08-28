@@ -45,16 +45,39 @@ class MiniPlayer extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
+        var horizontalTravel = 0.0;
+        var verticalTravel = 0.0;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) {
+            horizontalTravel = 0;
+            verticalTravel = 0;
+          },
+          onHorizontalDragUpdate: (details) {
+            horizontalTravel += details.delta.dx;
+            verticalTravel += details.delta.dy.abs();
+          },
+          onHorizontalDragCancel: () {
+            horizontalTravel = 0;
+            verticalTravel = 0;
+          },
           onHorizontalDragEnd: (details) {
             final velocity = details.primaryVelocity ?? 0;
-            if (velocity.abs() < 280) return;
+            const minimumTravel = 96.0;
+            if (horizontalTravel.abs() < minimumTravel ||
+                horizontalTravel.abs() < verticalTravel * 1.35 ||
+                velocity.abs() < 220) {
+              horizontalTravel = 0;
+              verticalTravel = 0;
+              return;
+            }
             if (velocity < 0) {
               onNext?.call();
             } else {
               onPrevious?.call();
             }
+            horizontalTravel = 0;
+            verticalTravel = 0;
           },
           child: EchoBreathingGlow(
             enabled: isPlaying,

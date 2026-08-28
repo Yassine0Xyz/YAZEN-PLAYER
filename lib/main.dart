@@ -13,15 +13,22 @@ import 'services/local_playlist_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final audioHandler = await AudioService.init<HybridAudioHandler>(
-    builder: HybridAudioHandler.new,
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.example.yazen.channel.audio',
-      androidNotificationChannelName: 'Music playback',
-      androidNotificationOngoing: false,
-      androidStopForegroundOnPause: false,
-    ),
-  );
+  late final HybridAudioHandler audioHandler;
+  try {
+    audioHandler = await AudioService.init<HybridAudioHandler>(
+      builder: HybridAudioHandler.new,
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.example.yazen.channel.audio',
+        androidNotificationChannelName: 'Music playback',
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
+      ),
+    );
+  } catch (_) {
+    // Keep the first frame available even if the media-service plugin is not
+    // ready on a fresh install; the handler still supports foreground audio.
+    audioHandler = HybridAudioHandler();
+  }
 
   try {
     final session = await AudioSession.instance;

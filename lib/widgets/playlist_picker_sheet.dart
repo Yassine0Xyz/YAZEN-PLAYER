@@ -4,12 +4,17 @@ import 'package:provider/provider.dart';
 import '../models/media_track.dart';
 import '../services/local_playlist_manager.dart';
 
-Future<void> showAddToPlaylistSheet(
+Future<void> showAddToPlaylistSheet(BuildContext context, MediaTrack track) =>
+    showAddTracksToPlaylistSheet(context, <MediaTrack>[track]);
+
+Future<void> showAddTracksToPlaylistSheet(
   BuildContext context,
-  MediaTrack track,
+  Iterable<MediaTrack> selectedTracks,
 ) async {
   final manager = context.read<LocalPlaylistManager>();
   if (!manager.isReady) return;
+  final tracks = selectedTracks.toList(growable: false);
+  if (tracks.isEmpty) return;
   final messenger = ScaffoldMessenger.of(context);
 
   await showModalBottomSheet<void>(
@@ -40,7 +45,9 @@ Future<void> showAddToPlaylistSheet(
             ),
             const SizedBox(height: 8),
             Text(
-              track.title,
+              tracks.length == 1
+                  ? tracks.first.title
+                  : '${tracks.length} selected songs',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -58,10 +65,14 @@ Future<void> showAddToPlaylistSheet(
                 ),
                 trailing: Text('${playlist.tracks.length}'),
                 onTap: () async {
-                  await manager.addToPlaylist(playlist.id, track);
+                  await manager.addTracksToPlaylist(playlist.id, tracks);
                   if (context.mounted) Navigator.pop(context);
                   messenger.showSnackBar(
-                    SnackBar(content: Text('Added to ${playlist.name}')),
+                    SnackBar(
+                      content: Text(
+                        'Added ${tracks.length} ${tracks.length == 1 ? 'song' : 'songs'} to ${playlist.name}',
+                      ),
+                    ),
                   );
                 },
               ),
