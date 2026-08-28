@@ -41,6 +41,9 @@ class HybridMusicController extends ChangeNotifier {
   String? _errorMessage;
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
+  List<MediaTrack>? _visibleTracksCache;
+  Iterable<MediaTrack>? _visibleTracksSource;
+  LibrarySort? _visibleTracksCacheSort;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
@@ -67,7 +70,17 @@ class HybridMusicController extends ChangeNotifier {
       LibraryTab.albums => _localSongs,
       LibraryTab.songs => _localSongs,
     };
-    return orderedTracks(tracks);
+    if (identical(_visibleTracksSource, tracks) &&
+        _visibleTracksCacheSort == _librarySort &&
+        _visibleTracksCache != null) {
+      return _visibleTracksCache!;
+    }
+    final sorted = List<MediaTrack>.of(tracks)..sort(_compareTracks);
+    final cached = List<MediaTrack>.unmodifiable(sorted);
+    _visibleTracksSource = tracks;
+    _visibleTracksCacheSort = _librarySort;
+    _visibleTracksCache = cached;
+    return cached;
   }
 
   List<MediaTrack> orderedTracks(Iterable<MediaTrack> tracks) {
@@ -79,6 +92,7 @@ class HybridMusicController extends ChangeNotifier {
   void setLibrarySort(LibrarySort sort) {
     if (_librarySort == sort) return;
     _librarySort = sort;
+    _visibleTracksCache = null;
     notifyListeners();
   }
 
@@ -125,20 +139,32 @@ class HybridMusicController extends ChangeNotifier {
         _library.queryArtists(),
         _library.queryAlbums(),
         _library.queryPlaylists(),
-        _library.queryFolders(),
       ]);
       _localSongs = results[0] as List<MediaTrack>;
       _localVideos = results[1] as List<MediaTrack>;
       _artists = results[2] as List<ArtistModel>;
       _albums = results[3] as List<AlbumModel>;
       _playlists = results[4] as List<PlaylistModel>;
-      _folders = results[5] as List<String>;
+      _folders = _foldersFromTracks(_localSongs);
     } catch (error) {
       _errorMessage = 'Unable to read the device music library: $error';
     } finally {
       _setLoading(false);
       notifyListeners();
     }
+  }
+
+  List<String> _foldersFromTracks(Iterable<MediaTrack> tracks) {
+    final folders =
+        tracks
+            .map((track) => track.folder)
+            .whereType<String>()
+            .where((folder) => folder.isNotEmpty)
+            .map((folder) => folder.split(RegExp(r'[/\\]')).last)
+            .toSet()
+            .toList();
+    folders.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return folders;
   }
 
   Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);

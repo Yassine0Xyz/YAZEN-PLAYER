@@ -60,7 +60,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<HybridMusicController>();
+    final selectedTab = context.select<HybridMusicController, LibraryTab>(
+      (controller) => controller.selectedTab,
+    );
     final tokens = context.watch<ThemeProvider>().tokens;
     return Scaffold(
       backgroundColor: tokens.background,
@@ -75,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: _buildHeader(context),
                 ),
                 LibraryTabs(
-                  selected: controller.selectedTab,
+                  selected: selectedTab,
                   onSelected: _selectLibraryTab,
                 ),
                 const SizedBox(height: 6),
@@ -84,8 +86,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     controller: _libraryPageController,
                     itemCount: LibraryTab.values.length,
                     onPageChanged:
-                        (index) =>
-                            controller.selectTab(LibraryTab.values[index]),
+                        (index) => context
+                            .read<HybridMusicController>()
+                            .selectTab(LibraryTab.values[index]),
                     itemBuilder: (context, index) {
                       final tab = LibraryTab.values[index];
                       return LocalMediaScreen(
@@ -842,8 +845,8 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
             return MiniPlayer(
               item: item,
               isPlaying: playbackSnapshot.data?.playing ?? false,
-              position: playbackSnapshot.data?.updatePosition,
               duration: item.duration,
+              positionStream: handler.player.positionStream,
               onPlayPause: controller.togglePlayback,
               onPrevious: handler.skipToPrevious,
               onNext: handler.skipToNext,

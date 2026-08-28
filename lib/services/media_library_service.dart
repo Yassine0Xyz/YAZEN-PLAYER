@@ -86,19 +86,27 @@ class MediaLibraryService {
   }
 
   Future<List<MediaTrack>> _toMediaTracks(Iterable<SongModel> songs) async {
+    final source = songs.toList(growable: false);
     final tracks = <MediaTrack>[];
-    for (final song in songs) {
-      final track = MediaTrack.fromSong(song);
-      try {
-        final stat = await File(song.data).stat();
-        tracks.add(
-          track.copyWith(sizeBytes: stat.size, modifiedAt: stat.modified),
-        );
-      } on FileSystemException {
-        tracks.add(track);
-      }
+    const batchSize = 64;
+    for (var start = 0; start < source.length; start += batchSize) {
+      final end = (start + batchSize).clamp(0, source.length);
+      final batch = await Future.wait(
+        source.sublist(start, end).map(_toMediaTrack),
+      );
+      tracks.addAll(batch);
     }
     return tracks;
+  }
+
+  Future<MediaTrack> _toMediaTrack(SongModel song) async {
+    final track = MediaTrack.fromSong(song);
+    try {
+      final stat = await File(song.data).stat();
+      return track.copyWith(sizeBytes: stat.size, modifiedAt: stat.modified);
+    } on FileSystemException {
+      return track;
+    }
   }
 
   Future<List<ArtistModel>> queryArtists() async {

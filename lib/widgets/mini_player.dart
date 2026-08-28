@@ -14,6 +14,7 @@ class MiniPlayer extends StatelessWidget {
     required this.onStop,
     this.position,
     this.duration,
+    this.positionStream,
     this.onPrevious,
     this.onNext,
     this.onDismiss,
@@ -28,6 +29,7 @@ class MiniPlayer extends StatelessWidget {
   final bool isPlaying;
   final Duration? position;
   final Duration? duration;
+  final Stream<Duration>? positionStream;
   final VoidCallback onPlayPause;
   final VoidCallback onStop;
   final VoidCallback? onPrevious;
@@ -41,7 +43,7 @@ class MiniPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.watch<ThemeProvider>().tokens;
-    final progress = _progress;
+    final progress = positionStream == null ? _progress : null;
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
@@ -119,7 +121,7 @@ class MiniPlayer extends StatelessWidget {
                       children: <Widget>[
                         Row(
                           children: <Widget>[
-                            _MiniArtwork(item: item),
+                            RepaintBoundary(child: _MiniArtwork(item: item)),
                             const SizedBox(width: 11),
                             Expanded(
                               child: Column(
@@ -223,20 +225,13 @@ class MiniPlayer extends StatelessWidget {
                             ),
                           ],
                         ),
-                        if (progress != null) ...<Widget>[
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              minHeight: 3,
-                              backgroundColor: tokens.surfaceMuted,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                tokens.accent,
-                              ),
-                            ),
-                          ),
-                        ],
+                        if (positionStream != null)
+                          _MiniProgress(
+                            positionStream: positionStream!,
+                            duration: duration,
+                          )
+                        else if (progress != null)
+                          _MiniProgressValue(value: progress),
                       ],
                     ),
                   ),
@@ -253,6 +248,65 @@ class MiniPlayer extends StatelessWidget {
     final total = duration?.inMilliseconds ?? 0;
     if (total <= 0 || position == null) return null;
     return (position!.inMilliseconds / total).clamp(0.0, 1.0).toDouble();
+  }
+}
+
+class _MiniProgress extends StatelessWidget {
+  const _MiniProgress({required this.positionStream, required this.duration});
+
+  final Stream<Duration> positionStream;
+  final Duration? duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return RepaintBoundary(
+      child: StreamBuilder<Duration>(
+        stream: positionStream,
+        initialData: Duration.zero,
+        builder: (context, snapshot) {
+          final total = duration?.inMilliseconds ?? 0;
+          final value =
+              total <= 0 ? 0.0 : (snapshot.data?.inMilliseconds ?? 0) / total;
+          return _MiniProgressValue(
+            value: value.clamp(0.0, 1.0).toDouble(),
+            backgroundColor: tokens.surfaceMuted,
+            valueColor: tokens.accent,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MiniProgressValue extends StatelessWidget {
+  const _MiniProgressValue({
+    required this.value,
+    this.backgroundColor,
+    this.valueColor,
+  });
+
+  final double value;
+  final Color? backgroundColor;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: 3,
+          backgroundColor: backgroundColor ?? tokens.surfaceMuted,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            valueColor ?? tokens.accent,
+          ),
+        ),
+      ),
+    );
   }
 }
 
