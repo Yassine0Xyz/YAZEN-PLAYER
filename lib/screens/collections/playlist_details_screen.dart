@@ -29,8 +29,9 @@ class PlaylistDetailsScreen extends StatefulWidget {
 class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
   final Set<String> _selectedIds = <String>{};
   _PlaylistSort _sort = _PlaylistSort.manual;
+  bool _isManaging = false;
 
-  bool get _manageMode => _selectedIds.isNotEmpty;
+  bool get _manageMode => _isManaging;
 
   EchoPlaylist? _findPlaylist(LocalPlaylistManager manager) {
     for (final playlist in manager.playlists) {
@@ -81,7 +82,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
     }
 
     final tracks = _orderedTracks(playlist);
-    final canReorder = _sort == _PlaylistSort.manual && !_manageMode;
+    final canReorder = _sort == _PlaylistSort.manual && _manageMode;
     return Scaffold(
       backgroundColor: tokens.background,
       appBar: AppBar(
@@ -96,8 +97,8 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
         actions: <Widget>[
           if (_manageMode)
             IconButton(
-              tooltip: 'Clear selection',
-              onPressed: () => setState(_selectedIds.clear),
+              tooltip: 'Exit manage mode',
+              onPressed: _exitManageMode,
               icon: const Icon(Icons.close_rounded),
             )
           else ...<Widget>[
@@ -216,6 +217,17 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                       key: ValueKey('track-${playlist.id}-${track.id}'),
                       track: track,
                       selected: selected,
+                      trailing:
+                          _manageMode
+                              ? ReorderableDragStartListener(
+                                index: index,
+                                child: IconButton(
+                                  tooltip: 'Drag to arrange',
+                                  onPressed: () {},
+                                  icon: const Icon(Icons.drag_handle_rounded),
+                                ),
+                              )
+                              : null,
                       onLongPress: () => _toggleSelection(track),
                       onTap: () {
                         if (_manageMode) {
@@ -248,9 +260,16 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                   child: FilledButton.icon(
-                    onPressed: () => _removeSelected(context, playlist),
+                    onPressed:
+                        _selectedIds.isEmpty
+                            ? null
+                            : () => _removeSelected(context, playlist),
                     icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text('Remove ${_selectedIds.length} songs'),
+                    label: Text(
+                      _selectedIds.isEmpty
+                          ? 'Select songs to remove'
+                          : 'Remove ${_selectedIds.length} songs',
+                    ),
                   ),
                 ),
               )
@@ -260,7 +279,16 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
 
   void _toggleSelection(MediaTrack track) {
     setState(() {
+      _isManaging = true;
       if (!_selectedIds.add(track.id)) _selectedIds.remove(track.id);
+    });
+  }
+
+  void _exitManageMode() {
+    if (!mounted) return;
+    setState(() {
+      _isManaging = false;
+      _selectedIds.clear();
     });
   }
 
@@ -304,10 +332,11 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
       case _PlaylistMenuAction.addSong:
         await _showAddSongsSheet(context, playlist);
       case _PlaylistMenuAction.manage:
-        if (playlist.tracks.isNotEmpty) {
-          setState(() => _selectedIds.add(playlist.tracks.first.id));
-          setState(() => _selectedIds.clear());
-        }
+        setState(() {
+          _isManaging = true;
+          _selectedIds.clear();
+          _sort = _PlaylistSort.manual;
+        });
       case _PlaylistMenuAction.delete:
         await _delete(context, context.read<LocalPlaylistManager>(), playlist);
     }

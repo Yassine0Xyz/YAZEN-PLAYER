@@ -1375,7 +1375,7 @@ class _ArtworkStyleSelector extends StatelessWidget {
           items: const <DropdownMenuItem<AudioArtworkStyle>>[
             DropdownMenuItem(
               value: AudioArtworkStyle.lark,
-              child: Text('Lark artwork'),
+              child: Text('Yazen art'),
             ),
             DropdownMenuItem(
               value: AudioArtworkStyle.vinyl,

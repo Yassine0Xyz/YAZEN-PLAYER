@@ -14,6 +14,7 @@ class TrackListTile extends StatelessWidget {
     this.onFavorite,
     this.onAddToPlaylist,
     this.onLongPress,
+    this.trailing,
     this.selected = false,
     super.key,
   });
@@ -24,6 +25,7 @@ class TrackListTile extends StatelessWidget {
   final VoidCallback? onFavorite;
   final VoidCallback? onAddToPlaylist;
   final VoidCallback? onLongPress;
+  final Widget? trailing;
   final bool selected;
 
   @override
@@ -140,6 +142,7 @@ class TrackListTile extends StatelessWidget {
                         color: tokens.accent,
                         onPressed: onTap,
                       ),
+                      if (trailing != null) trailing!,
                     ],
                   ),
                 ),
