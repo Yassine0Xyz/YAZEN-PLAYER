@@ -20,6 +20,7 @@ Future<void> main() async {
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.example.yazen.channel.audio',
         androidNotificationChannelName: 'Music playback',
+        androidNotificationIcon: 'drawable/yazen_notification_icon',
         androidNotificationOngoing: false,
         androidStopForegroundOnPause: false,
       ),
