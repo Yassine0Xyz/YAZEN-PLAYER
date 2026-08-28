@@ -56,6 +56,7 @@ class MainActivity : AudioServiceActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "requestVideoPermission" -> result.success(requestVideoPermission())
+                    "videoPermissionStatus" -> result.success(hasVideoPermission())
                     "queryVideos" -> queryVideos(result)
                     "videoThumbnail" -> videoThumbnail(
                         call.argument<String>("uri"),

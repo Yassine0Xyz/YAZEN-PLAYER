@@ -18,16 +18,36 @@ class MediaLibraryService {
 
   final OnAudioQuery _audioQuery;
   bool? _permissionGranted;
+  Future<bool>? _permissionRequest;
 
   bool? get permissionGranted => _permissionGranted;
 
-  Future<bool> ensurePermission() async {
-    if (await _audioQuery.permissionsStatus()) {
-      _permissionGranted = true;
-      return true;
+  Future<bool> ensurePermission() {
+    final cached = _permissionGranted;
+    if (cached != null) return Future<bool>.value(cached);
+    final activeRequest = _permissionRequest;
+    if (activeRequest != null) return activeRequest;
+    final request = _requestPermission();
+    _permissionRequest = request;
+    return request.whenComplete(() {
+      if (identical(_permissionRequest, request)) {
+        _permissionRequest = null;
+      }
+    });
+  }
+
+  Future<bool> _requestPermission() async {
+    try {
+      if (await _audioQuery.permissionsStatus()) {
+        _permissionGranted = true;
+        return true;
+      }
+      _permissionGranted = await _audioQuery.permissionsRequest();
+      return _permissionGranted ?? false;
+    } catch (_) {
+      _permissionGranted = false;
+      return false;
     }
-    _permissionGranted = await _audioQuery.permissionsRequest();
-    return _permissionGranted ?? false;
   }
 
   Future<List<MediaTrack>> querySongs() async {
@@ -122,21 +142,29 @@ class MediaLibraryService {
     return folders;
   }
 
-  Future<List<MediaTrack>> queryVideos() async {
+  Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async {
     bool granted = false;
     try {
       granted =
           await _localMediaChannel.invokeMethod<bool>(
-            'requestVideoPermission',
+            requestPermission
+                ? 'requestVideoPermission'
+                : 'videoPermissionStatus',
           ) ??
           false;
+    } on MissingPluginException {
+      return const <MediaTrack>[];
     } on PlatformException {
       return const <MediaTrack>[];
     }
 
-    // Android returns false while its permission dialog is still open. Poll
-    // briefly so the user does not need to leave and re-enter the tab.
-    for (var attempt = 0; attempt < 6 && !granted; attempt++) {
+    // Android returns false while its permission dialog is still open.
+    // Poll briefly only when the user explicitly opened Local Videos.
+    for (
+      var attempt = 0;
+      requestPermission && attempt < 6 && !granted;
+      attempt++
+    ) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
       try {
         final result = await _localMediaChannel.invokeMethod<bool>(

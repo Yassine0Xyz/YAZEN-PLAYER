@@ -23,15 +23,32 @@ Future<void> main() async {
     ),
   );
 
-  final session = await AudioSession.instance;
-  await session.configure(const AudioSessionConfiguration.music());
-  await audioHandler.configureAudioSession(session);
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+    await audioHandler.configureAudioSession(session);
+  } catch (_) {
+    // Audio session configuration is optional for showing the first frame.
+    // Playback can configure itself later when the platform becomes ready.
+  }
 
   final themeProvider = ThemeProvider();
-  await themeProvider.load();
+  try {
+    await themeProvider.load();
+  } catch (_) {
+    // Use the default theme when first-run preferences are unavailable.
+  }
   final playlistManager = LocalPlaylistManager();
-  await playlistManager.initialize();
-  await audioHandler.restoreLastPlayback();
+  try {
+    await playlistManager.initialize();
+  } catch (_) {
+    // Start with empty local collections when persisted data is unreadable.
+  }
+  try {
+    await audioHandler.restoreLastPlayback();
+  } catch (_) {
+    // A stale or unavailable file must never block the first app frame.
+  }
 
   runApp(
     HybridMusicApp(

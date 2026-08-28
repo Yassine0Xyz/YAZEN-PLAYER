@@ -1,4 +1,6 @@
 import 'package:audio_service/audio_service.dart';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
@@ -37,6 +39,8 @@ class HybridMusicController extends ChangeNotifier {
   bool _repeatOne = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
+  bool _videosLoading = false;
+  bool _videosPermissionAttempted = false;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
@@ -117,7 +121,7 @@ class HybridMusicController extends ChangeNotifier {
       }
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
         _library.querySongs(),
-        _library.queryVideos(),
+        _library.queryVideos(requestPermission: false),
         _library.queryArtists(),
         _library.queryAlbums(),
         _library.queryPlaylists(),
@@ -211,6 +215,28 @@ class HybridMusicController extends ChangeNotifier {
     if (_selectedTab == tab) return;
     _selectedTab = tab;
     notifyListeners();
+    if (tab == LibraryTab.videos) {
+      unawaited(loadVideos(requestPermission: true));
+    }
+  }
+
+  Future<void> loadVideos({required bool requestPermission}) async {
+    if (_videosLoading || (!requestPermission && _videosPermissionAttempted)) {
+      return;
+    }
+    _videosLoading = true;
+    if (requestPermission) _videosPermissionAttempted = true;
+    notifyListeners();
+    try {
+      _localVideos = await _library.queryVideos(
+        requestPermission: requestPermission,
+      );
+    } catch (error) {
+      _errorMessage = 'Unable to read local videos: $error';
+    } finally {
+      _videosLoading = false;
+      notifyListeners();
+    }
   }
 
   void _onPlaylistChanged() {

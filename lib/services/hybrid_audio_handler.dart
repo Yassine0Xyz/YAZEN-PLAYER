@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
@@ -16,12 +18,16 @@ class HybridAudioHandler extends BaseAudioHandler
     PlaybackStateStore? playbackStore,
     AndroidEqualizer? equalizer,
   }) {
-    // AndroidEqualizer is intentionally not attached to the default pipeline.
-    // Some Android/plugin combinations expose a non-null object but crash in
-    // native setBandLevel(), which must never prevent Voice only playback.
     final resolvedEqualizer = equalizer ?? AndroidEqualizer();
     final resolvedPlayer =
-        player ?? AudioPlayer(handleInterruptions: false, maxSkipsOnError: 2);
+        player ??
+        AudioPlayer(
+          handleInterruptions: false,
+          maxSkipsOnError: 2,
+          audioPipeline: AudioPipeline(
+            androidAudioEffects: <AndroidAudioEffect>[resolvedEqualizer],
+          ),
+        );
     return HybridAudioHandler._(
       player: resolvedPlayer,
       playbackStore: playbackStore ?? const PlaybackStateStore(),
@@ -36,6 +42,7 @@ class HybridAudioHandler extends BaseAudioHandler
   }) : _player = player,
        _playbackStore = playbackStore,
        _equalizer = equalizer {
+    _equalizerAvailable = Platform.isAndroid;
     _subscriptions.add(
       _player.playbackEventStream.listen((_) => _broadcastPlaybackState()),
     );
@@ -70,8 +77,8 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> _navigationTail = Future<void>.value();
   static const _effectsChannel = MethodChannel('yazen/audio_effects');
   bool _threeDSurroundEnabled = false;
-  // Kept fail-closed until a device-safe native effects implementation is
-  // explicitly validated. Playback itself must remain effects-free and stable.
+  // The effect is attached through just_audio's AudioPipeline on Android.
+  // The native platform reports parameter failures through the guarded methods.
   bool _equalizerAvailable = false;
   bool _interruptedPlayback = false;
 

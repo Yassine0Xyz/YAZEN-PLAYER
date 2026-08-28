@@ -298,7 +298,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final current = _displayLevels[index];
       final alpha = target >= current ? riseAlpha : fallAlpha;
       final next = current + (target - current) * alpha;
-      final nextPeak = math.max(next, _displayPeaks[index] - dt * 0.52);
+      final nextPeak = math.max(next, _displayPeaks[index] - dt * 1.8);
       if ((next - current).abs() > 0.0002 ||
           (nextPeak - _displayPeaks[index]).abs() > 0.0002) {
         changed = true;
@@ -488,7 +488,12 @@ class _SourceSpectrumPainter extends CustomPainter {
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);
         final peakY = baselineY - (size.height - 7.0) * peak;
-        canvas.drawLine(Offset(x, peakY), Offset(x, peakY), paint);
+        final capWidth = math.max(2.0, barWidth * 0.82);
+        canvas.drawLine(
+          Offset(x - capWidth / 2, peakY),
+          Offset(x + capWidth / 2, peakY),
+          paint,
+        );
       }
     }
 
