@@ -297,13 +297,23 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final target = index < _targetLevels.length ? _targetLevels[index] : 0.0;
       final current = _displayLevels[index];
       final alpha = target >= current ? riseAlpha : fallAlpha;
-      final next = current + (target - current) * alpha;
-      final nextPeak = math.max(next, _displayPeaks[index] - dt * 1.8);
+      final next = (current + (target - current) * alpha).clamp(0.0, 1.0);
+
+      // The cap/point must follow the rendered bar, not an old peak value.
+      // Previously it had an independent slow decay, so a fast falling bar
+      // left a detached point behind for a visible period of time. Keep only
+      // a short, bounded hold and snap it to the bar when the gap is tiny.
+      final previousPeak = _displayPeaks[index];
+      final peakDecay = math.max(5.0, 1.0 / math.max(0.08, fallSeconds));
+      var nextPeak = math.max(next, previousPeak - dt * peakDecay);
+      final allowedGap = math.min(0.075, math.max(0.028, fallSeconds * 0.42));
+      nextPeak = math.min(nextPeak, next + allowedGap);
+      if ((nextPeak - next).abs() < 0.018) nextPeak = next;
       if ((next - current).abs() > 0.0002 ||
-          (nextPeak - _displayPeaks[index]).abs() > 0.0002) {
+          (nextPeak - previousPeak).abs() > 0.0002) {
         changed = true;
       }
-      _displayLevels[index] = next.clamp(0.0, 1.0);
+      _displayLevels[index] = next;
       _displayPeaks[index] = nextPeak.clamp(0.0, 1.0);
     }
     if (changed) setState(() {});
@@ -483,7 +493,9 @@ class _SourceSpectrumPainter extends CustomPainter {
         paint,
       );
 
-      if (hasSignal && peak > level + 0.025) {
+      // Draw the cap only when it is meaningfully above this same frame's
+      // bar. The bounded peak logic above prevents a stale detached dot.
+      if (hasSignal && peak - level > 0.025) {
         paint
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);
