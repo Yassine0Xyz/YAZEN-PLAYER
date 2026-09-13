@@ -64,7 +64,8 @@ class LyricsService {
   final http.Client _client;
 
   Future<SyncedLyrics?> loadFor(MediaItem item) async {
-    final localLyrics = await _loadAdjacentLrc(item.id);
+    // Offline-first: keep the user's own LRC/TXT files ahead of network data.
+    final localLyrics = await _loadAdjacentLyrics(item.id);
     if (localLyrics != null) return localLyrics;
 
     final cached = await _loadCached(item.id);
@@ -83,7 +84,9 @@ class LyricsService {
       }
     }
 
-    for (final query in queries.take(2)) {
+    // Search is deliberately validated against title/artist. This prevents
+    // LRCLIB from returning the first unrelated result for generic filenames.
+    for (final query in queries) {
       final searched = await _loadLrclibSearch(query.title, query.artist);
       if (searched != null) {
         await _saveCached(item.id, searched);
@@ -91,10 +94,15 @@ class LyricsService {
       }
     }
 
-    final plain = await _loadLyricsOvh(title, artist);
-    if (plain != null) {
-      await _saveCached(item.id, plain);
-      return plain;
+    // Lyrics.ovh is a plain-text fallback. Try cleaned variants as well,
+    // because local filenames frequently contain tags such as "official" or
+    // "remix" that are absent from the lyrics provider's catalog.
+    for (final query in queries.take(3)) {
+      final plain = await _loadLyricsOvh(query.title, query.artist);
+      if (plain != null) {
+        await _saveCached(item.id, plain);
+        return plain;
+      }
     }
     return null;
   }
@@ -153,9 +161,23 @@ class LyricsService {
       if (response.statusCode != 200) return null;
       final payload = jsonDecode(response.body);
       if (payload is! List) return null;
-      for (final candidate in payload.whereType<Map<String, dynamic>>().take(
-        5,
-      )) {
+
+      final candidates = payload
+          .whereType<Map>()
+          .map((candidate) => Map<String, dynamic>.from(candidate))
+          .where(
+            (candidate) => _matchesSearchCandidate(candidate, title, artist),
+          )
+          .toList(growable: false);
+      // Prefer synchronized results, then plain lyrics.
+      candidates.sort((a, b) {
+        final aSynced =
+            (a['syncedLyrics']?.toString().trim().isNotEmpty ?? false);
+        final bSynced =
+            (b['syncedLyrics']?.toString().trim().isNotEmpty ?? false);
+        return (bSynced ? 1 : 0).compareTo(aSynced ? 1 : 0);
+      });
+      for (final candidate in candidates.take(8)) {
         final lyrics = _fromLrclibPayload(candidate);
         if (lyrics != null) return lyrics;
       }
@@ -163,6 +185,29 @@ class LyricsService {
       return null;
     }
     return null;
+  }
+
+  bool _matchesSearchCandidate(
+    Map<String, dynamic> candidate,
+    String title,
+    String artist,
+  ) {
+    final candidateTitle = _normalize(candidate['trackName']?.toString() ?? '');
+    final candidateArtist = _normalize(
+      candidate['artistName']?.toString() ?? '',
+    );
+    final wantedTitle = _normalize(title);
+    final wantedArtist = _normalize(artist);
+    if (candidateTitle.isEmpty || wantedTitle.isEmpty) return false;
+    final titleMatch =
+        candidateTitle == wantedTitle ||
+        candidateTitle.contains(wantedTitle) ||
+        wantedTitle.contains(candidateTitle);
+    if (!titleMatch) return false;
+    if (wantedArtist.isEmpty || candidateArtist.isEmpty) return true;
+    return candidateArtist == wantedArtist ||
+        candidateArtist.contains(wantedArtist) ||
+        wantedArtist.contains(candidateArtist);
   }
 
   Future<SyncedLyrics?> _loadLyricsOvh(String title, String artist) async {
@@ -253,22 +298,31 @@ class LyricsService {
     return int.tryParse(match?.group(1) ?? '') ?? 0;
   }
 
-  Future<SyncedLyrics?> _loadAdjacentLrc(String id) async {
+  Future<SyncedLyrics?> _loadAdjacentLyrics(String id) async {
     if (!id.startsWith('file://')) return null;
     try {
       final audioPath = Uri.parse(id).toFilePath();
-      final lrcPath = p.setExtension(audioPath, '.lrc');
-      final file = File(lrcPath);
-      if (!await file.exists()) return null;
-      final content = await file.readAsString();
-      final parsed = parseLrc(content);
-      return SyncedLyrics(
-        lines: parsed,
-        plainText: parsed.isEmpty ? content : null,
-      );
+      final basePath = p.withoutExtension(audioPath);
+      for (final path in <String>[
+        '$basePath.lrc',
+        '$basePath.LRC',
+        '$basePath.txt',
+        '$basePath.lyrics',
+      ]) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        final content = await file.readAsString();
+        if (content.trim().isEmpty) continue;
+        final parsed = parseLrc(content);
+        return SyncedLyrics(
+          lines: parsed,
+          plainText: parsed.isEmpty ? content.trim() : null,
+        );
+      }
     } catch (_) {
       return null;
     }
+    return null;
   }
 
   Future<SyncedLyrics?> _loadCached(String id) async {
