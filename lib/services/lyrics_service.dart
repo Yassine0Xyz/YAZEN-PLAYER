@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'embedded_id3_lyrics.dart';
+
 class LyricLine {
   const LyricLine({required this.timestamp, required this.text});
 
@@ -62,11 +64,20 @@ class LyricsService {
   static const _requestTimeout = Duration(seconds: 5);
 
   final http.Client _client;
+  final EmbeddedId3LyricsReader _embeddedReader =
+      const EmbeddedId3LyricsReader();
 
   Future<SyncedLyrics?> loadFor(MediaItem item) async {
-    // Offline-first: keep the user's own LRC/TXT files ahead of network data.
+    // Offline-first: keep the user's own sidecar files and embedded ID3
+    // lyrics ahead of network data. This also works without network access.
     final localLyrics = await _loadAdjacentLyrics(item.id);
     if (localLyrics != null) return localLyrics;
+
+    final embeddedLyrics = await _loadEmbeddedId3(item.id);
+    if (embeddedLyrics != null) {
+      await _saveCached(item.id, embeddedLyrics);
+      return embeddedLyrics;
+    }
 
     final cached = await _loadCached(item.id);
     if (cached != null) return cached;
@@ -296,6 +307,28 @@ class LyricsService {
       multiLine: true,
     ).firstMatch(source);
     return int.tryParse(match?.group(1) ?? '') ?? 0;
+  }
+
+  Future<SyncedLyrics?> _loadEmbeddedId3(String id) async {
+    if (!id.startsWith('file://')) return null;
+    try {
+      final path = Uri.parse(id).toFilePath();
+      final embedded = await _embeddedReader.read(path);
+      if (embedded == null || embedded.isEmpty) return null;
+      final lines = embedded.synchronized
+          .map(
+            (line) => LyricLine(
+              timestamp: Duration(milliseconds: line.timestampMs),
+              text: line.text,
+            ),
+          )
+          .toList(growable: false);
+      return SyncedLyrics(lines: lines, plainText: embedded.unsynced);
+    } catch (_) {
+      // Content URIs, permission-restricted files, and malformed tags should
+      // fall through to the existing cache/network sources.
+      return null;
+    }
   }
 
   Future<SyncedLyrics?> _loadAdjacentLyrics(String id) async {
