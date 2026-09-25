@@ -19,6 +19,7 @@ class MediaLibraryService {
   final OnAudioQuery _audioQuery;
   bool? _permissionGranted;
   Future<bool>? _permissionRequest;
+  final Map<String, FileStat> _fileStats = <String, FileStat>{};
 
   bool? get permissionGranted => _permissionGranted;
 
@@ -102,7 +103,7 @@ class MediaLibraryService {
   Future<MediaTrack> _toMediaTrack(SongModel song) async {
     final track = MediaTrack.fromSong(song);
     try {
-      final stat = await File(song.data).stat();
+      final stat = _fileStats[song.data] ??= await File(song.data).stat();
       return track.copyWith(sizeBytes: stat.size, modifiedAt: stat.modified);
     } on FileSystemException {
       return track;

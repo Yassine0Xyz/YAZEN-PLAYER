@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import '../lib/services/embedded_id3_lyrics.dart';
+import 'package:yazen/services/embedded_id3_lyrics.dart';
 
 List<int> syncSafe(int value) => [
   (value >> 21) & 0x7f,
@@ -26,15 +26,12 @@ List<int> frame(String id, List<int> body) => [
 ];
 
 void main() async {
-  final uslt = [
-    3,
-    101, 110, 103,
-    0,
-    ...'Embedded lyric'.codeUnits,
-  ];
+  final uslt = [3, 101, 110, 103, 0, ...'Embedded lyric'.codeUnits];
   final sylt = [
     3,
-    101, 110, 103,
+    101,
+    110,
+    103,
     1,
     1,
     0,

@@ -9,6 +9,7 @@ import '../services/hybrid_audio_handler.dart';
 import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
+import '../services/library_search_service.dart';
 
 class HybridMusicController extends ChangeNotifier {
   HybridMusicController({
@@ -27,9 +28,11 @@ class HybridMusicController extends ChangeNotifier {
   final HybridAudioHandler _audioHandler;
   final LocalPlaylistManager _playlistManager;
   final LyricsService _lyricsService;
+  static const LibrarySearchService _searchService = LibrarySearchService();
 
   LibraryTab _selectedTab = LibraryTab.songs;
   List<MediaTrack> _localSongs = const <MediaTrack>[];
+  List<MediaTrack> _allLocalSongs = const <MediaTrack>[];
   List<MediaTrack> _localVideos = const <MediaTrack>[];
   List<ArtistModel> _artists = const <ArtistModel>[];
   List<AlbumModel> _albums = const <AlbumModel>[];
@@ -39,6 +42,7 @@ class HybridMusicController extends ChangeNotifier {
   bool _repeatOne = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
+  String _searchQuery = '';
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
   List<MediaTrack>? _visibleTracksCache;
@@ -47,6 +51,9 @@ class HybridMusicController extends ChangeNotifier {
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
+  List<MediaTrack> get hiddenTracks => _playlistManager.applyMetadata(
+    _allLocalSongs.where((track) => _playlistManager.isHidden(track.id)),
+  );
   List<MediaTrack> get localVideos => _localVideos;
   List<ArtistModel> get artists => _artists;
   List<AlbumModel> get albums => _albums;
@@ -56,6 +63,7 @@ class HybridMusicController extends ChangeNotifier {
   bool get repeatOne => _repeatOne;
   LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
+  String get searchQuery => _searchQuery;
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
   HybridAudioHandler get audioHandler => _audioHandler;
   LyricsService get lyricsService => _lyricsService;
@@ -69,13 +77,15 @@ class HybridMusicController extends ChangeNotifier {
       LibraryTab.artists => _localSongs,
       LibraryTab.albums => _localSongs,
       LibraryTab.songs => _localSongs,
+      LibraryTab.hidden => hiddenTracks,
     };
     if (identical(_visibleTracksSource, tracks) &&
         _visibleTracksCacheSort == _librarySort &&
         _visibleTracksCache != null) {
       return _visibleTracksCache!;
     }
-    final sorted = List<MediaTrack>.of(tracks)..sort(_compareTracks);
+    final filtered = _searchService.search(tracks, _searchQuery);
+    final sorted = List<MediaTrack>.of(filtered)..sort(_compareTracks);
     final cached = List<MediaTrack>.unmodifiable(sorted);
     _visibleTracksSource = tracks;
     _visibleTracksCacheSort = _librarySort;
@@ -92,6 +102,14 @@ class HybridMusicController extends ChangeNotifier {
   void setLibrarySort(LibrarySort sort) {
     if (_librarySort == sort) return;
     _librarySort = sort;
+    _visibleTracksCache = null;
+    notifyListeners();
+  }
+
+  void setSearchQuery(String query) {
+    final normalized = query.trim();
+    if (_searchQuery == normalized) return;
+    _searchQuery = normalized;
     _visibleTracksCache = null;
     notifyListeners();
   }
@@ -140,7 +158,12 @@ class HybridMusicController extends ChangeNotifier {
         _library.queryAlbums(),
         _library.queryPlaylists(),
       ]);
-      _localSongs = results[0] as List<MediaTrack>;
+      _allLocalSongs = _playlistManager.applyMetadata(
+        results[0] as List<MediaTrack>,
+      );
+      _localSongs = _allLocalSongs
+          .where((track) => !_playlistManager.isHidden(track.id))
+          .toList(growable: false);
       _localVideos = results[1] as List<MediaTrack>;
       _artists = results[2] as List<ArtistModel>;
       _albums = results[3] as List<AlbumModel>;
@@ -199,6 +222,7 @@ class HybridMusicController extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
       await _audioHandler.playTrack(track);
+      await _playlistManager.recordPlayed(track);
       notifyListeners();
     } catch (error) {
       _errorMessage = 'Playback failed: $error';
@@ -214,6 +238,11 @@ class HybridMusicController extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
       await _audioHandler.playTrackQueue(tracks, initialIndex: initialIndex);
+      if (tracks.isNotEmpty) {
+        await _playlistManager.recordPlayed(
+          tracks[initialIndex.clamp(0, tracks.length - 1)],
+        );
+      }
       notifyListeners();
     } catch (error) {
       _errorMessage = 'Playback failed: $error';
@@ -266,6 +295,10 @@ class HybridMusicController extends ChangeNotifier {
   }
 
   void _onPlaylistChanged() {
+    _localSongs = _allLocalSongs
+        .where((track) => !_playlistManager.isHidden(track.id))
+        .toList(growable: false);
+    _visibleTracksCache = null;
     notifyListeners();
   }
 

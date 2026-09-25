@@ -32,12 +32,14 @@ class EchoPlaylist {
     String? name,
     List<MediaTrack>? tracks,
     String? coverTrackId,
+    bool clearCoverTrackId = false,
   }) {
     return EchoPlaylist(
       id: id,
       name: name ?? this.name,
       tracks: List<MediaTrack>.unmodifiable(tracks ?? this.tracks),
-      coverTrackId: coverTrackId ?? this.coverTrackId,
+      coverTrackId:
+          clearCoverTrackId ? null : (coverTrackId ?? this.coverTrackId),
     );
   }
 
@@ -72,16 +74,24 @@ class EchoPlaylist {
 class LocalPlaylistManager extends ChangeNotifier {
   static const _playlistsKey = 'yazen.custom_playlists.v1';
   static const _favoritesKey = 'yazen.favorite_tracks.v1';
+  static const _historyKey = 'yazen.play_history.v1';
+  static const _metadataKey = 'yazen.track_metadata.v1';
+  static const _hiddenKey = 'yazen.hidden_tracks.v1';
 
   SharedPreferences? _preferences;
   List<EchoPlaylist> _playlists = const <EchoPlaylist>[];
   List<MediaTrack> _favorites = const <MediaTrack>[];
+  Map<String, int> _playCounts = <String, int>{};
+  Map<String, DateTime> _lastPlayed = <String, DateTime>{};
+  Map<String, Map<String, String>> _metadata = <String, Map<String, String>>{};
+  Set<String> _hiddenIds = <String>{};
   bool _isReady = false;
   Future<void> _writeChain = Future<void>.value();
 
   bool get isReady => _isReady;
   List<EchoPlaylist> get playlists => _playlists;
   List<MediaTrack> get favorites => _favorites;
+  Set<String> get hiddenIds => Set<String>.unmodifiable(_hiddenIds);
 
   bool isFavorite(MediaTrack track) =>
       _favorites.any((item) => item.id == track.id);
@@ -100,6 +110,9 @@ class LocalPlaylistManager extends ChangeNotifier {
           savedFavorites == null
               ? const <MediaTrack>[]
               : _decodeTracks(savedFavorites);
+      _playCounts = _decodeIntMap(_preferences!.getString(_historyKey));
+      _metadata = _decodeMetadata(_preferences!.getString(_metadataKey));
+      _hiddenIds = _decodeStringSet(_preferences!.getString(_hiddenKey));
     } on FormatException {
       _playlists = const <EchoPlaylist>[];
       _favorites = const <MediaTrack>[];
@@ -107,6 +120,85 @@ class LocalPlaylistManager extends ChangeNotifier {
     _isReady = true;
     notifyListeners();
   }
+
+  int playCount(String trackId) => _playCounts[trackId] ?? 0;
+
+  DateTime? lastPlayed(String trackId) => _lastPlayed[trackId];
+
+  List<MediaTrack> applyMetadata(Iterable<MediaTrack> tracks) => tracks
+      .map((track) {
+        final values = _metadata[track.id];
+        return values == null
+            ? track
+            : track.copyWith(
+              title: values['title'],
+              artist: values['artist'],
+              album: values['album'],
+            );
+      })
+      .toList(growable: false);
+
+  Future<void> recordPlayed(MediaTrack track) async {
+    _ensureReady();
+    _playCounts[track.id] = playCount(track.id) + 1;
+    _lastPlayed[track.id] = DateTime.now();
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Stores a safe app-local metadata override. It deliberately does not
+  /// rewrite the user's media file or MediaStore entry without explicit
+  /// Android write-permission support.
+  Future<void> updateTrackMetadata(
+    String trackId, {
+    required String title,
+    required String artist,
+    required String album,
+  }) async {
+    _ensureReady();
+    final values = <String, String>{
+      'title': title.trim().isEmpty ? 'Unknown title' : title.trim(),
+      'artist': artist.trim().isEmpty ? 'Unknown artist' : artist.trim(),
+      'album': album.trim().isEmpty ? 'Unknown album' : album.trim(),
+    };
+    _metadata[trackId] = values;
+    MediaTrack update(MediaTrack track) =>
+        track.id == trackId
+            ? track.copyWith(
+              title: values['title'],
+              artist: values['artist'],
+              album: values['album'],
+            )
+            : track;
+    _favorites = List<MediaTrack>.unmodifiable(_favorites.map(update));
+    _playlists = List<EchoPlaylist>.unmodifiable(
+      _playlists
+          .map(
+            (playlist) => playlist.copyWith(
+              tracks: playlist.tracks.map(update).toList(growable: false),
+            ),
+          )
+          .toList(growable: false),
+    );
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> setHidden(
+    Iterable<String> trackIds, {
+    required bool hidden,
+  }) async {
+    _ensureReady();
+    if (hidden) {
+      _hiddenIds.addAll(trackIds);
+    } else {
+      _hiddenIds.removeAll(trackIds);
+    }
+    notifyListeners();
+    await _persist();
+  }
+
+  bool isHidden(String trackId) => _hiddenIds.contains(trackId);
 
   Future<void> toggleFavorite(MediaTrack track) async {
     _ensureReady();
@@ -283,7 +375,9 @@ class LocalPlaylistManager extends ChangeNotifier {
                 coverId != null && tracks.any((track) => track.id == coverId)
                     ? coverId
                     : (tracks.isEmpty ? null : tracks.last.id);
-            return playlist.copyWith(tracks: tracks, coverTrackId: nextCoverId);
+            return nextCoverId == null
+                ? playlist.copyWith(tracks: tracks, clearCoverTrackId: true)
+                : playlist.copyWith(tracks: tracks, coverTrackId: nextCoverId);
           })
           .toList(growable: false),
     );
@@ -322,6 +416,17 @@ class LocalPlaylistManager extends ChangeNotifier {
         _favoritesKey,
         jsonEncode(_favorites.map(mediaTrackToJson).toList(growable: false)),
       );
+      await preferences.setString(
+        _historyKey,
+        jsonEncode(<String, dynamic>{
+          'counts': _playCounts,
+          'lastPlayed': _lastPlayed.map(
+            (key, value) => MapEntry(key, value.toIso8601String()),
+          ),
+        }),
+      );
+      await preferences.setString(_metadataKey, jsonEncode(_metadata));
+      await preferences.setString(_hiddenKey, jsonEncode(_hiddenIds.toList()));
     });
     return _writeChain;
   }
@@ -348,5 +453,61 @@ class LocalPlaylistManager extends ChangeNotifier {
           .where((track) => track.id.isNotEmpty)
           .toList(growable: false),
     );
+  }
+
+  Map<String, int> _decodeIntMap(String? value) {
+    if (value == null) return <String, int>{};
+    try {
+      final decoded = jsonDecode(value);
+      final counts = decoded is Map ? decoded['counts'] : decoded;
+      final last = decoded is Map ? decoded['lastPlayed'] : null;
+      if (last is Map) {
+        for (final entry in last.entries) {
+          final date = DateTime.tryParse(entry.value.toString());
+          if (date != null) _lastPlayed[entry.key.toString()] = date;
+        }
+      }
+      return counts is Map
+          ? <String, int>{
+            for (final entry in counts.entries)
+              entry.key.toString():
+                  entry.value is num ? (entry.value as num).toInt() : 0,
+          }
+          : <String, int>{};
+    } catch (_) {
+      return <String, int>{};
+    }
+  }
+
+  Map<String, Map<String, String>> _decodeMetadata(String? value) {
+    if (value == null) return <String, Map<String, String>>{};
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map) return <String, Map<String, String>>{};
+      return <String, Map<String, String>>{
+        for (final entry in decoded.entries)
+          entry.key.toString():
+              entry.value is Map
+                  ? <String, String>{
+                    for (final field in (entry.value as Map).entries)
+                      field.key.toString(): field.value.toString(),
+                  }
+                  : <String, String>{},
+      };
+    } catch (_) {
+      return <String, Map<String, String>>{};
+    }
+  }
+
+  Set<String> _decodeStringSet(String? value) {
+    if (value == null) return <String>{};
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is List
+          ? decoded.map((item) => item.toString()).toSet()
+          : <String>{};
+    } catch (_) {
+      return <String>{};
+    }
   }
 }

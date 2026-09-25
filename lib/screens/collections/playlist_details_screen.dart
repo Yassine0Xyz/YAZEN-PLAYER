@@ -56,11 +56,14 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
           (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
         );
       case _PlaylistSort.mostPlayed:
-        // Play-count ordering is stable until the persistent play history is
-        // available for a track; it still provides a deterministic fallback.
-        tracks.sort(
-          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-        );
+        tracks.sort((a, b) {
+          final manager = context.read<LocalPlaylistManager>();
+          final count = manager
+              .playCount(b.id)
+              .compareTo(manager.playCount(a.id));
+          if (count != 0) return count;
+          return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        });
     }
     return tracks;
   }
@@ -219,13 +222,25 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                       selected: selected,
                       trailing:
                           _manageMode
-                              ? ReorderableDragStartListener(
-                                index: index,
-                                child: IconButton(
-                                  tooltip: 'Drag to arrange',
-                                  onPressed: () {},
-                                  icon: const Icon(Icons.drag_handle_rounded),
-                                ),
+                              ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  IconButton(
+                                    tooltip: 'Edit metadata',
+                                    onPressed: () => _editMetadata(track),
+                                    icon: const Icon(Icons.edit_rounded),
+                                  ),
+                                  ReorderableDragStartListener(
+                                    index: index,
+                                    child: IconButton(
+                                      tooltip: 'Drag to arrange',
+                                      onPressed: () {},
+                                      icon: const Icon(
+                                        Icons.drag_handle_rounded,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               )
                               : null,
                       onLongPress: () => _toggleSelection(track),
@@ -259,17 +274,32 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
               ? SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: FilledButton.icon(
-                    onPressed:
-                        _selectedIds.isEmpty
-                            ? null
-                            : () => _removeSelected(context, playlist),
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(
-                      _selectedIds.isEmpty
-                          ? 'Select songs to remove'
-                          : 'Remove ${_selectedIds.length} songs',
-                    ),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed:
+                              _selectedIds.isEmpty
+                                  ? null
+                                  : () => _removeSelected(context, playlist),
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          label: Text(
+                            _selectedIds.isEmpty
+                                ? 'Select songs to remove'
+                                : 'Remove ${_selectedIds.length} songs',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Hide selected',
+                        onPressed:
+                            _selectedIds.isEmpty
+                                ? null
+                                : () => _hideSelected(context, playlist),
+                        icon: const Icon(Icons.visibility_off_rounded),
+                      ),
+                    ],
                   ),
                 ),
               )
@@ -445,6 +475,76 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
       ids,
     );
     if (mounted) setState(_selectedIds.clear);
+  }
+
+  Future<void> _hideSelected(
+    BuildContext context,
+    EchoPlaylist playlist,
+  ) async {
+    final ids = Set<String>.of(_selectedIds);
+    await context.read<LocalPlaylistManager>().setHidden(ids, hidden: true);
+    await context.read<LocalPlaylistManager>().removeTracksFromPlaylist(
+      playlist.id,
+      ids,
+    );
+    if (mounted) _exitManageMode();
+  }
+
+  Future<void> _editMetadata(MediaTrack track) async {
+    final title = TextEditingController(text: track.title);
+    final artist = TextEditingController(text: track.artist);
+    final album = TextEditingController(text: track.album);
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Edit metadata'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  TextField(
+                    controller: artist,
+                    decoration: const InputDecoration(labelText: 'Artist'),
+                  ),
+                  TextField(
+                    controller: album,
+                    decoration: const InputDecoration(labelText: 'Album'),
+                  ),
+                ],
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed:
+                    () => Navigator.pop(dialogContext, <String>[
+                      title.text,
+                      artist.text,
+                      album.text,
+                    ]),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
+    title.dispose();
+    artist.dispose();
+    album.dispose();
+    if (result == null || !mounted) return;
+    await context.read<LocalPlaylistManager>().updateTrackMetadata(
+      track.id,
+      title: result[0],
+      artist: result[1],
+      album: result[2],
+    );
   }
 
   Future<void> _showTrackActions(BuildContext context, MediaTrack track) async {

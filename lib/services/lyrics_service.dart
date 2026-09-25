@@ -8,11 +8,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'embedded_id3_lyrics.dart';
 
-class LyricLine {
-  const LyricLine({required this.timestamp, required this.text});
+class LyricWord {
+  const LyricWord({required this.timestamp, required this.text});
 
   final Duration timestamp;
   final String text;
+}
+
+class LyricLine {
+  const LyricLine({
+    required this.timestamp,
+    required this.text,
+    this.words = const <LyricWord>[],
+  });
+
+  final Duration timestamp;
+  final String text;
+  final List<LyricWord> words;
 }
 
 class SyncedLyrics {
@@ -30,6 +42,14 @@ class SyncedLyrics {
           (line) => <String, dynamic>{
             'timestampMs': line.timestamp.inMilliseconds,
             'text': line.text,
+            'words': line.words
+                .map(
+                  (word) => <String, dynamic>{
+                    'timestampMs': word.timestamp.inMilliseconds,
+                    'text': word.text,
+                  },
+                )
+                .toList(growable: false),
           },
         )
         .toList(growable: false),
@@ -44,8 +64,28 @@ class SyncedLyrics {
         final timestamp = (raw['timestampMs'] as num?)?.toInt();
         final text = raw['text']?.toString().trim() ?? '';
         if (timestamp != null && text.isNotEmpty) {
+          final words = <LyricWord>[];
+          final rawWords = raw['words'];
+          if (rawWords is List) {
+            for (final rawWord in rawWords.whereType<Map>()) {
+              final wordTimestamp = (rawWord['timestampMs'] as num?)?.toInt();
+              final wordText = rawWord['text']?.toString() ?? '';
+              if (wordTimestamp != null && wordText.trim().isNotEmpty) {
+                words.add(
+                  LyricWord(
+                    timestamp: Duration(milliseconds: wordTimestamp),
+                    text: wordText,
+                  ),
+                );
+              }
+            }
+          }
           lines.add(
-            LyricLine(timestamp: Duration(milliseconds: timestamp), text: text),
+            LyricLine(
+              timestamp: Duration(milliseconds: timestamp),
+              text: text,
+              words: List<LyricWord>.unmodifiable(words),
+            ),
           );
         }
       }
@@ -234,8 +274,8 @@ class LyricsService {
       if (response.statusCode != 200) return null;
       final payload = jsonDecode(response.body);
       if (payload is! Map<String, dynamic>) return null;
-      final lyrics = payload['lyrics']?.toString().trim();
-      if (lyrics == null || lyrics.isEmpty) return null;
+      final lyrics = _cleanPlainLyrics(payload['lyrics']?.toString() ?? '');
+      if (lyrics.isEmpty) return null;
       return SyncedLyrics(lines: const <LyricLine>[], plainText: lyrics);
     } catch (_) {
       return null;
@@ -245,14 +285,14 @@ class LyricsService {
   SyncedLyrics? _fromLrclibPayload(Object? payload) {
     if (payload is! Map<String, dynamic>) return null;
     final synced = payload['syncedLyrics']?.toString().trim();
-    final plain = payload['plainLyrics']?.toString().trim();
+    final plain = _cleanPlainLyrics(payload['plainLyrics']?.toString() ?? '');
     if (synced != null && synced.isNotEmpty) {
       final lines = parseLrc(synced);
       if (lines.isNotEmpty) {
         return SyncedLyrics(lines: lines, plainText: plain);
       }
     }
-    if (plain != null && plain.isNotEmpty) {
+    if (plain.isNotEmpty) {
       return SyncedLyrics(lines: const <LyricLine>[], plainText: plain);
     }
     return null;
@@ -271,7 +311,7 @@ class LyricsService {
           .allMatches(rawLine)
           .toList(growable: false);
       if (matches.isEmpty) continue;
-      final text = rawLine.substring(matches.last.end).trim();
+      final text = _cleanLyricText(rawLine.substring(matches.last.end));
       if (text.isEmpty) continue;
 
       for (final match in matches) {
@@ -301,6 +341,43 @@ class LyricsService {
     return List<LyricLine>.unmodifiable(lines);
   }
 
+  SyncedLyrics _parseEmbeddedText(String source) {
+    final lines = parseLrc(source);
+    if (lines.isNotEmpty) {
+      return SyncedLyrics(lines: lines, plainText: _cleanPlainLyrics(source));
+    }
+    return SyncedLyrics(
+      lines: const <LyricLine>[],
+      plainText: _cleanPlainLyrics(source),
+    );
+  }
+
+  String _cleanPlainLyrics(String source) {
+    return source
+        .split('\n')
+        .map(_cleanLyricText)
+        .where((line) => line.isNotEmpty)
+        .join('\n')
+        .trim();
+  }
+
+  String _cleanLyricText(String source) {
+    return source
+        .replaceFirst(
+          RegExp(
+            r'^\s*\[(?:ar|ti|al|by|offset|re|ve)\s*:[^\]]*\]\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceFirst(
+          RegExp(r'^\s*(?:\[\d{1,3}:[0-5]\d(?:[.:]\d{1,3})?\]\s*)+'),
+          '',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   int _parseOffsetMilliseconds(String source) {
     final match = RegExp(
       r'^\s*\[offset\s*:\s*(-?\d+)\s*\]\s*$',
@@ -315,20 +392,58 @@ class LyricsService {
       final path = Uri.parse(id).toFilePath();
       final embedded = await _embeddedReader.read(path);
       if (embedded == null || embedded.isEmpty) return null;
-      final lines = embedded.synchronized
-          .map(
-            (line) => LyricLine(
-              timestamp: Duration(milliseconds: line.timestampMs),
-              text: line.text,
-            ),
-          )
-          .toList(growable: false);
-      return SyncedLyrics(lines: lines, plainText: embedded.unsynced);
+      final lines = _groupEmbeddedSyncedLines(embedded.synchronized);
+      if (lines.isNotEmpty) {
+        return SyncedLyrics(
+          lines: lines,
+          plainText:
+              embedded.unsynced == null
+                  ? null
+                  : _cleanPlainLyrics(embedded.unsynced!),
+        );
+      }
+      final unsynced = embedded.unsynced;
+      if (unsynced == null || unsynced.trim().isEmpty) return null;
+      return _parseEmbeddedText(unsynced);
     } catch (_) {
       // Content URIs, permission-restricted files, and malformed tags should
       // fall through to the existing cache/network sources.
       return null;
     }
+  }
+
+  List<LyricLine> _groupEmbeddedSyncedLines(List<EmbeddedId3LyricLine> source) {
+    final result = <LyricLine>[];
+    var words = <LyricWord>[];
+    var lineStart = Duration.zero;
+    var previous = Duration.zero;
+
+    void flush() {
+      if (words.isEmpty) return;
+      result.add(
+        LyricLine(
+          timestamp: lineStart,
+          text: words.map((word) => word.text).join(' '),
+          words: List<LyricWord>.unmodifiable(words),
+        ),
+      );
+      words = <LyricWord>[];
+    }
+
+    for (final raw in source) {
+      final text = _cleanLyricText(raw.text);
+      if (text.isEmpty) continue;
+      final timestamp = Duration(milliseconds: raw.timestampMs);
+      if (words.isNotEmpty &&
+          timestamp - previous > const Duration(seconds: 3)) {
+        flush();
+      }
+      if (words.isEmpty) lineStart = timestamp;
+      words.add(LyricWord(timestamp: timestamp, text: text));
+      previous = timestamp;
+    }
+    flush();
+    return List<LyricLine>.unmodifiable(result);
   }
 
   Future<SyncedLyrics?> _loadAdjacentLyrics(String id) async {
@@ -349,7 +464,7 @@ class LyricsService {
         final parsed = parseLrc(content);
         return SyncedLyrics(
           lines: parsed,
-          plainText: parsed.isEmpty ? content.trim() : null,
+          plainText: parsed.isEmpty ? _cleanPlainLyrics(content) : null,
         );
       }
     } catch (_) {

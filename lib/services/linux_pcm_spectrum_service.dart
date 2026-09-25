@@ -19,6 +19,7 @@ class LinuxPcmSpectrumService {
   static const int _fftSize = 2048;
   static const int _hopSamples = 1764; // 40 ms at 44.1 kHz.
   static const int _bandCount = 40;
+  static const int _maxFrames = 60000;
   static const double _minFrequency = 35.0;
   static const double _maxFrequency = 20000.0;
 
@@ -158,7 +159,9 @@ class LinuxPcmSpectrumService {
       _sampleWindow.add(data.getFloat32(offset, Endian.little));
     }
     while (_sampleWindow.length >= _fftSize) {
-      _frames.add(_analyzeFrame(_sampleWindow));
+      if (_frames.length < _maxFrames) {
+        _frames.add(_analyzeFrame(_sampleWindow));
+      }
       if (_sampleWindow.length < _hopSamples) {
         _sampleWindow = <double>[];
       } else {

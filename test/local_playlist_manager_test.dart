@@ -9,13 +9,13 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  MediaTrack track() => MediaTrack(
-    id: 'local-song-1',
+  MediaTrack track({String id = 'local-song-1'}) => MediaTrack(
+    id: id,
     title: 'Song',
     artist: 'Artist',
     album: 'Album',
     source: TrackSource.local,
-    uri: Uri.parse('file:///music/song.mp3'),
+    uri: Uri.parse('file:///music/$id.mp3'),
     duration: const Duration(minutes: 3),
   );
 
@@ -39,25 +39,13 @@ void main() {
     final manager = LocalPlaylistManager();
     await manager.initialize();
     final playlist = await manager.createPlaylist('Batch mix');
-    final second = MediaTrack(
-      id: 'local-song-2',
-      title: 'Second song',
-      artist: 'Artist',
-      album: 'Album',
-      source: TrackSource.local,
-      uri: Uri.parse('file:///music/second.mp3'),
-      duration: const Duration(minutes: 3),
-    );
+    final second = track(id: 'local-song-2');
     await manager.addToFavorites(<MediaTrack>[track(), second]);
-    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[
-      track(),
-      second,
-    ]);
+    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[track(), second]);
 
-    final saved = manager.playlists.single;
     expect(manager.favorites, hasLength(2));
-    expect(saved.tracks, hasLength(2));
-    expect(saved.coverTrack?.id, 'local-song-2');
+    expect(manager.playlists.single.tracks, hasLength(2));
+    expect(manager.playlists.single.coverTrack?.id, 'local-song-2');
 
     final restored = LocalPlaylistManager();
     await restored.initialize();
@@ -72,5 +60,42 @@ void main() {
     expect(manager.playlists.single.name, 'Renamed');
     await manager.deletePlaylist(playlist.id);
     expect(manager.playlists, isEmpty);
+  });
+
+  test('records play count and applies metadata overrides', () async {
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    await manager.recordPlayed(track());
+    await manager.recordPlayed(track());
+    await manager.updateTrackMetadata(
+      track().id,
+      title: 'Edited title',
+      artist: 'Edited artist',
+      album: 'Edited album',
+    );
+
+    expect(manager.playCount(track().id), 2);
+    final edited = manager.applyMetadata(<MediaTrack>[track()]).single;
+    expect(edited.title, 'Edited title');
+    expect(edited.artist, 'Edited artist');
+    expect(edited.album, 'Edited album');
+
+    final restored = LocalPlaylistManager();
+    await restored.initialize();
+    expect(restored.playCount(track().id), 2);
+    expect(restored.applyMetadata(<MediaTrack>[track()]).single.title, 'Edited title');
+  });
+
+  test('hides tracks and clears cover when the final track is removed', () async {
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final playlist = await manager.createPlaylist('Hidden');
+    await manager.addToPlaylist(playlist.id, track());
+    await manager.setHidden(<String>[track().id], hidden: true);
+    await manager.removeFromPlaylist(playlist.id, track().id);
+
+    expect(manager.isHidden(track().id), isTrue);
+    expect(manager.playlists.single.tracks, isEmpty);
+    expect(manager.playlists.single.coverTrack, isNull);
   });
 }

@@ -22,10 +22,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _equalizerKey = 'yazen.settings.equalizer_enabled';
   static const _surroundKey = 'yazen.settings.surround_enabled';
   static const _speedKey = 'yazen.settings.playback_speed';
+  static const _crossfadeKey = 'yazen.settings.crossfade';
 
   bool _equalizerEnabled = true;
   bool _surroundEnabled = false;
   double _playbackSpeed = 1.0;
+  bool _crossfadeEnabled = false;
   bool _preferencesLoaded = false;
 
   @override
@@ -127,6 +129,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                             : null,
                   ),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                _PreferenceSwitch(
+                  icon: Icons.swap_horiz_rounded,
+                  title: 'Smooth track transitions',
+                  subtitle: 'Fade between automatically advancing tracks',
+                  value: _crossfadeEnabled,
+                  enabled: _preferencesLoaded,
+                  onChanged: (value) => _setCrossfade(controller, value),
                 ),
                 Divider(color: tokens.divider, height: 1),
                 ListTile(
@@ -285,12 +296,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _equalizerEnabled = preferences.getBool(_equalizerKey) ?? true;
       _surroundEnabled = preferences.getBool(_surroundKey) ?? false;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;
+      _crossfadeEnabled = preferences.getBool(_crossfadeKey) ?? false;
       _preferencesLoaded = true;
     });
     final controller = context.read<HybridMusicController>();
     await controller.audioHandler.setSpeed(_playbackSpeed);
     await controller.audioHandler.setEqualizerEnabled(_equalizerEnabled);
     await controller.audioHandler.setThreeDSurroundEnabled(_surroundEnabled);
+    await controller.audioHandler.setCrossfadeEnabled(_crossfadeEnabled);
   }
 
   Future<void> _setSpeed(HybridMusicController controller, double value) async {
@@ -377,6 +390,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _surroundKey,
       value,
       (next) => _surroundEnabled = next,
+    );
+  }
+
+  Future<void> _setCrossfade(
+    HybridMusicController controller,
+    bool value,
+  ) async {
+    await controller.audioHandler.setCrossfadeEnabled(value);
+    await _setPreference(
+      _crossfadeKey,
+      value,
+      (next) => _crossfadeEnabled = next,
     );
   }
 }

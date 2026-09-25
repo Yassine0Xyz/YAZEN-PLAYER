@@ -72,6 +72,7 @@ class HybridAudioHandler extends BaseAudioHandler
   bool _autoAdvanceInFlight = false;
   Timer? _resumeTimer;
   Timer? _sleepTimer;
+  Timer? _sleepFadeTimer;
   DateTime? _sleepDeadline;
   Future<void> _lastResumeSave = Future<void>.value();
   Future<void> _navigationTail = Future<void>.value();
@@ -82,12 +83,19 @@ class HybridAudioHandler extends BaseAudioHandler
   bool _equalizerAvailable = false;
   MediaTrack? _activeTrack;
   bool _isDisposed = false;
+  double _volume = 1.0;
+  double _playbackSpeed = 1.0;
+  AudioServiceRepeatMode _repeatMode = AudioServiceRepeatMode.none;
+  bool _crossfadeEnabled = false;
 
   AudioPlayer get player => _player;
   MediaTrack? get activeTrack => _activeTrack;
   AndroidEqualizer get equalizer => _equalizer;
   bool get threeDSurroundEnabled => _threeDSurroundEnabled;
   bool get equalizerAvailable => _equalizerAvailable;
+  double get playbackSpeed => _playbackSpeed;
+  AudioServiceRepeatMode get repeatMode => _repeatMode;
+  bool get crossfadeEnabled => _crossfadeEnabled;
   List<MediaTrack> get queueTracks =>
       List<MediaTrack>.unmodifiable(_queueTracks);
   int get currentQueueIndex => _player.currentIndex ?? 0;
@@ -108,13 +116,34 @@ class HybridAudioHandler extends BaseAudioHandler
 
   void setSleepTimer(Duration? duration) {
     _sleepTimer?.cancel();
+    _sleepFadeTimer?.cancel();
     _sleepDeadline = null;
     if (duration == null || duration <= Duration.zero) return;
     _sleepDeadline = DateTime.now().add(duration);
-    _sleepTimer = Timer(duration, () {
-      _sleepTimer = null;
-      _sleepDeadline = null;
-      pause();
+    const fadeDuration = Duration(seconds: 12);
+    final fadeStart =
+        duration > fadeDuration ? duration - fadeDuration : Duration.zero;
+    _sleepTimer = Timer(fadeStart, () {
+      final startedAt = DateTime.now();
+      _sleepFadeTimer = Timer.periodic(const Duration(milliseconds: 250), (
+        timer,
+      ) {
+        final elapsed = DateTime.now().difference(startedAt);
+        final remaining = duration - fadeStart - elapsed;
+        final factor =
+            (remaining.inMilliseconds / fadeDuration.inMilliseconds)
+                .clamp(0.0, 1.0)
+                .toDouble();
+        unawaited(_player.setVolume(_volume * factor));
+        if (factor <= 0) {
+          timer.cancel();
+          _sleepFadeTimer = null;
+          _sleepTimer = null;
+          _sleepDeadline = null;
+          unawaited(pause());
+          unawaited(_player.setVolume(_volume));
+        }
+      });
     });
   }
 
@@ -379,6 +408,12 @@ class HybridAudioHandler extends BaseAudioHandler
         initialIndex: index,
         initialPosition: snapshot.position,
       );
+      _playbackSpeed = snapshot.speed;
+      _repeatMode = AudioServiceRepeatMode.values.elementAt(
+        snapshot.repeatMode.clamp(0, AudioServiceRepeatMode.values.length - 1),
+      );
+      await _player.setSpeed(_playbackSpeed);
+      await setRepeatMode(_repeatMode);
       _publishQueueState(items, index);
     } catch (_) {
       await _playbackStore.clear();
@@ -455,14 +490,19 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
-    // Stop also cancels every pending direct-selection intent, so closing x1
-    // can never release stale x2/x3/x4 requests later.
+    // Stop is the explicit close action from the notification/mini-player.
+    // Cancel pending selections and clear just_audio's native sources and our
+    // mirrored queue so old media cannot be resurrected by next/previous.
     _selectionRequest++;
     _queueGeneration++;
     _queuePopulationFuture = null;
     await _player.stop();
+    await _player.clearAudioSources();
+    _queueTracks.clear();
     _activeTrack = null;
+    queue.add(const <MediaItem>[]);
     mediaItem.add(null);
+    await _playbackStore.clear();
     await super.stop();
   }
 
@@ -533,7 +573,9 @@ class HybridAudioHandler extends BaseAudioHandler
       await _waitForQueuePopulation();
       if (!stillCurrent()) return;
       if (_player.hasNext) {
+        if (_crossfadeEnabled) await _fadeTo(0.0);
         await skipToNext();
+        if (_crossfadeEnabled) await _fadeTo(_volume);
         await play();
       } else if (_player.loopMode == LoopMode.all && _queueTracks.length > 1) {
         await _player.seek(Duration.zero, index: 0);
@@ -544,10 +586,35 @@ class HybridAudioHandler extends BaseAudioHandler
     }
   }
 
-  @override
-  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
+  Future<void> _fadeTo(double target) async {
+    final start = _player.volume;
+    const steps = 8;
+    for (var step = 1; step <= steps; step++) {
+      if (_isDisposed) return;
+      final value = start + (target - start) * (step / steps);
+      await _player.setVolume(value.clamp(0.0, 1.0));
+      await Future<void>.delayed(const Duration(milliseconds: 18));
+    }
+  }
 
-  Future<void> setVolume(double volume) => _player.setVolume(volume);
+  @override
+  Future<void> setSpeed(double speed) async {
+    _playbackSpeed = speed.clamp(0.25, 3.0).toDouble();
+    await _player.setSpeed(_playbackSpeed);
+    _persistPlayback();
+  }
+
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0).toDouble();
+    await _player.setVolume(_volume);
+  }
+
+  Future<void> setCrossfadeEnabled(bool enabled) async {
+    // just_audio 0.10 has no native crossfade API. Keep this preference
+    // explicit and use a short guarded fade during auto-advance instead of
+    // pretending that a platform crossfade is active.
+    _crossfadeEnabled = enabled;
+  }
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
@@ -566,6 +633,8 @@ class HybridAudioHandler extends BaseAudioHandler
       AudioServiceRepeatMode.group => LoopMode.all,
     };
     await _player.setLoopMode(loopMode);
+    _repeatMode = repeatMode;
+    _persistPlayback();
     await super.setRepeatMode(repeatMode);
   }
 
@@ -599,6 +668,8 @@ class HybridAudioHandler extends BaseAudioHandler
         currentIndex: index,
         position: _player.position,
         playing: _player.playing,
+        repeatMode: _repeatMode.index,
+        speed: _playbackSpeed,
       ),
     );
   }
@@ -646,12 +717,14 @@ class HybridAudioHandler extends BaseAudioHandler
     // Keep the media foreground service alive so an active local track keeps
     // playing. The explicit Stop/X media control remains the only user-facing
     // action that terminates playback and releases the service.
+    await super.onTaskRemoved();
   }
 
   Future<void> dispose() async {
     _isDisposed = true;
     _resumeTimer?.cancel();
     _sleepTimer?.cancel();
+    _sleepFadeTimer?.cancel();
     _sleepDeadline = null;
     for (final subscription in _subscriptions) {
       await subscription.cancel();

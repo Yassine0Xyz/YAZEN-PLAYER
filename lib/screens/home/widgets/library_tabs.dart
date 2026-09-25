@@ -100,6 +100,7 @@ class LibraryTabs extends StatelessWidget {
       LibraryTab.folders => Icons.folder_rounded,
       LibraryTab.artists => Icons.person_rounded,
       LibraryTab.albums => Icons.album_rounded,
+      LibraryTab.hidden => Icons.visibility_off_rounded,
     };
   }
 }

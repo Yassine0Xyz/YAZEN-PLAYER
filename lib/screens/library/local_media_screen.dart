@@ -35,6 +35,30 @@ class LocalMediaScreen extends StatelessWidget {
     final controller = context.watch<HybridMusicController>();
     return Column(
       children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+          child: TextField(
+            onChanged: controller.setSearchQuery,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search songs, artists, albums…',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon:
+                  controller.searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () => controller.setSearchQuery(''),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              filled: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
         if (showTabs) ...<Widget>[
           LibraryTabs(selected: selectedTab, onSelected: onTabSelected),
           const SizedBox(height: 18),
@@ -66,12 +90,49 @@ class LocalMediaScreen extends StatelessWidget {
         tracks: controller.localSongs,
       ),
       LibraryTab.videos => _VideosView(tracks: controller.visibleTracks),
+      LibraryTab.hidden => _HiddenFilesView(tracks: controller.hiddenTracks),
       LibraryTab.playlists => _PlaylistsView(
         devicePlaylists: controller.playlists,
         customPlaylists: controller.playlistManager.playlists,
         favorites: controller.playlistManager.favorites,
       ),
     };
+  }
+}
+
+class _HiddenFilesView extends StatelessWidget {
+  const _HiddenFilesView({required this.tracks});
+
+  final List<MediaTrack> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    final manager = context.read<LocalPlaylistManager>();
+    final controller = context.read<HybridMusicController>();
+    if (tracks.isEmpty) {
+      return const _CategoryEmptyState(
+        icon: Icons.visibility_off_outlined,
+        title: 'No hidden files',
+        subtitle: 'Songs hidden from YAZEN will appear here.',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+      itemCount: tracks.length,
+      itemBuilder: (context, index) {
+        final track = tracks[index];
+        return TrackListTile(
+          track: track,
+          onTap: () => controller.playTrack(track),
+          trailing: IconButton(
+            tooltip: 'Restore to library',
+            onPressed:
+                () => manager.setHidden(<String>[track.id], hidden: false),
+            icon: const Icon(Icons.visibility_rounded),
+          ),
+        );
+      },
+    );
   }
 }
 

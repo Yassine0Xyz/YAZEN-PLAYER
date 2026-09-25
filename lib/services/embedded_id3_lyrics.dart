@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 /// A timestamped lyric entry extracted from an ID3 SYLT frame.
 class EmbeddedId3LyricLine {
@@ -33,6 +32,10 @@ class EmbeddedId3Lyrics {
 class EmbeddedId3LyricsReader {
   const EmbeddedId3LyricsReader();
 
+  // Lyrics tags should be small. Refuse pathological/corrupt tags before
+  // allocating a large buffer from an untrusted local file.
+  static const _maxTagSizeBytes = 8 * 1024 * 1024;
+
   Future<EmbeddedId3Lyrics?> read(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) return null;
@@ -53,6 +56,11 @@ class EmbeddedId3LyricsReader {
       final flags = header[5];
       final tagSize = _synchsafe(header.sublist(6, 10));
       if (tagSize <= 0) return null;
+      if (tagSize > _maxTagSizeBytes) {
+        return const EmbeddedId3Lyrics(
+          warnings: <String>['The ID3 tag is larger than the safe limit.'],
+        );
+      }
 
       final tagData = await handle.read(tagSize);
       if (tagData.length != tagSize) {

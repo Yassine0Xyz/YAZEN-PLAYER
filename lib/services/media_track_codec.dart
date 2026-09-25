@@ -11,6 +11,8 @@ Map<String, dynamic> mediaTrackToJson(MediaTrack track) => <String, dynamic>{
   'artworkUri': track.artworkUri?.toString(),
   'durationMs': track.duration?.inMilliseconds,
   'folder': track.folder,
+  'sizeBytes': track.sizeBytes,
+  'modifiedAt': track.modifiedAt?.toIso8601String(),
 };
 
 MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
@@ -37,6 +39,9 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     duration:
         durationMs is num ? Duration(milliseconds: durationMs.toInt()) : null,
     folder: json['folder']?.toString(),
+    sizeBytes:
+        json['sizeBytes'] is num ? (json['sizeBytes'] as num).toInt() : null,
+    modifiedAt: DateTime.tryParse(json['modifiedAt']?.toString() ?? ''),
   );
 }
 

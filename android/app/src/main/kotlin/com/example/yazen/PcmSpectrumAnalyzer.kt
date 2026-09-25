@@ -26,6 +26,11 @@ class PcmSpectrumAnalyzer(
     private val contentResolver: ContentResolver,
     private val isCancelled: () -> Boolean,
 ) {
+    private companion object {
+        // 40 minutes at 40 ms/frame; keeps unusually long files bounded
+        // without freezing ordinary long-form mixes or live recordings.
+        const val MAX_FRAMES = 60000
+    }
     data class Result(
         val frames: List<FloatArray>,
         val frameDurationMs: Long,
@@ -169,7 +174,7 @@ class PcmSpectrumAnalyzer(
                                             sampleRate,
                                             bandCount,
                                         )
-                                        frames += frame
+                                        if (frames.size < MAX_FRAMES) frames += frame
                                         pendingCallbacks += frame
                                         if (pendingCallbacks.size >= 32) {
                                             onFrames?.invoke(pendingCallbacks.toList())
@@ -203,7 +208,7 @@ class PcmSpectrumAnalyzer(
             if (isCancelled() || frames.isEmpty()) return null
             return Result(
                 frames = frames,
-                frameDurationMs = 40L,
+                frameDurationMs = (hopSize * 1000L / max(1, sampleRate)),
                 sampleRate = sampleRate,
                 channels = channels,
             )

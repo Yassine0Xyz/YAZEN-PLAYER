@@ -166,6 +166,48 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
     return active;
   }
 
+  int _activeWordIndex(LyricLine line) {
+    if (line.words.isEmpty) return -1;
+    final effectivePosition = widget.position + _syncLead;
+    var active = -1;
+    for (var index = 0; index < line.words.length; index++) {
+      if (line.words[index].timestamp <= effectivePosition) {
+        active = index;
+      } else {
+        break;
+      }
+    }
+    return active;
+  }
+
+  Widget _lineText(BuildContext context, LyricLine line, bool active) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    if (line.words.length < 2) {
+      return Text(line.text, textAlign: TextAlign.center);
+    }
+    final activeWord = _activeWordIndex(line);
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        children: <InlineSpan>[
+          for (var index = 0; index < line.words.length; index++)
+            TextSpan(
+              text:
+                  '${line.words[index].text}${index == line.words.length - 1 ? '' : ' '}',
+              style: TextStyle(
+                color:
+                    index <= activeWord ? tokens.accent : tokens.textSecondary,
+                fontWeight:
+                    index == activeWord
+                        ? FontWeight.w900
+                        : (active ? FontWeight.w700 : FontWeight.w600),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   void didUpdateWidget(covariant _SyncedLyricsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -233,10 +275,7 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
                     horizontal: 8,
                     vertical: 2,
                   ),
-                  child: Text(
-                    widget.lines[index].text,
-                    textAlign: TextAlign.center,
-                  ),
+                  child: _lineText(context, widget.lines[index], active),
                 ),
               ),
             ),

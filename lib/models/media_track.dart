@@ -31,12 +31,18 @@ class MediaTrack {
   final int? sizeBytes;
   final DateTime? modifiedAt;
 
-  MediaTrack copyWith({int? sizeBytes, DateTime? modifiedAt}) {
+  MediaTrack copyWith({
+    String? title,
+    String? artist,
+    String? album,
+    int? sizeBytes,
+    DateTime? modifiedAt,
+  }) {
     return MediaTrack(
       id: id,
-      title: title,
-      artist: artist,
-      album: album,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
       source: source,
       kind: kind,
       uri: uri,
@@ -121,7 +127,8 @@ enum LibraryTab {
   playlists('Playlists'),
   folders('Folders'),
   artists('Artists'),
-  albums('Albums');
+  albums('Albums'),
+  hidden('Hidden Files');
 
   const LibraryTab(this.label);
   final String label;

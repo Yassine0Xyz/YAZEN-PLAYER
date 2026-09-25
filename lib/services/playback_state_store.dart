@@ -11,12 +11,16 @@ class PlaybackSnapshot {
     required this.currentIndex,
     required this.position,
     required this.playing,
+    this.repeatMode = 0,
+    this.speed = 1.0,
   });
 
   final List<MediaTrack> queue;
   final int currentIndex;
   final Duration position;
   final bool playing;
+  final int repeatMode;
+  final double speed;
 }
 
 class PlaybackStateStore {
@@ -29,6 +33,8 @@ class PlaybackStateStore {
     required int currentIndex,
     required Duration position,
     required bool playing,
+    int repeatMode = 0,
+    double speed = 1.0,
   }) async {
     final preferences = await SharedPreferences.getInstance();
     final payload = <String, dynamic>{
@@ -36,6 +42,8 @@ class PlaybackStateStore {
       'currentIndex': currentIndex,
       'positionMs': position.inMilliseconds,
       'playing': playing,
+      'repeatMode': repeatMode,
+      'speed': speed,
     };
     await preferences.setString(_key, jsonEncode(payload));
   }
@@ -65,6 +73,8 @@ class PlaybackStateStore {
           milliseconds: positionMs.clamp(0, 24 * 60 * 60 * 1000).toInt(),
         ),
         playing: payload['playing'] == true,
+        repeatMode: ((payload['repeatMode'] as num?)?.toInt() ?? 0).clamp(0, 2),
+        speed: ((payload['speed'] as num?)?.toDouble() ?? 1.0).clamp(0.25, 3.0),
       );
     } on FormatException {
       return null;
