@@ -60,6 +60,7 @@ class FavoritesScreen extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final track = tracks[index];
                   return TrackListTile(
+                    key: ValueKey<String>('favorite-${track.id}'),
                     track: track,
                     onTap:
                         () => controller.playTrackQueue(

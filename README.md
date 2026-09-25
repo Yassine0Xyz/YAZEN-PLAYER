@@ -1,16 +1,22 @@
 # YAZEN
 
-YAZEN is a **local-first Flutter media player** for on-device audio and video. The current product deliberately focuses on reliable local playback, background audio, queue management, playlists, favorites, lyrics, artwork, local video playback, settings, and a source-driven Audio Spectrum Visualizer. Online browsing, YouTube extraction, Tube Mode, and in-app downloading are not part of this build.
+YAZEN is a **local-first Flutter media player** for Android and Linux. It focuses on reliable on-device audio/video playback, background playback, queue management, playlists, favorites, lyrics, artwork, local video playback, and a real PCM/FFT visualizer.
+
+The app does not include YouTube, Tube Mode, Party Mode, online video browsing, or in-app downloading. Lyrics lookup is the only optional network-assisted feature: YAZEN tries local and embedded sources first, then may use LRCLIB or Lyrics.ovh when enabled/available.
 
 ## Requirements
 
-The project targets Flutter 3.47 or newer and Dart 3.7 or newer. The Android build uses API 36. Linux desktop development additionally requires CMake, Ninja, GTK 3 development headers, PulseAudio development headers, and the `ffmpeg` executable used by the Linux PCM spectrum service.
+- Flutter 3.47 or newer
+- Dart 3.7 or newer
+- Android API 36 for Android builds
+- Linux development additionally requires CMake, Ninja, GTK 3 development headers, PulseAudio development headers, Clang, and `ffmpeg`
 
 ```bash
 flutter pub get
+ dart format lib test tool
 flutter analyze --no-fatal-infos --no-fatal-warnings
 flutter test
-flutter build apk --release --split-per-abi --no-tree-shake-icons
+flutter build apk --release --target-platform android-arm64 --split-per-abi
 flutter build linux --debug
 ```
 
@@ -18,83 +24,86 @@ flutter build linux --debug
 
 | Area | Current behavior |
 |---|---|
-| Local audio | Scanned from the device with `on_audio_query`, played with `just_audio`, and exposed through `audio_service`. |
-| Local video | Scanned from the device, displayed with local thumbnails, and opened in the YAZEN video player. |
-| Queue | Local queue replacement, add, reorder, remove, clear, next, previous, repeat-off/one/all, and automatic next-track handling. |
-| Collections | Favorites, custom playlists, device playlists, artists, albums, folders, and multi-track playback flows. |
-| Lyrics | Adjacent local lyrics and the existing lyrics service, with synchronized presentation in the full player. |
-| Artwork | Local MediaStore artwork and stable player artwork handling. |
-| Visualizer | Real PCM/FFT analysis for local Android files, plus a real Linux file-decoding path. No random or timer-driven fake spectrum. |
-| Settings | Theme, playback speed, equalizer availability, optional surround effect, and sleep timer. |
+| Local audio | Indexed from the device with `on_audio_query`, played with `just_audio`, and exposed through `audio_service`. |
+| Local video | Indexed from the device, shown with local thumbnails, and opened in the YAZEN video player. |
+| Background playback | Foreground media service, notification controls, lock-screen controls, queue navigation, and task-removal persistence. |
+| Queue | Replace, add, reorder, remove, clear, next, previous, repeat off/one/all, and automatic next-track handling. |
+| Collections | Favorites, custom playlists, device playlists, artists, albums, folders, Hidden Files, metadata overrides, and multi-track selection. |
+| Search and sorting | In-memory local search across title, artist, album, and folder, with duration/kind/folder filters and library sorting. |
+| Lyrics | Sidecar `.lrc`/`.txt`, embedded ID3 USLT/SYLT, local cache, optional LRCLIB, and optional Lyrics.ovh fallback. |
+| Artwork | Cached local artwork with gapless rendering to avoid black flashes during list rebuilds and track changes. |
+| Visualizer | Real PCM/FFT analysis for local Android files and a real Linux file-decoding path. No timer-driven fake spectrum. |
+| Settings | Theme, playback speed, equalizer availability, optional surround effect, smooth track transitions, visualizer controls, and sleep timer with fade-out. |
 
-## Project structure
+## Architecture
 
 ```text
 lib/
-├── controllers/hybrid_music_controller.dart
+├── controllers/
+│   └── hybrid_music_controller.dart
 ├── core/theme/
 ├── models/
-│   ├── media_track.dart
-│   ├── stem_models.dart
-│   └── hybrid_party_models.dart
+│   └── media_track.dart
 ├── screens/
-│   ├── home/
-│   ├── player/
-│   ├── library/
 │   ├── collections/
-│   ├── queue/
-│   ├── ai/
 │   ├── effects/
-│   ├── party/
+│   ├── home/
+│   ├── library/
+│   ├── player/
+│   ├── queue/
 │   └── settings/
 ├── services/
 │   ├── hybrid_audio_handler.dart
+│   ├── library_search_service.dart
 │   ├── linux_pcm_spectrum_service.dart
-│   ├── lyrics_service.dart
-│   ├── lan_party_service.dart
-│   ├── online_party_service.dart
-│   ├── media_library_service.dart
-│   ├── stem_separation_service.dart
 │   ├── local_playlist_manager.dart
+│   ├── lyrics_service.dart
+│   ├── media_library_service.dart
 │   ├── media_track_codec.dart
-│   └── playback_state_store.dart
+│   ├── playback_state_store.dart
+│   └── visualizer_settings.dart
 ├── widgets/
 │   ├── audio_visualizer.dart
 │   ├── lyrics_view.dart
+│   ├── media_artwork.dart
 │   ├── mini_player.dart
-│   ├── playlist_picker_sheet.dart
 │   └── video_thumbnail.dart
 └── main.dart
 ```
 
-`MediaTrack` is now local-only. Its source enum contains only `TrackSource.local`, and its persistence codec stores local audio/video identity, artwork, duration, folder, and media kind. `HybridAudioHandler` owns the single local playback queue and background notification state. `LocalPcmSpectrumAnalyzer` on Android and `LinuxPcmSpectrumService` on Linux analyze the actual selected file rather than the device output mix.
+`MediaTrack` is local-only and has no online media source. `HybridAudioHandler` owns the local queue, playback state, notification controls, repeat mode, speed, sleep timer, and background lifecycle. The controller keeps library state, while `LibrarySearchService` performs fast in-memory filtering without I/O.
+
+## Lyrics policy
+
+Lyrics are resolved in this order:
+
+1. Sidecar `.lrc`, `.txt`, or `.lyrics` file next to the audio file.
+2. Embedded ID3 USLT or SYLT lyrics.
+3. Previously cached local result.
+4. LRCLIB exact match.
+5. LRCLIB approximate search with title/artist validation.
+6. Lyrics.ovh plain-text fallback.
+
+Network lookup is optional and bounded by short timeouts. A network failure never blocks local playback or the first app frame. The lyrics view supports synchronized lines and word-level highlighting when timing data is available.
 
 ## Visualizer contract
 
-The Visualizer has an explicit no-fake-data contract:
+> If real PCM/FFT data is unavailable, the visualizer stays idle or reports preparing/unavailable. It never manufactures movement to appear active.
 
-> If a real PCM/FFT frame is unavailable, the widget remains idle and exposes an unavailable/preparing state. It never manufactures movement to make the interface appear active.
+Android decodes local files through `MediaExtractor`/`MediaCodec` and analyzes them with a Hann-windowed FFT. Linux uses `ffmpeg` to decode the selected local file into mono float PCM and exposes position-based spectrum frames.
 
-On Android, local tracks are decoded natively through `MediaExtractor` and `MediaCodec`, then analyzed with a Hann-windowed FFT. The frame returned to Flutter is selected by the actual playback position. Android `Visualizer.getFft()` remains only a real fallback for sources without a local file, and it is not used as the primary source for local tracks.
+## Android setup and diagnostics
 
-On Linux, `LinuxPcmSpectrumService` launches the system `ffmpeg` executable to decode the selected local file into mono 44.1 kHz float PCM. It computes 40 logarithmically spaced frequency bands and exposes the frame associated with the requested playback position. The Linux integration test uses a real WAV fixture and verifies that different positions produce different spectrum data.
-
-## Android setup
-
-The Android shell includes audio-service background playback configuration, media-library permissions, wake lock, and foreground media playback permissions. Android 13 and newer require runtime media access permission. Test permission prompts, notification controls, locked-screen playback, queue navigation, and the Visualizer on a physical device rather than relying only on a build result.
-
-For Visualizer diagnostics, capture native logs while playing a local file:
+Android 13 and newer require runtime media permissions. Test permission prompts, notification controls, lock-screen playback, queue navigation, and the visualizer on a physical device.
 
 ```bash
 adb logcat -c
 adb logcat -s YAZENVisualizer:* flutter:*
 ```
 
-A successful local PCM session should include native messages equivalent to `pcm start requested` and `pcm ready ... frames=...`. The Flutter debug build also reports the active mode. A release build can still provide the native `YAZENVisualizer` diagnostics.
+A successful local PCM session should report messages equivalent to `pcm start requested` and `pcm ready ... frames=...`.
 
 ## Linux setup
-
-Install the native prerequisites on Ubuntu or Debian-based systems:
 
 ```bash
 sudo apt-get update
@@ -103,28 +112,29 @@ flutter build linux --debug
 flutter run -d linux
 ```
 
-The Linux desktop build is an inspection and validation target for the shared player and the real PCM analyzer. Linux does not use Android's `Visualizer` API; it uses the file-decoding service described above.
+Linux is a secondary validation target for the shared player and real PCM analyzer. It does not use Android's `Visualizer` API.
 
-## Validation status
-
-The local-only migration is expected to pass the following gates before a release is delivered:
+## Validation gates
 
 | Gate | Command or evidence |
 |---|---|
 | Formatting | `dart format lib test tool` |
 | Static analysis | `flutter analyze --no-fatal-infos --no-fatal-warnings` |
 | Automated tests | `flutter test` |
-| Linux PCM behavior | `test/linux_pcm_spectrum_service_test.dart` with a real WAV fixture |
-| Android release | `flutter build apk --release --split-per-abi --no-tree-shake-icons` |
-| Linux desktop | `flutter build linux --debug` and application launch |
-| Device proof | Physical-device Logcat showing `pcm ready` and live local playback |
+| Android release | `flutter build apk --release --target-platform android-arm64 --split-per-abi` |
+| Linux desktop | `flutter build linux --debug` and launch |
+| Device proof | Physical-device Logcat showing local playback and PCM frames |
 
-A successful build proves compilation and packaging; it does **not** by itself prove that a specific physical phone decodes every local file. Device Logcat remains the decisive evidence for a phone-specific failure.
+A successful build proves compilation and packaging; it does not prove that every physical phone decodes every media format. Device testing remains decisive for phone-specific failures.
+
+## Repository workflow
+
+The audit cleanup is developed on `feature/audit-glow-up`. The pre-cleanup state is preserved on the GitHub branch `backup/audit-before-glow-up` and the existing development branch remains available for rollback.
 
 ## References
 
-[1]: https://docs.flutter.dev/platform-integration/linux "Flutter Linux desktop documentation"
-[2]: https://pub.dev/packages/just_audio "just_audio on pub.dev"
-[3]: https://pub.dev/packages/audio_service "audio_service on pub.dev"
-[4]: https://pub.dev/packages/on_audio_query "on_audio_query on pub.dev"
-[5]: https://ffmpeg.org/documentation.html "FFmpeg documentation"
+- [Flutter Linux documentation](https://docs.flutter.dev/platform-integration/linux)
+- [just_audio](https://pub.dev/packages/just_audio)
+- [audio_service](https://pub.dev/packages/audio_service)
+- [on_audio_query](https://pub.dev/packages/on_audio_query)
+- [FFmpeg documentation](https://ffmpeg.org/documentation.html)

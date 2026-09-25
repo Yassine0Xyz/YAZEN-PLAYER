@@ -11,6 +11,7 @@ import '../../widgets/echo_motion.dart';
 import '../../widgets/shimmer_skeleton.dart';
 import '../../widgets/playlist_picker_sheet.dart';
 import '../../widgets/video_thumbnail.dart';
+import '../../widgets/media_artwork.dart';
 import '../home/widgets/library_tabs.dart';
 import '../home/widgets/track_list_tile.dart';
 import '../collections/favorites_screen.dart';
@@ -32,7 +33,10 @@ class LocalMediaScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<HybridMusicController>();
+    final controller = context.read<HybridMusicController>();
+    final searchQuery = context.select<HybridMusicController, String>(
+      (value) => value.searchQuery,
+    );
     return Column(
       children: <Widget>[
         Padding(
@@ -44,7 +48,7 @@ class LocalMediaScreen extends StatelessWidget {
               hintText: 'Search songs, artists, albums…',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon:
-                  controller.searchQuery.isEmpty
+                  searchQuery.isEmpty
                       ? null
                       : IconButton(
                         tooltip: 'Clear search',
@@ -64,40 +68,118 @@ class LocalMediaScreen extends StatelessWidget {
           const SizedBox(height: 18),
         ],
         Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            child: KeyedSubtree(
-              key: ValueKey<LibraryTab>(selectedTab),
-              child: _buildView(context, controller),
-            ),
+          child: Selector<HybridMusicController, _LocalMediaSnapshot>(
+            selector: (_, value) => _LocalMediaSnapshot.from(value),
+            builder: (context, snapshot, _) {
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: KeyedSubtree(
+                  key: ValueKey<LibraryTab>(selectedTab),
+                  child: _buildView(context, controller, snapshot),
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
 
-  Widget _buildView(BuildContext context, HybridMusicController controller) {
-    if (controller.isLoading) return const LibraryLoadingState();
+  Widget _buildView(
+    BuildContext context,
+    HybridMusicController controller,
+    _LocalMediaSnapshot snapshot,
+  ) {
+    if (snapshot.isLoading) return const LibraryLoadingState();
 
     return switch (selectedTab) {
-      LibraryTab.songs => _SongsView(tracks: controller.visibleTracks),
-      LibraryTab.artists => _ArtistsView(artists: controller.artists),
-      LibraryTab.albums => _AlbumsView(albums: controller.albums),
+      LibraryTab.songs => _SongsView(tracks: snapshot.visibleTracks),
+      LibraryTab.artists => _ArtistsView(artists: snapshot.artists),
+      LibraryTab.albums => _AlbumsView(albums: snapshot.albums),
       LibraryTab.folders => _FoldersView(
-        folders: controller.folders,
-        tracks: controller.localSongs,
+        folders: snapshot.folders,
+        tracks: snapshot.localSongs,
       ),
-      LibraryTab.videos => _VideosView(tracks: controller.visibleTracks),
-      LibraryTab.hidden => _HiddenFilesView(tracks: controller.hiddenTracks),
+      LibraryTab.videos => _VideosView(tracks: snapshot.visibleTracks),
+      LibraryTab.hidden => _HiddenFilesView(tracks: snapshot.hiddenTracks),
       LibraryTab.playlists => _PlaylistsView(
-        devicePlaylists: controller.playlists,
-        customPlaylists: controller.playlistManager.playlists,
-        favorites: controller.playlistManager.favorites,
+        devicePlaylists: snapshot.playlists,
+        customPlaylists: snapshot.customPlaylists,
+        favorites: snapshot.favorites,
       ),
     };
   }
+}
+
+class _LocalMediaSnapshot {
+  const _LocalMediaSnapshot({
+    required this.isLoading,
+    required this.visibleTracks,
+    required this.localSongs,
+    required this.hiddenTracks,
+    required this.artists,
+    required this.albums,
+    required this.playlists,
+    required this.folders,
+    required this.customPlaylists,
+    required this.favorites,
+  });
+
+  factory _LocalMediaSnapshot.from(HybridMusicController controller) {
+    return _LocalMediaSnapshot(
+      isLoading: controller.isLoading,
+      visibleTracks: controller.visibleTracks,
+      localSongs: controller.localSongs,
+      hiddenTracks: controller.hiddenTracks,
+      artists: controller.artists,
+      albums: controller.albums,
+      playlists: controller.playlists,
+      folders: controller.folders,
+      customPlaylists: controller.playlistManager.playlists,
+      favorites: controller.playlistManager.favorites,
+    );
+  }
+
+  final bool isLoading;
+  final List<MediaTrack> visibleTracks;
+  final List<MediaTrack> localSongs;
+  final List<MediaTrack> hiddenTracks;
+  final List<ArtistModel> artists;
+  final List<AlbumModel> albums;
+  final List<PlaylistModel> playlists;
+  final List<String> folders;
+  final List<EchoPlaylist> customPlaylists;
+  final List<MediaTrack> favorites;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _LocalMediaSnapshot &&
+      other.isLoading == isLoading &&
+      identical(other.visibleTracks, visibleTracks) &&
+      identical(other.localSongs, localSongs) &&
+      identical(other.hiddenTracks, hiddenTracks) &&
+      identical(other.artists, artists) &&
+      identical(other.albums, albums) &&
+      identical(other.playlists, playlists) &&
+      identical(other.folders, folders) &&
+      identical(other.customPlaylists, customPlaylists) &&
+      identical(other.favorites, favorites);
+
+  @override
+  int get hashCode => Object.hash(
+    isLoading,
+    identityHashCode(visibleTracks),
+    identityHashCode(localSongs),
+    identityHashCode(hiddenTracks),
+    identityHashCode(artists),
+    identityHashCode(albums),
+    identityHashCode(playlists),
+    identityHashCode(folders),
+    identityHashCode(customPlaylists),
+    identityHashCode(favorites),
+  );
 }
 
 class _HiddenFilesView extends StatelessWidget {
@@ -122,6 +204,7 @@ class _HiddenFilesView extends StatelessWidget {
       itemBuilder: (context, index) {
         final track = tracks[index];
         return TrackListTile(
+          key: ValueKey<String>('hidden-${track.id}'),
           track: track,
           onTap: () => controller.playTrack(track),
           trailing: IconButton(
@@ -238,6 +321,7 @@ class _SongsViewState extends State<_SongsView> {
               return EchoReveal(
                 delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
                 child: TrackListTile(
+                  key: ValueKey<String>('song-${track.id}'),
                   track: track,
                   selected: selected,
                   onLongPress: () => _toggleSelection(track),
@@ -723,7 +807,7 @@ class _VideoPreviewCard extends StatelessWidget {
                     child:
                         track.isVideo
                             ? VideoThumbnailWidget(track: track, size: 720)
-                            : TrackArtwork(track: track, size: 720),
+                            : YazenMediaArtwork(track: track, size: 720),
                   ),
                 ),
                 Positioned(
@@ -889,7 +973,7 @@ class _PlaylistsView extends StatelessWidget {
             artwork:
                 playlist.coverTrack == null
                     ? null
-                    : TrackArtwork(track: playlist.coverTrack!, size: 82),
+                    : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
             title: playlist.name,
             subtitle: 'Custom playlist',
             count: playlist.tracks.length,

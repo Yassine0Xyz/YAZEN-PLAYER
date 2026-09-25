@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/theme_provider.dart';
 import '../../../models/media_track.dart';
 import '../../../widgets/echo_motion.dart';
+import '../../../widgets/media_artwork.dart';
 
 class TrackListTile extends StatelessWidget {
   const TrackListTile({
@@ -53,7 +53,10 @@ class TrackListTile extends StatelessWidget {
                     children: <Widget>[
                       Stack(
                         children: <Widget>[
-                          TrackArtwork(track: track, size: compact ? 58 : 64),
+                          YazenMediaArtwork(
+                            track: track,
+                            size: compact ? 58 : 64,
+                          ),
                           if (selected)
                             Positioned.fill(
                               child: DecoratedBox(
@@ -216,72 +219,6 @@ class _SourceBadge extends StatelessWidget {
             letterSpacing: 0.35,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class TrackArtwork extends StatelessWidget {
-  const TrackArtwork({required this.track, required this.size, super.key});
-
-  final MediaTrack track;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final fallback = _ArtworkFallback(size: size, source: track.source);
-    if (track.isLocal) {
-      final localId = int.tryParse(track.id);
-      if (localId == null) return fallback;
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(size * 0.22),
-        child: QueryArtworkWidget(
-          id: localId,
-          type: ArtworkType.AUDIO,
-          artworkWidth: size,
-          artworkHeight: size,
-          size: 300,
-          quality: 100,
-          nullArtworkWidget: fallback,
-        ),
-      );
-    }
-
-    return fallback;
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  const _ArtworkFallback({required this.size, required this.source});
-
-  final double size;
-  final TrackSource source;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
-    final accent = tokens.accent;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.22),
-        gradient: LinearGradient(
-          colors: <Color>[
-            tokens.surfaceElevated,
-            accent.withValues(alpha: 0.82),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Icon(
-        Icons.music_note_rounded,
-        color:
-            tokens.isLight
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.92),
-        size: size * 0.45,
       ),
     );
   }

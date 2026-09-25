@@ -18,7 +18,7 @@ Future<void> main() async {
     audioHandler = await AudioService.init<HybridAudioHandler>(
       builder: HybridAudioHandler.new,
       config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.example.yazen.channel.audio',
+        androidNotificationChannelId: 'com.yassine.yazen.channel.audio',
         androidNotificationChannelName: 'Music playback',
         androidNotificationIcon: 'drawable/yazen_notification_icon',
         // Keep the media notification present while playback is active. The

@@ -1,4 +1,4 @@
-package com.example.yazen
+package com.yassine.yazen
 
 import android.Manifest
 import android.app.PictureInPictureParams

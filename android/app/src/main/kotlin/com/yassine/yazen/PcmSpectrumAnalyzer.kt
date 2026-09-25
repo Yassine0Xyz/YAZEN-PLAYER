@@ -1,4 +1,4 @@
-package com.example.yazen
+package com.yassine.yazen
 
 import android.content.ContentResolver
 import android.media.AudioFormat
