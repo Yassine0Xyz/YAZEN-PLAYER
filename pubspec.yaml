@@ -35,6 +35,13 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
+# Local forks keep the legacy plugins compatible with the project's Android Gradle Plugin.
+dependency_overrides:
+  on_audio_query_android:
+    path: third_party/on_audio_query_android
+  video_thumbnail:
+    path: third_party/video_thumbnail
+
 flutter:
   uses-material-design: true
 
@@ -43,7 +50,6 @@ flutter:
     - assets/yazen_app_icon_source.png
 
   fonts:
-
     - family: Plus Jakarta Sans
       fonts:
         - asset: assets/fonts/PlusJakartaSans-Variable.ttf
@@ -67,4 +73,3 @@ flutter:
         - asset: assets/fonts/PlusJakartaSans-Variable.ttf
           weight: 800
           style: normal
-
