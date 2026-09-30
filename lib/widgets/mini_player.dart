@@ -1,10 +1,11 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/theme_provider.dart';
+import '../models/media_track.dart';
 import 'echo_motion.dart';
+import 'media_artwork.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({
@@ -359,20 +360,21 @@ class _MiniArtwork extends StatelessWidget {
     );
 
     final source = item.extras?['source']?.toString();
-    final id = int.tryParse(item.extras?['trackId']?.toString() ?? '');
-    if (source == 'local' && id != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: QueryArtworkWidget(
+    final id = item.extras?['trackId']?.toString();
+    if (source == 'local' && id != null && id.isNotEmpty) {
+      return YazenMediaArtwork(
+        track: MediaTrack(
           id: id,
-          type: ArtworkType.AUDIO,
-          artworkWidth: 50,
-          artworkHeight: 50,
-          size: 180,
-          quality: 100,
-          artworkFit: BoxFit.cover,
-          nullArtworkWidget: fallback,
+          title: item.title,
+          artist: item.artist ?? 'Unknown artist',
+          album: item.album ?? 'Unknown album',
+          source: TrackSource.local,
+          uri: Uri.tryParse(item.id),
+          artworkUri: item.artUri,
+          duration: item.duration,
         ),
+        size: 50,
+        borderRadius: BorderRadius.circular(16),
       );
     }
 

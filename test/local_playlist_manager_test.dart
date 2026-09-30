@@ -41,7 +41,10 @@ void main() {
     final playlist = await manager.createPlaylist('Batch mix');
     final second = track(id: 'local-song-2');
     await manager.addToFavorites(<MediaTrack>[track(), second]);
-    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[track(), second]);
+    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[
+      track(),
+      second,
+    ]);
 
     expect(manager.favorites, hasLength(2));
     expect(manager.playlists.single.tracks, hasLength(2));
@@ -83,19 +86,25 @@ void main() {
     final restored = LocalPlaylistManager();
     await restored.initialize();
     expect(restored.playCount(track().id), 2);
-    expect(restored.applyMetadata(<MediaTrack>[track()]).single.title, 'Edited title');
+    expect(
+      restored.applyMetadata(<MediaTrack>[track()]).single.title,
+      'Edited title',
+    );
   });
 
-  test('hides tracks and clears cover when the final track is removed', () async {
-    final manager = LocalPlaylistManager();
-    await manager.initialize();
-    final playlist = await manager.createPlaylist('Hidden');
-    await manager.addToPlaylist(playlist.id, track());
-    await manager.setHidden(<String>[track().id], hidden: true);
-    await manager.removeFromPlaylist(playlist.id, track().id);
+  test(
+    'hides tracks and clears cover when the final track is removed',
+    () async {
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final playlist = await manager.createPlaylist('Hidden');
+      await manager.addToPlaylist(playlist.id, track());
+      await manager.setHidden(<String>[track().id], hidden: true);
+      await manager.removeFromPlaylist(playlist.id, track().id);
 
-    expect(manager.isHidden(track().id), isTrue);
-    expect(manager.playlists.single.tracks, isEmpty);
-    expect(manager.playlists.single.coverTrack, isNull);
-  });
+      expect(manager.isHidden(track().id), isTrue);
+      expect(manager.playlists.single.tracks, isEmpty);
+      expect(manager.playlists.single.coverTrack, isNull);
+    },
+  );
 }

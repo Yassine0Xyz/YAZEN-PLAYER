@@ -17,7 +17,7 @@ if (productionBuild && !keyPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.yazen"
+    namespace = "com.yassine.yazen"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -28,7 +28,7 @@ android {
 
     defaultConfig {
         // Keep this ID stable once the first public release is shipped.
-        applicationId = "com.example.yazen"
+        applicationId = "com.yassine.yazen"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. With split APKs, Flutter
@@ -50,8 +50,8 @@ android {
             // Dev release builds remain installable with the debug key. A
             // production build must explicitly pass -Pproduction and use the
             // private signing config above.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = if (productionBuild) {
                 signingConfigs.getByName("production")
             } else {

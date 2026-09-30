@@ -115,6 +115,7 @@ class _LocalEntityTracksScreenState extends State<LocalEntityTracksScreen> {
               final trackIndex = index - 1;
               final track = tracks[trackIndex];
               return TrackListTile(
+                key: ValueKey<String>('entity-${track.id}'),
                 track: track,
                 onTap:
                     () => unawaited(

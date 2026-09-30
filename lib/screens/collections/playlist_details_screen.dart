@@ -417,6 +417,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                             final track = available[index];
                             final isSelected = selected.contains(track.id);
                             return TrackListTile(
+                              key: ValueKey<String>('playlist-add-${track.id}'),
                               track: track,
                               selected: isSelected,
                               onTap:
