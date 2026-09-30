@@ -1,5 +1,30 @@
 import 'package:flutter/material.dart';
 
+abstract final class ThemeSpacing {
+  static const double x1 = 4;
+  static const double x2 = 8;
+  static const double x3 = 12;
+  static const double x4 = 16;
+  static const double x5 = 20;
+  static const double x6 = 24;
+  static const double x8 = 32;
+}
+
+abstract final class ThemeRadii {
+  static const double small = 8;
+  static const double medium = 12;
+  static const double large = 16;
+  static const double xLarge = 20;
+  static const double hero = 28;
+}
+
+abstract final class ThemeElevation {
+  static const double flat = 0;
+  static const double low = 1;
+  static const double medium = 3;
+  static const double high = 6;
+}
+
 enum EchoThemePreset {
   oledBlack('oled_black', 'OLED Black'),
   rgbRainbow('rgb_rainbow', 'RGB Rainbow'),
