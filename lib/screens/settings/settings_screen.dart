@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../services/visualizer_settings.dart';
+import '../../services/haptic_settings.dart';
 import '../../services/playback_policies.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _equalizerEnabled = true;
   bool _surroundEnabled = false;
+  bool _hapticFeedbackEnabled = true;
   double _playbackSpeed = 1.0;
   bool _preferencesLoaded = false;
 
@@ -148,6 +150,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onPressed: () => _chooseSleepTimer(controller),
                     child: const Text('Change'),
                   ),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                _PreferenceSwitch(
+                  icon: Icons.vibration_rounded,
+                  title: 'Haptic feedback',
+                  subtitle: 'Subtle feedback for supported interactions',
+                  value: _hapticFeedbackEnabled,
+                  enabled: _preferencesLoaded,
+                  onChanged: _setHapticFeedback,
                 ),
               ],
             ),
@@ -285,17 +296,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = context.read<HybridMusicController>();
     final preferences = await SharedPreferences.getInstance();
     await VisualizerSettings.instance.load();
+    await HapticSettings.instance.load();
     await controller.audioHandler.equalizerSettingsReady;
     if (!mounted) return;
     setState(() {
       _equalizerEnabled = controller.audioHandler.equalizerEnabled;
       _surroundEnabled = controller.audioHandler.threeDSurroundEnabled;
+      _hapticFeedbackEnabled = HapticSettings.instance.enabled;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;
       _preferencesLoaded = true;
     });
     await controller.audioHandler.setSpeed(_playbackSpeed);
     await controller.audioHandler.setEqualizerEnabled(_equalizerEnabled);
     await controller.audioHandler.setThreeDSurroundEnabled(_surroundEnabled);
+  }
+
+  Future<void> _setHapticFeedback(bool value) async {
+    setState(() => _hapticFeedbackEnabled = value);
+    await HapticSettings.instance.setEnabled(value);
   }
 
   Future<void> _setSpeed(HybridMusicController controller, double value) async {
