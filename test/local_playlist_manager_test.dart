@@ -107,4 +107,24 @@ void main() {
       expect(manager.playlists.single.coverTrack, isNull);
     },
   );
+
+  test('play history does not invalidate library track overlays', () async {
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final initialRevision = manager.libraryOverlayRevision;
+
+    await manager.recordPlayed(track());
+    expect(manager.libraryOverlayRevision, initialRevision);
+
+    await manager.updateTrackMetadata(
+      track().id,
+      title: 'Edited',
+      artist: 'Artist',
+      album: 'Album',
+    );
+    expect(manager.libraryOverlayRevision, initialRevision + 1);
+
+    await manager.setHidden(<String>[track().id], hidden: true);
+    expect(manager.libraryOverlayRevision, initialRevision + 2);
+  });
 }

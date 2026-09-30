@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
+
 import '../models/media_track.dart';
 import 'playback_state_store.dart';
 import 'playback_policies.dart';
@@ -115,6 +116,7 @@ class HybridAudioHandler extends BaseAudioHandler
   int _equalizerRetryAttempt = 0;
   MediaTrack? _activeTrack;
   bool _isDisposed = false;
+  Future<void>? _disposeFuture;
   double _volume = 1.0;
   double _playbackSpeed = 1.0;
   AudioServiceRepeatMode _repeatMode = AudioServiceRepeatMode.none;
@@ -623,7 +625,12 @@ class HybridAudioHandler extends BaseAudioHandler
       final items = <MediaItem>[];
       final sources = <AudioSource>[];
       final restoredTracks = <MediaTrack>[];
-      var restoredIndex = 0;
+      final restoredSourceIndexes = <int>[];
+      final savedCurrentIndex = snapshot.currentIndex.clamp(
+        0,
+        snapshot.queue.length - 1,
+      );
+      var restoredIndex = -1;
       for (
         var sourceIndex = 0;
         sourceIndex < snapshot.queue.length;
@@ -631,27 +638,41 @@ class HybridAudioHandler extends BaseAudioHandler
       ) {
         final track = snapshot.queue[sourceIndex];
         try {
+          if (!await _isRestorableTrack(track)) continue;
           final item = track.toMediaItem();
           final source = await _resolveSource(track, item);
-          if (sourceIndex <= snapshot.currentIndex) {
-            restoredIndex = items.length;
-          }
+          if (sourceIndex == savedCurrentIndex) restoredIndex = items.length;
           items.add(item);
           sources.add(source);
           restoredTracks.add(track);
+          restoredSourceIndexes.add(sourceIndex);
         } catch (_) {
-          // Drop invalid entries while retaining the remaining restorable queue.
+          // Drop unavailable entries while retaining the restorable queue.
         }
       }
       if (sources.isEmpty) {
+        await _player.stop();
+        await _player.clearAudioSources();
+        _queueTracks.clear();
+        queue.add(const <MediaItem>[]);
+        mediaItem.add(null);
+        _activeTrack = null;
         await _playbackStore.clear();
         return;
       }
-      final index = restoredIndex.clamp(0, items.length - 1).toInt();
+      final savedCurrentTrackSurvived = restoredIndex >= 0;
+      if (!savedCurrentTrackSurvived) {
+        final nextTrackIndex = restoredSourceIndexes.indexWhere(
+          (sourceIndex) => sourceIndex >= savedCurrentIndex,
+        );
+        restoredIndex = nextTrackIndex >= 0 ? nextTrackIndex : items.length - 1;
+      }
+      final index = restoredIndex;
       await _player.setAudioSources(
         sources,
         initialIndex: index,
-        initialPosition: snapshot.position,
+        initialPosition:
+            savedCurrentTrackSurvived ? snapshot.position : Duration.zero,
       );
       _queueTracks
         ..clear()
@@ -663,7 +684,8 @@ class HybridAudioHandler extends BaseAudioHandler
       await _player.setSpeed(_playbackSpeed);
       await setRepeatMode(_repeatMode);
       _publishQueueState(items, index);
-      if (restoredTracks.length != snapshot.queue.length) {
+      if (restoredTracks.length != snapshot.queue.length ||
+          index != snapshot.currentIndex) {
         _persistQueueAndProgress();
       }
     } catch (_) {
@@ -728,6 +750,16 @@ class HybridAudioHandler extends BaseAudioHandler
     final uri = track.uri;
     if (uri == null) throw StateError('Local track is missing a file URI.');
     return AudioSource.uri(uri, tag: item);
+  }
+
+  Future<bool> _isRestorableTrack(MediaTrack track) async {
+    if (!track.isLocal) return false;
+    final uri = track.uri;
+    if (uri == null) return false;
+    if (uri.scheme == 'file') return File.fromUri(uri).exists();
+    // Content URIs are resolved by Android's MediaProvider; File.exists cannot
+    // validate them, so leave validation to the platform audio source.
+    return uri.scheme == 'content';
   }
 
   @override
@@ -981,7 +1013,9 @@ class HybridAudioHandler extends BaseAudioHandler
     await super.onTaskRemoved();
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _disposeOnce();
+
+  Future<void> _disposeOnce() async {
     _isDisposed = true;
     _resumeTimer?.cancel();
     _cancelSleepTimer();

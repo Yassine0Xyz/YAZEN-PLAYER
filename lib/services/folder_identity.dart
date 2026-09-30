@@ -1,0 +1,42 @@
+import 'package:path/path.dart' as p;
+
+import '../models/media_track.dart';
+
+/// Normalizes a media folder path for stable identity and exact lookup.
+///
+/// MediaStore paths are POSIX paths even when tests or imported metadata use
+/// backslashes, so normalize with the POSIX path context on every platform.
+String normalizeFolderIdentity(String path) {
+  final value = path.trim().replaceAll(r'\', '/');
+  if (value.isEmpty) return '';
+  return p.posix.normalize(value);
+}
+
+/// Returns a compact label that distinguishes equal basenames in different
+/// parent folders while retaining the basename as the primary label.
+String folderDisplayName(String path) {
+  final identity = normalizeFolderIdentity(path);
+  if (identity.isEmpty) return path;
+  final name = p.posix.basename(identity);
+  final parent = p.posix.dirname(identity);
+  if (parent == '.' || parent == '/') return name;
+  return '$name · $parent';
+}
+
+/// Returns stable, unique full-path folder identities from local tracks.
+List<String> folderIdentities(Iterable<MediaTrack> tracks) {
+  final identities = <String>{};
+  for (final track in tracks) {
+    final folder = track.folder;
+    if (folder == null) continue;
+    final identity = normalizeFolderIdentity(folder);
+    if (identity.isNotEmpty) identities.add(identity);
+  }
+  final result = identities.toList(growable: false)..sort((a, b) {
+    final byLabel = folderDisplayName(
+      a,
+    ).toLowerCase().compareTo(folderDisplayName(b).toLowerCase());
+    return byLabel == 0 ? a.compareTo(b) : byLabel;
+  });
+  return List<String>.unmodifiable(result);
+}

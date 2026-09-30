@@ -10,6 +10,7 @@ import 'screens/home/home_screen.dart';
 import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
+import 'services/startup_restore.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,12 +55,6 @@ Future<void> main() async {
   } catch (_) {
     // Start with empty local collections when persisted data is unreadable.
   }
-  try {
-    await audioHandler.restoreLastPlayback();
-  } catch (_) {
-    // A stale or unavailable file must never block the first app frame.
-  }
-
   runApp(
     HybridMusicApp(
       audioHandler: audioHandler,
@@ -67,6 +62,7 @@ Future<void> main() async {
       playlistManager: playlistManager,
     ),
   );
+  schedulePlaybackRestoreAfterFirstFrame(audioHandler.restoreLastPlayback);
 }
 
 class HybridMusicApp extends StatelessWidget {

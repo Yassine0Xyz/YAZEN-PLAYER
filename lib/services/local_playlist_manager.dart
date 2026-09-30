@@ -87,8 +87,10 @@ class LocalPlaylistManager extends ChangeNotifier {
   Set<String> _hiddenIds = <String>{};
   bool _isReady = false;
   Future<void> _writeChain = Future<void>.value();
+  int _libraryOverlayRevision = 0;
 
   bool get isReady => _isReady;
+  int get libraryOverlayRevision => _libraryOverlayRevision;
   List<EchoPlaylist> get playlists => _playlists;
   List<MediaTrack> get favorites => _favorites;
   Set<String> get hiddenIds => Set<String>.unmodifiable(_hiddenIds);
@@ -162,6 +164,7 @@ class LocalPlaylistManager extends ChangeNotifier {
       'album': album.trim().isEmpty ? 'Unknown album' : album.trim(),
     };
     _metadata[trackId] = values;
+    _libraryOverlayRevision++;
     MediaTrack update(MediaTrack track) =>
         track.id == trackId
             ? track.copyWith(
@@ -189,11 +192,13 @@ class LocalPlaylistManager extends ChangeNotifier {
     required bool hidden,
   }) async {
     _ensureReady();
+    final previous = Set<String>.of(_hiddenIds);
     if (hidden) {
       _hiddenIds.addAll(trackIds);
     } else {
       _hiddenIds.removeAll(trackIds);
     }
+    if (!setEquals(previous, _hiddenIds)) _libraryOverlayRevision++;
     notifyListeners();
     await _persist();
   }

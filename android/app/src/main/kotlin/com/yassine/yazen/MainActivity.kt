@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.PictureInPictureParams
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
@@ -15,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import android.util.Rational
 import android.util.Size
@@ -57,6 +59,18 @@ class MainActivity : AudioServiceActivity() {
                 when (call.method) {
                     "requestVideoPermission" -> result.success(requestVideoPermission())
                     "videoPermissionStatus" -> result.success(hasVideoPermission())
+                    "openAppSettings" -> {
+                        try {
+                            startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:$packageName")
+                                },
+                            )
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("settings_unavailable", error.message, null)
+                        }
+                    }
                     "queryVideos" -> queryVideos(result)
                     "videoThumbnail" -> videoThumbnail(
                         call.argument<String>("uri"),

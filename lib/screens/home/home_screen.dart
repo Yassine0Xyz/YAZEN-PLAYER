@@ -177,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _HeaderAction(
                   icon: Icons.refresh_rounded,
                   tooltip: 'Refresh library',
-                  onPressed: controller.loadLibrary,
+                  onPressed: controller.refreshLibrary,
                 ),
                 if (!compact)
                   _HeaderAction(
