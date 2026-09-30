@@ -8,6 +8,8 @@ import 'package:just_audio/just_audio.dart';
 import '../models/media_track.dart';
 import 'playback_state_store.dart';
 import 'playback_policies.dart';
+import 'serial_async_queue.dart';
+import 'equalizer_settings_store.dart';
 
 /// Single source of truth for audio playback, notification controls, and queue metadata.
 ///
@@ -18,6 +20,7 @@ class HybridAudioHandler extends BaseAudioHandler
     AudioPlayer? player,
     PlaybackStateStore? playbackStore,
     AndroidEqualizer? equalizer,
+    EqualizerSettingsStore? equalizerSettingsStore,
   }) {
     final resolvedEqualizer = equalizer ?? AndroidEqualizer();
     final resolvedPlayer =
@@ -33,6 +36,8 @@ class HybridAudioHandler extends BaseAudioHandler
       player: resolvedPlayer,
       playbackStore: playbackStore ?? const PlaybackStateStore(),
       equalizer: resolvedEqualizer,
+      equalizerSettingsStore:
+          equalizerSettingsStore ?? const EqualizerSettingsStore(),
     );
   }
 
@@ -40,10 +45,15 @@ class HybridAudioHandler extends BaseAudioHandler
     required AudioPlayer player,
     required PlaybackStateStore playbackStore,
     required AndroidEqualizer equalizer,
+    required EqualizerSettingsStore equalizerSettingsStore,
   }) : _player = player,
        _playbackStore = playbackStore,
-       _equalizer = equalizer {
+       _equalizer = equalizer,
+       _equalizerSettingsStore = equalizerSettingsStore {
     _equalizerAvailable = Platform.isAndroid;
+    _equalizerEnabledController = StreamController<bool>.broadcast(sync: true);
+    _surroundEnabledController = StreamController<bool>.broadcast(sync: true);
+    _equalizerSettingsReady = _loadEqualizerSettings();
     _sleepRemainingController = StreamController<Duration?>.broadcast(
       sync: true,
     );
@@ -51,7 +61,7 @@ class HybridAudioHandler extends BaseAudioHandler
       _player.playbackEventStream.listen((_) => _broadcastPlaybackState()),
     );
     _subscriptions.add(
-      _player.playerStateStream.listen((_) => _broadcastPlaybackState()),
+      _player.playerStateStream.listen((_) => _handlePlayerStateChanged()),
     );
     _subscriptions.add(
       _player.currentIndexStream.listen(_onCurrentIndexChanged),
@@ -59,22 +69,31 @@ class HybridAudioHandler extends BaseAudioHandler
     _subscriptions.add(
       _player.processingStateStream.listen(_onProcessingStateChanged),
     );
-    _resumeTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _persistPlayback(),
+    _subscriptions.add(
+      _player.androidAudioSessionIdStream.listen(_onAudioSessionIdChanged),
     );
   }
 
   final AudioPlayer _player;
   final PlaybackStateStore _playbackStore;
   final AndroidEqualizer _equalizer;
+  final EqualizerSettingsStore _equalizerSettingsStore;
+  late final Future<void> _equalizerSettingsReady;
+  late final StreamController<bool> _equalizerEnabledController;
+  late final StreamController<bool> _surroundEnabledController;
+  Future<AndroidEqualizerParameters>? _equalizerParametersFuture;
+  AndroidEqualizerParameters? _equalizerParameters;
+  final Map<int, Timer> _equalizerBandTimers = <int, Timer>{};
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final List<MediaTrack> _queueTracks = <MediaTrack>[];
-  Future<void>? _queuePopulationFuture;
   int _queueGeneration = 0;
   int _selectionRequest = 0;
+  int _queueMutationDepth = 0;
+  final SerialAsyncQueue _queueOperations = SerialAsyncQueue();
   bool _autoAdvanceInFlight = false;
   Timer? _resumeTimer;
+  Timer? _equalizerSaveTimer;
+  Timer? _equalizerRetryTimer;
   Timer? _sleepTimer;
   Timer? _sleepFadeTimer;
   Timer? _sleepCountdownTimer;
@@ -84,13 +103,16 @@ class HybridAudioHandler extends BaseAudioHandler
   late final StreamController<Duration?> _sleepRemainingController;
   final InterruptionCoordinator _interruptionCoordinator =
       InterruptionCoordinator();
-  Future<void> _lastResumeSave = Future<void>.value();
-  Future<void> _navigationTail = Future<void>.value();
   static const _effectsChannel = MethodChannel('yazen/audio_effects');
   bool _threeDSurroundEnabled = false;
   // The effect is attached through just_audio's AudioPipeline on Android.
   // The native platform reports parameter failures through the guarded methods.
   bool _equalizerAvailable = false;
+  bool _equalizerEnabled = true;
+  String _equalizerPreset = 'Flat';
+  List<double> _equalizerBandGains = <double>[];
+  String? _equalizerError;
+  int _equalizerRetryAttempt = 0;
   MediaTrack? _activeTrack;
   bool _isDisposed = false;
   double _volume = 1.0;
@@ -103,6 +125,13 @@ class HybridAudioHandler extends BaseAudioHandler
   AndroidEqualizer get equalizer => _equalizer;
   bool get threeDSurroundEnabled => _threeDSurroundEnabled;
   bool get equalizerAvailable => _equalizerAvailable;
+  bool get equalizerEnabled => _equalizerEnabled;
+  Stream<bool> get equalizerEnabledStream => _equalizerEnabledController.stream;
+  Stream<bool> get threeDSurroundEnabledStream =>
+      _surroundEnabledController.stream;
+  String get equalizerPreset => _equalizerPreset;
+  String? get equalizerError => _equalizerError;
+  Future<void> get equalizerSettingsReady => _equalizerSettingsReady;
   double get playbackSpeed => _playbackSpeed;
   AudioServiceRepeatMode get repeatMode => _repeatMode;
   AudioServiceShuffleMode get shuffleMode => _shuffleMode;
@@ -117,6 +146,57 @@ class HybridAudioHandler extends BaseAudioHandler
     if (deadline == null) return null;
     final remaining = deadline.difference(DateTime.now());
     return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  void _handlePlayerStateChanged() {
+    _broadcastPlaybackState();
+    _syncProgressSaveTimer();
+  }
+
+  void _syncProgressSaveTimer() {
+    if (_isDisposed || !_player.playing) {
+      _resumeTimer?.cancel();
+      _resumeTimer = null;
+      return;
+    }
+    _resumeTimer ??= Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_player.playing) _persistPlayback();
+    });
+  }
+
+  Future<T> _runQueueMutation<T>(Future<T> Function() operation) {
+    return _queueOperations.run<T>(() async {
+      _queueMutationDepth++;
+      try {
+        return await operation();
+      } finally {
+        _queueMutationDepth--;
+        if (_queueMutationDepth == 0) {
+          await _repairQueueInvariant();
+          final index = _player.currentIndex;
+          if (index != null) _onCurrentIndexChanged(index);
+        }
+      }
+    });
+  }
+
+  Future<void> _repairQueueInvariant() async {
+    if (_player.sequence.length == _queueTracks.length) return;
+    try {
+      await _player.stop();
+      await _player.clearAudioSources();
+    } catch (_) {
+      // Clearing local state is still safer than publishing a mismatched queue.
+    }
+    _queueTracks.clear();
+    _activeTrack = null;
+    queue.add(const <MediaItem>[]);
+    mediaItem.add(null);
+    try {
+      await _playbackStore.clear();
+    } catch (_) {
+      // Storage recovery will retry through its serialized operation queue.
+    }
   }
 
   Future<void> configureAudioSession(AudioSession session) async {
@@ -233,64 +313,215 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<bool> setEqualizerEnabled(bool enabled) async {
+    await _equalizerSettingsReady;
+    _equalizerEnabled = enabled;
+    _equalizerEnabledController.add(enabled);
+    await _persistEqualizerSettingsNow();
     if (!_equalizerAvailable) return false;
     try {
       await _equalizer.setEnabled(enabled);
+      _equalizerError = null;
+      _equalizerRetryAttempt = 0;
+      _equalizerRetryTimer?.cancel();
       return true;
-    } catch (_) {
-      _equalizerAvailable = false;
+    } catch (error) {
+      _recordEqualizerFailure(error);
       return false;
     }
   }
 
   Future<bool> setEqualizerBandGain(int bandIndex, double gain) async {
-    if (!_equalizerAvailable) return false;
-    try {
-      final parameters = await _equalizer.parameters;
-      if (bandIndex < 0 || bandIndex >= parameters.bands.length) {
-        return false;
-      }
-      await parameters.bands[bandIndex].setGain(gain);
-      return true;
-    } catch (_) {
-      _equalizerAvailable = false;
-      return false;
+    await _equalizerSettingsReady;
+    if (!_equalizerAvailable || bandIndex < 0 || bandIndex >= 32) return false;
+    final parameters = _equalizerParameters;
+    final maxGain = parameters?.maxDecibels ?? 15.0;
+    final minGain = parameters?.minDecibels ?? -15.0;
+    while (_equalizerBandGains.length <= bandIndex) {
+      _equalizerBandGains.add(0.0);
     }
+    _equalizerBandGains[bandIndex] = gain.clamp(minGain, maxGain).toDouble();
+    _scheduleEqualizerSettingsSave();
+    _equalizerBandTimers.remove(bandIndex)?.cancel();
+    _equalizerBandTimers[bandIndex] = Timer(
+      const Duration(milliseconds: 75),
+      () => unawaited(_applyEqualizerBandGain(bandIndex)),
+    );
+    return true;
+  }
+
+  Future<void> setEqualizerPreset(String preset) async {
+    await _equalizerSettingsReady;
+    _equalizerPreset = preset;
+    _scheduleEqualizerSettingsSave();
   }
 
   Future<void> setThreeDSurroundEnabled(bool enabled) async {
+    await _equalizerSettingsReady;
     _threeDSurroundEnabled = enabled;
+    _surroundEnabledController.add(enabled);
+    await _persistEqualizerSettingsNow();
+    if (!_equalizerAvailable || _player.androidAudioSessionId == null) return;
     try {
-      await _effectsChannel.invokeMethod<void>(
-        'setVirtualizerEnabled',
-        <String, dynamic>{
-          'enabled': enabled,
-          'audioSessionId': _player.androidAudioSessionId,
-        },
-      );
-    } on MissingPluginException {
-      // The native virtualizer is optional.
-    } catch (_) {
-      // Optional effects must never be allowed to interrupt playback.
+      await _applyVirtualizer(enabled, _player.androidAudioSessionId!);
+      _equalizerError = null;
+    } catch (error) {
+      _recordEqualizerFailure(error);
     }
   }
 
-  Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) async {
-    // A direct tap is a replacement request, not a queue operation. Do not put
-    // it behind the navigation tail: x1 -> x2 -> x3 must never become a hidden
-    // playback backlog.
+  Future<void> _loadEqualizerSettings() async {
+    try {
+      final settings = await _equalizerSettingsStore.load();
+      _equalizerEnabled = settings.enabled;
+      _threeDSurroundEnabled = settings.surroundEnabled;
+      _equalizerEnabledController.add(_equalizerEnabled);
+      _surroundEnabledController.add(_threeDSurroundEnabled);
+      _equalizerPreset = settings.preset;
+      _equalizerBandGains = List<double>.of(settings.bandGains);
+      if (_player.androidAudioSessionId != null) {
+        unawaited(_applyEqualizerSettings());
+      }
+    } catch (error) {
+      _recordEqualizerFailure(error);
+    }
+  }
+
+  void _onAudioSessionIdChanged(int? sessionId) {
+    if (sessionId == null || !_equalizerAvailable || _isDisposed) return;
+    unawaited(_equalizerSettingsReady.then((_) => _applyEqualizerSettings()));
+  }
+
+  Future<AndroidEqualizerParameters> _getEqualizerParameters() {
+    return _equalizerParametersFuture ??= _equalizer.parameters.then((value) {
+      _equalizerParameters = value;
+      return value;
+    });
+  }
+
+  Future<void> _applyEqualizerSettings() async {
+    if (!_equalizerAvailable ||
+        _isDisposed ||
+        _player.androidAudioSessionId == null) {
+      return;
+    }
+    Object? failure;
+    try {
+      final parameters = await _getEqualizerParameters();
+      if (_isDisposed || _player.androidAudioSessionId == null) return;
+      for (
+        var index = 0;
+        index < parameters.bands.length && index < _equalizerBandGains.length;
+        index++
+      ) {
+        final gain =
+            _equalizerBandGains[index]
+                .clamp(parameters.minDecibels, parameters.maxDecibels)
+                .toDouble();
+        await parameters.bands[index].setGain(gain);
+        if (_isDisposed) return;
+      }
+      await _equalizer.setEnabled(_equalizerEnabled);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      final sessionId = _player.androidAudioSessionId;
+      if (sessionId != null) {
+        await _applyVirtualizer(_threeDSurroundEnabled, sessionId);
+      }
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure != null) {
+      _recordEqualizerFailure(failure);
+    } else {
+      _equalizerError = null;
+      _equalizerRetryAttempt = 0;
+      _equalizerRetryTimer?.cancel();
+    }
+  }
+
+  Future<void> _applyEqualizerBandGain(int bandIndex) async {
+    if (_isDisposed || _player.androidAudioSessionId == null) return;
+    try {
+      final parameters = await _getEqualizerParameters();
+      if (_isDisposed || _player.androidAudioSessionId == null) return;
+      if (bandIndex >= parameters.bands.length ||
+          bandIndex >= _equalizerBandGains.length) {
+        return;
+      }
+      final gain =
+          _equalizerBandGains[bandIndex]
+              .clamp(parameters.minDecibels, parameters.maxDecibels)
+              .toDouble();
+      _equalizerBandGains[bandIndex] = gain;
+      await parameters.bands[bandIndex].setGain(gain);
+      _equalizerError = null;
+    } catch (error) {
+      _recordEqualizerFailure(error);
+    }
+  }
+
+  Future<void> _applyVirtualizer(bool enabled, int sessionId) async {
+    try {
+      await _effectsChannel.invokeMethod<void>(
+        'setVirtualizerEnabled',
+        <String, dynamic>{'enabled': enabled, 'audioSessionId': sessionId},
+      );
+    } on MissingPluginException {
+      // The native virtualizer is optional on devices without the plugin.
+    }
+  }
+
+  EqualizerSettings _equalizerSettingsSnapshot() => EqualizerSettings(
+    enabled: _equalizerEnabled,
+    surroundEnabled: _threeDSurroundEnabled,
+    preset: _equalizerPreset,
+    bandGains: List<double>.unmodifiable(_equalizerBandGains),
+  );
+
+  Future<void> _persistEqualizerSettingsNow() async {
+    try {
+      await _equalizerSettingsStore.save(_equalizerSettingsSnapshot());
+    } catch (error) {
+      _equalizerError = error.toString();
+    }
+  }
+
+  void _scheduleEqualizerSettingsSave() {
+    _equalizerSaveTimer?.cancel();
+    _equalizerSaveTimer = Timer(const Duration(milliseconds: 250), () {
+      if (_isDisposed) return;
+      unawaited(_persistEqualizerSettingsNow());
+    });
+  }
+
+  void _recordEqualizerFailure(Object error) {
+    _equalizerError = error.toString();
+    if (_isDisposed || !_equalizerAvailable || _equalizerRetryTimer != null) {
+      return;
+    }
+    final delaySeconds = (1 << _equalizerRetryAttempt).clamp(1, 30).toInt();
+    _equalizerRetryAttempt = (_equalizerRetryAttempt + 1).clamp(0, 5).toInt();
+    _equalizerRetryTimer = Timer(Duration(seconds: delaySeconds), () {
+      _equalizerRetryTimer = null;
+      unawaited(_applyEqualizerSettings());
+    });
+  }
+
+  Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) {
     final request = ++_selectionRequest;
     _queueGeneration++;
-    _queuePopulationFuture = null;
     final generation = _queueGeneration;
-    unawaited(_player.stop().catchError((_) {}));
-    if (_isDisposed) return;
-    await _playTrackInternal(
-      track,
-      autoPlay: autoPlay,
-      generation: generation,
-      isCurrent: () => request == _selectionRequest,
-    );
+    return _runQueueMutation(() async {
+      if (_isDisposed || request != _selectionRequest) return;
+      await _playTrackInternal(
+        track,
+        autoPlay: autoPlay,
+        generation: generation,
+        isCurrent: () => request == _selectionRequest,
+      );
+    });
   }
 
   Future<void> _playTrackInternal(
@@ -302,7 +533,7 @@ class HybridAudioHandler extends BaseAudioHandler
     bool stillCurrent() =>
         generation == _queueGeneration && (isCurrent?.call() ?? true);
     final item = track.toMediaItem();
-    final sources = await _resolveSources(track, item);
+    final source = await _resolveSource(track, item);
     if (!stillCurrent()) return;
     // A direct selection is a source replacement, not an append. Stop the
     // previous native source before loading the next one so just_audio does
@@ -310,69 +541,36 @@ class HybridAudioHandler extends BaseAudioHandler
     await _player.stop();
     if (!stillCurrent()) return;
 
-    for (final source in sources) {
-      await _player.setAudioSource(source);
-      if (!stillCurrent()) {
-        await _player.stop();
-        return;
-      }
+    await _player.setAudioSource(source);
+    if (!stillCurrent()) {
+      await _player.stop();
+      return;
     }
     if (!stillCurrent()) return;
     _queueTracks
       ..clear()
       ..add(track);
     _publishQueueState(<MediaItem>[item], 0);
-    _persistPlayback();
+    _persistQueueAndProgress();
     if (autoPlay && stillCurrent()) await play();
   }
 
-  Future<void> playTrackQueue(
-    List<MediaTrack> tracks, {
-    int initialIndex = 0,
-  }) async {
-    if (tracks.isEmpty) return;
-    // Queue selection is still a direct replacement from the user’s point of
-    // view. A newer tap invalidates the whole older queue population.
+  Future<void> playTrackQueue(List<MediaTrack> tracks, {int initialIndex = 0}) {
+    if (tracks.isEmpty || _isDisposed) return Future<void>.value();
+    final requestedTracks = List<MediaTrack>.unmodifiable(tracks);
     final request = ++_selectionRequest;
     _queueGeneration++;
-    _queuePopulationFuture = null;
     final generation = _queueGeneration;
-    final safeIndex = initialIndex.clamp(0, tracks.length - 1).toInt();
-    unawaited(_player.stop().catchError((_) {}));
-    if (_isDisposed) return;
-
-    bool isCurrent() => request == _selectionRequest;
-    if (tracks.every((track) => track.isLocal)) {
+    final safeIndex = initialIndex.clamp(0, requestedTracks.length - 1).toInt();
+    return _runQueueMutation(() async {
+      if (request != _selectionRequest) return;
       await _playLocalTrackQueue(
-        tracks,
+        requestedTracks,
         initialIndex: safeIndex,
         generation: generation,
-        isCurrent: isCurrent,
+        isCurrent: () => request == _selectionRequest,
       );
-      return;
-    }
-
-    await _playTrackInternal(
-      tracks[safeIndex],
-      generation: generation,
-      isCurrent: isCurrent,
-    );
-    if (tracks.length > 1 && generation == _queueGeneration && isCurrent()) {
-      final population = _populateAdjacentQueue(
-        tracks,
-        safeIndex,
-        generation,
-        isCurrent: isCurrent,
-      );
-      _queuePopulationFuture = population;
-      unawaited(
-        population.whenComplete(() {
-          if (generation == _queueGeneration && request == _selectionRequest) {
-            _queuePopulationFuture = null;
-          }
-        }),
-      );
-    }
+    });
   }
 
   Future<void> _playLocalTrackQueue(
@@ -404,60 +602,23 @@ class HybridAudioHandler extends BaseAudioHandler
       ..clear()
       ..addAll(tracks);
     _publishQueueState(items, initialIndex);
-    _persistPlayback();
+    _persistQueueAndProgress();
     if (stillCurrent()) await play();
   }
 
-  Future<void> _populateAdjacentQueue(
-    List<MediaTrack> tracks,
-    int selectedIndex,
-    int generation, {
-    bool Function()? isCurrent,
-  }) async {
-    bool stillCurrent() =>
-        generation == _queueGeneration && (isCurrent?.call() ?? true);
-
-    // Insert earlier results in reverse order so the final queue preserves the
-    // original list ordering while the selected item keeps playing.
-    for (var index = selectedIndex - 1; index >= 0; index--) {
-      if (!stillCurrent()) return;
-      try {
-        final track = tracks[index];
-        final source = await _resolveSource(track, track.toMediaItem());
-        if (!stillCurrent()) return;
-        await _player.insertAudioSource(0, source);
-        if (!stillCurrent()) return;
-        _queueTracks.insert(0, track);
-        queue.add(_queueTracks.map((item) => item.toMediaItem()).toList());
-      } catch (_) {}
-    }
-    for (var index = selectedIndex + 1; index < tracks.length; index++) {
-      if (!stillCurrent()) return;
-      try {
-        final track = tracks[index];
-        final source = await _resolveSource(track, track.toMediaItem());
-        if (!stillCurrent()) return;
-        await _player.addAudioSource(source);
-        if (!stillCurrent()) return;
-        _queueTracks.add(track);
-        queue.add(_queueTracks.map((item) => item.toMediaItem()).toList());
-      } catch (_) {}
-    }
-    if (stillCurrent()) _persistPlayback();
-  }
-
-  Future<void> addToQueue(MediaTrack track) async {
+  Future<void> addToQueue(MediaTrack track) => _runQueueMutation(() async {
+    if (_isDisposed) return;
     final item = track.toMediaItem();
     final source = await _resolveSource(track, item);
     await _player.addAudioSource(source);
     _queueTracks.add(track);
     queue.add(<MediaItem>[...queue.value, item]);
-    _persistPlayback();
-  }
+    _persistQueueAndProgress();
+  });
 
-  Future<void> restoreLastPlayback() async {
+  Future<void> restoreLastPlayback() => _runQueueMutation(() async {
     final snapshot = await _playbackStore.load();
-    if (snapshot == null) return;
+    if (snapshot == null || _isDisposed) return;
     try {
       final items = <MediaItem>[];
       final sources = <AudioSource>[];
@@ -479,20 +640,22 @@ class HybridAudioHandler extends BaseAudioHandler
           sources.add(source);
           restoredTracks.add(track);
         } catch (_) {
-          // An expired online URL must not make local/restorable queue items
-          // disappear after a cold start.
+          // Drop invalid entries while retaining the remaining restorable queue.
         }
       }
-      if (sources.isEmpty) return;
-      _queueTracks
-        ..clear()
-        ..addAll(restoredTracks);
+      if (sources.isEmpty) {
+        await _playbackStore.clear();
+        return;
+      }
       final index = restoredIndex.clamp(0, items.length - 1).toInt();
       await _player.setAudioSources(
         sources,
         initialIndex: index,
         initialPosition: snapshot.position,
       );
+      _queueTracks
+        ..clear()
+        ..addAll(restoredTracks);
       _playbackSpeed = snapshot.speed;
       _repeatMode = AudioServiceRepeatMode.values.elementAt(
         snapshot.repeatMode.clamp(0, AudioServiceRepeatMode.values.length - 1),
@@ -500,71 +663,78 @@ class HybridAudioHandler extends BaseAudioHandler
       await _player.setSpeed(_playbackSpeed);
       await setRepeatMode(_repeatMode);
       _publishQueueState(items, index);
+      if (restoredTracks.length != snapshot.queue.length) {
+        _persistQueueAndProgress();
+      }
     } catch (_) {
+      _queueTracks.clear();
+      await _player.stop();
+      await _player.clearAudioSources();
       await _playbackStore.clear();
     }
-  }
+  });
 
-  Future<void> removeFromQueue(int index) async {
+  Future<void> removeFromQueue(int index) => _runQueueMutation(() async {
     if (index < 0 || index >= _queueTracks.length) return;
     await _player.removeAudioSourceAt(index);
     _queueTracks.removeAt(index);
     queue.add(
       _queueTracks.map((track) => track.toMediaItem()).toList(growable: false),
     );
-    _persistPlayback();
-  }
-
-  Future<void> moveInQueue(int oldIndex, int newIndex) async {
-    if (oldIndex < 0 ||
-        oldIndex >= _queueTracks.length ||
-        newIndex < 0 ||
-        newIndex >= _queueTracks.length) {
-      return;
+    if (_queueTracks.isEmpty) {
+      await _playbackStore.clear();
+    } else {
+      _persistQueueAndProgress();
     }
-    await _player.moveAudioSource(oldIndex, newIndex);
-    final track = _queueTracks.removeAt(oldIndex);
-    _queueTracks.insert(newIndex, track);
-    queue.add(
-      _queueTracks.map((item) => item.toMediaItem()).toList(growable: false),
-    );
-    _persistPlayback();
-  }
+  });
 
-  Future<void> clearQueue() async {
+  Future<void> moveInQueue(int oldIndex, int newIndex) => _runQueueMutation(
+    () async {
+      if (oldIndex < 0 ||
+          oldIndex >= _queueTracks.length ||
+          newIndex < 0 ||
+          newIndex >= _queueTracks.length) {
+        return;
+      }
+      await _player.moveAudioSource(oldIndex, newIndex);
+      final track = _queueTracks.removeAt(oldIndex);
+      _queueTracks.insert(newIndex, track);
+      queue.add(
+        _queueTracks.map((item) => item.toMediaItem()).toList(growable: false),
+      );
+      _persistQueueAndProgress();
+    },
+  );
+
+  Future<void> clearQueue() {
+    _cancelSleepTimer();
     _selectionRequest++;
     _queueGeneration++;
-    _queuePopulationFuture = null;
-    await _player.stop();
-    await _player.clearAudioSources();
-    _queueTracks.clear();
-    queue.add(const <MediaItem>[]);
-    mediaItem.add(null);
-    _activeTrack = null;
-    await _playbackStore.clear();
+    return _runQueueMutation(() async {
+      await _player.stop();
+      await _player.clearAudioSources();
+      _queueTracks.clear();
+      queue.add(const <MediaItem>[]);
+      mediaItem.add(null);
+      _activeTrack = null;
+      await _playbackStore.clear();
+    });
   }
 
-  Future<List<AudioSource>> _resolveSources(
-    MediaTrack track,
-    MediaItem item,
-  ) async {
+  Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
     if (!track.isLocal) {
       throw StateError('Only local media is supported.');
     }
     final uri = track.uri;
     if (uri == null) throw StateError('Local track is missing a file URI.');
-    return <AudioSource>[AudioSource.uri(uri, tag: item)];
-  }
-
-  Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
-    final sources = await _resolveSources(track, item);
-    return sources.first;
+    return AudioSource.uri(uri, tag: item);
   }
 
   @override
   Future<void> play() async {
     _interruptionCoordinator.onUserPlay();
     await _player.play();
+    _syncProgressSaveTimer();
     _persistPlayback();
   }
 
@@ -572,26 +742,29 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> pause() async {
     _interruptionCoordinator.onUserPause();
     await _player.pause();
+    _syncProgressSaveTimer();
     _persistPlayback();
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop() {
     _cancelSleepTimer();
     // Stop is the explicit close action from the notification/mini-player.
     // Cancel pending selections and clear just_audio's native sources and our
     // mirrored queue so old media cannot be resurrected by next/previous.
     _selectionRequest++;
     _queueGeneration++;
-    _queuePopulationFuture = null;
-    await _player.stop();
-    await _player.clearAudioSources();
-    _queueTracks.clear();
-    _activeTrack = null;
-    queue.add(const <MediaItem>[]);
-    mediaItem.add(null);
-    await _playbackStore.clear();
-    await super.stop();
+    return _runQueueMutation(() async {
+      await _player.stop();
+      _syncProgressSaveTimer();
+      await _player.clearAudioSources();
+      _queueTracks.clear();
+      _activeTrack = null;
+      queue.add(const <MediaItem>[]);
+      mediaItem.add(null);
+      await _playbackStore.clear();
+      await super.stop();
+    });
   }
 
   @override
@@ -601,44 +774,19 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> skipToNext() => _serializeNavigation(() async {
-    await _waitForQueuePopulation();
+  Future<void> skipToNext() => _runQueueMutation(() async {
     if (!_player.hasNext) return;
     await _player.seekToNext();
   });
 
   @override
-  Future<void> skipToPrevious() => _serializeNavigation(() async {
-    await _waitForQueuePopulation();
+  Future<void> skipToPrevious() => _runQueueMutation(() async {
     if (_player.hasPrevious) {
       await _player.seekToPrevious();
     } else {
       await _player.seek(Duration.zero);
     }
   });
-
-  Future<void> _serializeNavigation(Future<void> Function() action) async {
-    final previous = _navigationTail;
-    final completed = Completer<void>();
-    _navigationTail = completed.future;
-    await previous;
-    try {
-      await action();
-    } finally {
-      if (!completed.isCompleted) completed.complete();
-    }
-  }
-
-  Future<void> _waitForQueuePopulation() async {
-    final population = _queuePopulationFuture;
-    if (population == null) return;
-    try {
-      await population.timeout(const Duration(seconds: 8));
-    } catch (_) {
-      // A slow or blocked adjacent stream must not make the current track
-      // unusable. The player keeps the queue entries resolved so far.
-    }
-  }
 
   void _onProcessingStateChanged(ProcessingState state) {
     if (state != ProcessingState.completed || _autoAdvanceInFlight) return;
@@ -662,7 +810,6 @@ class HybridAudioHandler extends BaseAudioHandler
         await play();
         return;
       }
-      await _waitForQueuePopulation();
       if (!stillCurrent()) return;
       if (_player.hasNext) {
         // True between-track crossfade is intentionally deferred to Phase 5.
@@ -715,7 +862,13 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   void _onCurrentIndexChanged(int? index) {
-    if (index == null || index < 0 || index >= _queueTracks.length) return;
+    if (_isDisposed ||
+        _queueMutationDepth > 0 ||
+        index == null ||
+        index < 0 ||
+        index >= _queueTracks.length) {
+      return;
+    }
     final shouldFinishTimer = shouldFinishSleepTimerOnTrackChange(
       mode: _sleepTimerMode,
       targetIndex: _sleepTrackIndex,
@@ -748,15 +901,35 @@ class HybridAudioHandler extends BaseAudioHandler
     if (_isDisposed || _queueTracks.isEmpty) return;
     final index =
         (_player.currentIndex ?? 0).clamp(0, _queueTracks.length - 1).toInt();
-    _lastResumeSave = _lastResumeSave.then(
-      (_) => _playbackStore.save(
-        queue: _queueTracks,
-        currentIndex: index,
-        position: _player.position,
-        playing: _player.playing,
-        repeatMode: _repeatMode.index,
-        speed: _playbackSpeed,
-      ),
+    unawaited(
+      _playbackStore
+          .saveProgress(
+            currentIndex: index,
+            position: _player.position,
+            playing: _player.playing,
+            repeatMode: _repeatMode.index,
+            speed: _playbackSpeed,
+          )
+          .catchError((Object error, StackTrace stackTrace) {}),
+    );
+  }
+
+  void _persistQueueAndProgress() {
+    if (_isDisposed || _queueTracks.isEmpty) return;
+    final queueSnapshot = List<MediaTrack>.unmodifiable(_queueTracks);
+    final index =
+        (_player.currentIndex ?? 0).clamp(0, queueSnapshot.length - 1).toInt();
+    unawaited(
+      _playbackStore
+          .save(
+            queue: queueSnapshot,
+            currentIndex: index,
+            position: _player.position,
+            playing: _player.playing,
+            repeatMode: _repeatMode.index,
+            speed: _playbackSpeed,
+          )
+          .catchError((Object error, StackTrace stackTrace) {}),
     );
   }
 
@@ -815,6 +988,17 @@ class HybridAudioHandler extends BaseAudioHandler
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
+    await _queueOperations.idle;
+    await _playbackStore.idle;
+    await _equalizerSettingsReady;
+    _equalizerRetryTimer?.cancel();
+    _equalizerSaveTimer?.cancel();
+    for (final timer in _equalizerBandTimers.values) {
+      timer.cancel();
+    }
+    await _persistEqualizerSettingsNow();
+    await _equalizerEnabledController.close();
+    await _surroundEnabledController.close();
     await _sleepRemainingController.close();
     await _player.dispose();
   }

@@ -385,12 +385,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     HybridMusicController controller,
     bool value,
   ) async {
-    await controller.audioHandler.setEqualizerEnabled(value);
+    final applied = await controller.audioHandler.setEqualizerEnabled(value);
     await _setPreference(
       _equalizerKey,
       value,
       (next) => _equalizerEnabled = next,
     );
+    if (!applied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unavailable on this device; playback remains stable'),
+        ),
+      );
+    }
   }
 
   Future<void> _setSurround(
@@ -403,6 +410,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       value,
       (next) => _surroundEnabled = next,
     );
+    if (controller.audioHandler.equalizerError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unavailable on this device; playback remains stable'),
+        ),
+      );
+    }
   }
 }
 
