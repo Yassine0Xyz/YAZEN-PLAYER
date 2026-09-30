@@ -1,7 +1,8 @@
 import 'package:audio_service/audio_service.dart';
+
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import '../models/media_track.dart';
@@ -11,8 +12,9 @@ import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
 import '../services/library_search_service.dart';
+import '../services/folder_identity.dart';
 
-class HybridMusicController extends ChangeNotifier {
+class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   HybridMusicController({
     required MediaLibraryService library,
     required HybridAudioHandler audioHandler,
@@ -23,6 +25,8 @@ class HybridMusicController extends ChangeNotifier {
        _playlistManager = playlistManager,
        _lyricsService = lyricsService ?? LyricsService() {
     _playlistManager.addListener(_onPlaylistChanged);
+    _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
+    WidgetsBinding.instance.addObserver(this);
   }
 
   final MediaLibraryService _library;
@@ -32,8 +36,10 @@ class HybridMusicController extends ChangeNotifier {
   static const LibrarySearchService _searchService = LibrarySearchService();
 
   LibraryTab _selectedTab = LibraryTab.songs;
+  List<MediaTrack> _baseLocalSongs = const <MediaTrack>[];
   List<MediaTrack> _localSongs = const <MediaTrack>[];
   List<MediaTrack> _allLocalSongs = const <MediaTrack>[];
+  List<MediaTrack>? _hiddenTracksCache;
   List<MediaTrack> _localVideos = const <MediaTrack>[];
   List<ArtistModel> _artists = const <ArtistModel>[];
   List<AlbumModel> _albums = const <AlbumModel>[];
@@ -45,21 +51,25 @@ class HybridMusicController extends ChangeNotifier {
   String _searchQuery = '';
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
+  bool _permissionRequired = false;
+  int _lastLibraryOverlayRevision = 0;
   List<MediaTrack>? _visibleTracksCache;
   Iterable<MediaTrack>? _visibleTracksSource;
   LibrarySort? _visibleTracksCacheSort;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
-  List<MediaTrack> get hiddenTracks => _playlistManager.applyMetadata(
-    _allLocalSongs.where((track) => _playlistManager.isHidden(track.id)),
-  );
+  List<MediaTrack> get hiddenTracks =>
+      _hiddenTracksCache ??= List<MediaTrack>.unmodifiable(
+        _allLocalSongs.where((track) => _playlistManager.isHidden(track.id)),
+      );
   List<MediaTrack> get localVideos => _localVideos;
   List<ArtistModel> get artists => _artists;
   List<AlbumModel> get albums => _albums;
   List<PlaylistModel> get playlists => _playlists;
   List<String> get folders => _folders;
   bool get isLoading => _isLoading;
+  bool get permissionRequired => _permissionRequired;
   AudioServiceRepeatMode get repeatMode => _audioHandler.repeatMode;
   bool get repeatOne => repeatMode == AudioServiceRepeatMode.one;
   LibrarySort get librarySort => _librarySort;
@@ -142,16 +152,18 @@ class HybridMusicController extends ChangeNotifier {
     }
   }
 
-  Future<void> loadLibrary() async {
+  Future<void> loadLibrary({bool requestPermission = true}) async {
     _setLoading(true);
     _errorMessage = null;
 
     try {
-      if (!await _library.ensurePermission()) {
-        _errorMessage =
-            'Media permission is required to show local music. Enable it in Android Settings and try again.';
+      if (!await _library.ensurePermission(
+        requestIfDenied: requestPermission,
+      )) {
+        _markPermissionRequired();
         return;
       }
+      _permissionRequired = false;
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
         _library.querySongs(),
         _library.queryVideos(requestPermission: false),
@@ -159,17 +171,14 @@ class HybridMusicController extends ChangeNotifier {
         _library.queryAlbums(),
         _library.queryPlaylists(),
       ]);
-      _allLocalSongs = _playlistManager.applyMetadata(
+      _baseLocalSongs = List<MediaTrack>.unmodifiable(
         results[0] as List<MediaTrack>,
       );
-      _localSongs = _allLocalSongs
-          .where((track) => !_playlistManager.isHidden(track.id))
-          .toList(growable: false);
       _localVideos = results[1] as List<MediaTrack>;
       _artists = results[2] as List<ArtistModel>;
       _albums = results[3] as List<AlbumModel>;
       _playlists = results[4] as List<PlaylistModel>;
-      _folders = _foldersFromTracks(_localSongs);
+      _rebuildLibraryDerivedLists();
     } catch (error) {
       _errorMessage = 'Unable to read the device music library: $error';
     } finally {
@@ -178,17 +187,75 @@ class HybridMusicController extends ChangeNotifier {
     }
   }
 
-  List<String> _foldersFromTracks(Iterable<MediaTrack> tracks) {
-    final folders =
-        tracks
-            .map((track) => track.folder)
-            .whereType<String>()
-            .where((folder) => folder.isNotEmpty)
-            .map((folder) => folder.split(RegExp(r'[/\\]')).last)
-            .toSet()
-            .toList();
-    folders.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return folders;
+  Future<void> refreshLibrary() async {
+    if (_isLoading) return;
+    if (!await _library.recheckPermission()) {
+      _markPermissionRequired();
+      notifyListeners();
+      return;
+    }
+    await loadLibrary(requestPermission: false);
+  }
+
+  Future<void> requestMediaPermission() async {
+    if (await _library.requestPermission()) {
+      await loadLibrary(requestPermission: false);
+      return;
+    }
+    _markPermissionRequired();
+    notifyListeners();
+  }
+
+  Future<bool> openMediaPermissionSettings() => _library.openAppSettings();
+
+  Future<void> handleAppResumed() async {
+    if (_isLoading) return;
+    final wasPermissionRequired = _permissionRequired;
+    final granted = await _library.recheckPermission();
+    if (!granted) {
+      _markPermissionRequired();
+      notifyListeners();
+      return;
+    }
+    if (wasPermissionRequired) await loadLibrary(requestPermission: false);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(handleAppResumed());
+  }
+
+  void _markPermissionRequired() {
+    _permissionRequired = true;
+    _errorMessage = null;
+    _baseLocalSongs = const <MediaTrack>[];
+    _allLocalSongs = const <MediaTrack>[];
+    _localSongs = const <MediaTrack>[];
+    _hiddenTracksCache = const <MediaTrack>[];
+    _artists = const <ArtistModel>[];
+    _albums = const <AlbumModel>[];
+    _playlists = const <PlaylistModel>[];
+    _folders = const <String>[];
+    _invalidateTrackCaches();
+  }
+
+  void _rebuildLibraryDerivedLists() {
+    _allLocalSongs = List<MediaTrack>.unmodifiable(
+      _playlistManager.applyMetadata(_baseLocalSongs),
+    );
+    _localSongs = List<MediaTrack>.unmodifiable(
+      _allLocalSongs.where((track) => !_playlistManager.isHidden(track.id)),
+    );
+    _hiddenTracksCache = null;
+    _folders = folderIdentities(_localSongs);
+    _invalidateTrackCaches();
+    _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
+  }
+
+  void _invalidateTrackCaches() {
+    _visibleTracksCache = null;
+    _visibleTracksSource = null;
+    _visibleTracksCacheSort = null;
   }
 
   Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);
@@ -294,10 +361,10 @@ class HybridMusicController extends ChangeNotifier {
   }
 
   void _onPlaylistChanged() {
-    _localSongs = _allLocalSongs
-        .where((track) => !_playlistManager.isHidden(track.id))
-        .toList(growable: false);
-    _visibleTracksCache = null;
+    if (_lastLibraryOverlayRevision !=
+        _playlistManager.libraryOverlayRevision) {
+      _rebuildLibraryDerivedLists();
+    }
     notifyListeners();
   }
 
@@ -308,6 +375,7 @@ class HybridMusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _playlistManager.removeListener(_onPlaylistChanged);
     _audioHandler.dispose();
     _lyricsService.dispose();

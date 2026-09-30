@@ -1,52 +1,98 @@
 import 'dart:async';
 
-import 'dart:io';
-
 import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
-import 'package:path/path.dart' as p;
 
 import '../models/media_track.dart';
+import 'folder_identity.dart';
 
 class MediaLibraryService {
-  MediaLibraryService({OnAudioQuery? audioQuery})
-    : _audioQuery = audioQuery ?? OnAudioQuery();
+  MediaLibraryService({
+    OnAudioQuery? audioQuery,
+    Future<bool> Function()? permissionStatus,
+    Future<bool> Function()? permissionRequest,
+  }) : _audioQuery = audioQuery ?? OnAudioQuery(),
+       _permissionStatusReader = permissionStatus,
+       _permissionRequester = permissionRequest;
 
   static const MethodChannel _localMediaChannel = MethodChannel(
     'yazen/local_media',
   );
 
   final OnAudioQuery _audioQuery;
+  final Future<bool> Function()? _permissionStatusReader;
+  final Future<bool> Function()? _permissionRequester;
   bool? _permissionGranted;
   Future<bool>? _permissionRequest;
-  final Map<String, FileStat> _fileStats = <String, FileStat>{};
 
   bool? get permissionGranted => _permissionGranted;
 
-  Future<bool> ensurePermission() {
-    final cached = _permissionGranted;
-    if (cached != null) return Future<bool>.value(cached);
-    final activeRequest = _permissionRequest;
-    if (activeRequest != null) return activeRequest;
-    final request = _requestPermission();
-    _permissionRequest = request;
-    return request.whenComplete(() {
-      if (identical(_permissionRequest, request)) {
-        _permissionRequest = null;
-      }
+  Future<bool> ensurePermission({bool requestIfDenied = true}) {
+    if (_permissionGranted == true) return Future<bool>.value(true);
+    return _runPermissionOperation(() async {
+      final granted = await _readPermissionStatus();
+      if (granted || !requestIfDenied) return granted;
+      return _requestPermissionDirect();
     });
   }
 
-  Future<bool> _requestPermission() async {
+  /// Re-checks the current grant without opening a permission prompt.
+  /// Denials are not cached, so grants made in system Settings are observable.
+  Future<bool> recheckPermission() =>
+      _runPermissionOperation(_readPermissionStatus);
+
+  /// Requests permission only when the caller explicitly asks the user.
+  Future<bool> requestPermission() {
+    if (_permissionGranted == true) return Future<bool>.value(true);
+    return _runPermissionOperation(() async {
+      if (await _readPermissionStatus()) return true;
+      return _requestPermissionDirect();
+    });
+  }
+
+  Future<bool> _runPermissionOperation(Future<bool> Function() operation) {
+    final activeRequest = _permissionRequest;
+    if (activeRequest != null) return activeRequest;
+    final request = Future<bool>.sync(operation);
+    _permissionRequest = request;
+    return request.whenComplete(() {
+      if (identical(_permissionRequest, request)) _permissionRequest = null;
+    });
+  }
+
+  Future<bool> _readPermissionStatus() async {
     try {
-      if (await _audioQuery.permissionsStatus()) {
-        _permissionGranted = true;
-        return true;
-      }
-      _permissionGranted = await _audioQuery.permissionsRequest();
-      return _permissionGranted ?? false;
+      final granted =
+          await (_permissionStatusReader?.call() ??
+              _audioQuery.permissionsStatus());
+      _permissionGranted = granted ? true : null;
+      return granted;
     } catch (_) {
-      _permissionGranted = false;
+      _permissionGranted = null;
+      return false;
+    }
+  }
+
+  Future<bool> _requestPermissionDirect() async {
+    try {
+      final granted =
+          await (_permissionRequester?.call() ??
+              _audioQuery.permissionsRequest());
+      _permissionGranted = granted ? true : null;
+      return granted;
+    } catch (_) {
+      _permissionGranted = null;
+      return false;
+    }
+  }
+
+  Future<bool> openAppSettings() async {
+    try {
+      return await _localMediaChannel.invokeMethod<bool>('openAppSettings') ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
       return false;
     }
   }
@@ -77,38 +123,19 @@ class MediaLibraryService {
   }
 
   Future<List<MediaTrack>> querySongsInFolder(String folder) async {
+    final target = normalizeFolderIdentity(folder);
+    if (target.isEmpty) return const <MediaTrack>[];
     final songs = await querySongs();
     return songs
         .where((track) {
-          final path = track.folder ?? '';
-          return p.basename(p.normalize(path)) == folder || path == folder;
+          final path = track.folder;
+          return path != null && normalizeFolderIdentity(path) == target;
         })
         .toList(growable: false);
   }
 
-  Future<List<MediaTrack>> _toMediaTracks(Iterable<SongModel> songs) async {
-    final source = songs.toList(growable: false);
-    final tracks = <MediaTrack>[];
-    const batchSize = 64;
-    for (var start = 0; start < source.length; start += batchSize) {
-      final end = (start + batchSize).clamp(0, source.length);
-      final batch = await Future.wait(
-        source.sublist(start, end).map(_toMediaTrack),
-      );
-      tracks.addAll(batch);
-    }
-    return tracks;
-  }
-
-  Future<MediaTrack> _toMediaTrack(SongModel song) async {
-    final track = MediaTrack.fromSong(song);
-    try {
-      final stat = _fileStats[song.data] ??= await File(song.data).stat();
-      return track.copyWith(sizeBytes: stat.size, modifiedAt: stat.modified);
-    } on FileSystemException {
-      return track;
-    }
-  }
+  List<MediaTrack> _toMediaTracks(Iterable<SongModel> songs) =>
+      List<MediaTrack>.unmodifiable(songs.map(MediaTrack.fromSong));
 
   Future<List<ArtistModel>> queryArtists() async {
     if (!await ensurePermission()) return const <ArtistModel>[];
@@ -139,16 +166,7 @@ class MediaLibraryService {
 
   Future<List<String>> queryFolders() async {
     final songs = await querySongs();
-    final folders =
-        songs
-            .map((song) => song.folder)
-            .whereType<String>()
-            .where((folder) => folder.isNotEmpty)
-            .map(p.basename)
-            .toSet()
-            .toList();
-    folders.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return folders;
+    return folderIdentities(songs);
   }
 
   Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async {

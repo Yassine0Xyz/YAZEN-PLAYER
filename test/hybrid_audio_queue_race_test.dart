@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yazen/controllers/hybrid_music_controller.dart';
 import 'package:yazen/models/media_track.dart';
 import 'package:yazen/services/hybrid_audio_handler.dart';
+import 'package:yazen/services/local_playlist_manager.dart';
+import 'package:yazen/services/media_library_service.dart';
 import 'package:yazen/services/playback_state_store.dart';
 
 void main() {
@@ -82,6 +87,175 @@ void main() {
       await player.close();
     },
   );
+
+  test(
+    'restore skips missing files and remaps a missing current track',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('yazen-restore-');
+      final before = File('${directory.path}/before.mp3');
+      final after = File('${directory.path}/after.mp3');
+      await before.writeAsBytes(<int>[1]);
+      await after.writeAsBytes(<int>[2]);
+      final missing = File('${directory.path}/deleted.mp3');
+      final store = const PlaybackStateStore();
+      await store.save(
+        queue: <MediaTrack>[
+          _fileTrack('before', before),
+          _fileTrack('deleted', missing),
+          _fileTrack('after', after),
+        ],
+        currentIndex: 1,
+        position: const Duration(seconds: 35),
+        playing: false,
+      );
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(player: player, playbackStore: store);
+
+      await handler.restoreLastPlayback();
+      await store.idle;
+
+      expect(handler.queueTracks.map((track) => track.id), <String>[
+        'before',
+        'after',
+      ]);
+      expect(player.currentIndex, 1);
+      expect(player.position, Duration.zero);
+      final repaired = await store.load();
+      expect(repaired?.queue.map((track) => track.id), <String>[
+        'before',
+        'after',
+      ]);
+      expect(repaired?.currentIndex, 1);
+      expect(repaired?.position, Duration.zero);
+
+      await handler.dispose();
+      await player.close();
+      await directory.delete(recursive: true);
+    },
+  );
+
+  test('restore clears storage when every saved file is missing', () async {
+    final directory = await Directory.systemTemp.createTemp('yazen-restore-');
+    final missing = File('${directory.path}/deleted.mp3');
+    final store = const PlaybackStateStore();
+    await store.save(
+      queue: <MediaTrack>[_fileTrack('deleted', missing)],
+      currentIndex: 0,
+      position: Duration.zero,
+      playing: false,
+    );
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(player: player, playbackStore: store);
+
+    await handler.restoreLastPlayback();
+
+    expect(handler.queueTracks, isEmpty);
+    expect(player.sequence, isEmpty);
+    expect(await store.load(), isNull);
+
+    await handler.dispose();
+    await player.close();
+    await directory.delete(recursive: true);
+  });
+
+  test(
+    'play-history updates retain identities of cached library lists',
+    () async {
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final track = MediaTrack(
+        id: 'cache-track',
+        title: 'Cache track',
+        artist: 'Artist',
+        album: 'Album',
+        source: TrackSource.local,
+        folder: '/Music/Artist/Album',
+        uri: Uri.parse('file:///tmp/cache-track.mp3'),
+      );
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final controller = HybridMusicController(
+        library: _FakeMediaLibrary(songs: <MediaTrack>[track]),
+        audioHandler: handler,
+        playlistManager: manager,
+      );
+      await controller.loadLibrary(requestPermission: false);
+      final localSongs = controller.localSongs;
+      final visibleTracks = controller.visibleTracks;
+      final hiddenTracks = controller.hiddenTracks;
+      final folders = controller.folders;
+
+      await manager.recordPlayed(track);
+
+      expect(identical(controller.localSongs, localSongs), isTrue);
+      expect(identical(controller.visibleTracks, visibleTracks), isTrue);
+      expect(identical(controller.hiddenTracks, hiddenTracks), isTrue);
+      expect(identical(controller.folders, folders), isTrue);
+
+      await manager.updateTrackMetadata(
+        track.id,
+        title: 'Edited cache track',
+        artist: 'Artist',
+        album: 'Album',
+      );
+      expect(identical(controller.localSongs, localSongs), isFalse);
+      expect(controller.localSongs.single.title, 'Edited cache track');
+
+      await handler.dispose();
+      controller.dispose();
+      await player.close();
+    },
+  );
+
+  test(
+    'permission denial is recovered on resume, refresh, and request',
+    () async {
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final library = _FakeMediaLibrary(
+        songs: <MediaTrack>[_track(0)],
+        granted: false,
+      );
+      final controller = HybridMusicController(
+        library: library,
+        audioHandler: handler,
+        playlistManager: manager,
+      );
+      await controller.loadLibrary(requestPermission: false);
+      expect(controller.permissionRequired, isTrue);
+      expect(controller.localSongs, isEmpty);
+
+      library.granted = true;
+      await controller.handleAppResumed();
+      expect(controller.permissionRequired, isFalse);
+      expect(controller.localSongs, hasLength(1));
+
+      library.granted = false;
+      await controller.refreshLibrary();
+      expect(controller.permissionRequired, isTrue);
+      expect(controller.localSongs, isEmpty);
+
+      library.granted = true;
+      expect(await controller.openMediaPermissionSettings(), isTrue);
+      expect(library.settingsOpens, 1);
+      await controller.requestMediaPermission();
+      expect(library.permissionRequests, 1);
+      expect(controller.permissionRequired, isFalse);
+      expect(controller.localSongs, hasLength(1));
+
+      await handler.dispose();
+      controller.dispose();
+      await player.close();
+    },
+  );
 }
 
 MediaTrack _track(int index) => MediaTrack(
@@ -91,6 +265,15 @@ MediaTrack _track(int index) => MediaTrack(
   album: 'Test album',
   source: TrackSource.local,
   uri: Uri.parse('file:///tmp/queue-$index.mp3'),
+);
+
+MediaTrack _fileTrack(String id, File file) => MediaTrack(
+  id: id,
+  title: id,
+  artist: 'Test artist',
+  album: 'Test album',
+  source: TrackSource.local,
+  uri: file.absolute.uri,
 );
 
 class _FakeAudioPlayer implements AudioPlayer {
@@ -303,4 +486,47 @@ class _FakeAudioPlayer implements AudioPlayer {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeMediaLibrary extends MediaLibraryService {
+  _FakeMediaLibrary({required this.songs, this.granted = true});
+
+  final List<MediaTrack> songs;
+  bool granted;
+  int settingsOpens = 0;
+  int permissionRequests = 0;
+
+  @override
+  Future<bool> ensurePermission({bool requestIfDenied = true}) async => granted;
+
+  @override
+  Future<bool> recheckPermission() async => granted;
+
+  @override
+  Future<bool> requestPermission() async {
+    permissionRequests++;
+    return granted;
+  }
+
+  @override
+  Future<bool> openAppSettings() async {
+    settingsOpens++;
+    return true;
+  }
+
+  @override
+  Future<List<MediaTrack>> querySongs() async => songs;
+
+  @override
+  Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async =>
+      const <MediaTrack>[];
+
+  @override
+  Future<List<ArtistModel>> queryArtists() async => const <ArtistModel>[];
+
+  @override
+  Future<List<AlbumModel>> queryAlbums() async => const <AlbumModel>[];
+
+  @override
+  Future<List<PlaylistModel>> queryPlaylists() async => const <PlaylistModel>[];
 }

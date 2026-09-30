@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart' show MediaItem;
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:path/path.dart' as p;
 
 /// A source-agnostic audio/video item used by the UI and playback layer.
 class MediaTrack {
@@ -75,6 +76,8 @@ class MediaTrack {
 
   factory MediaTrack.fromSong(SongModel song) {
     final path = song.data;
+    final folder = p.posix.dirname(path.replaceAll(r'\', '/'));
+    final modifiedSeconds = song.dateModified;
     return MediaTrack(
       id: song.id.toString(),
       title: song.title.trim().isEmpty ? 'Unknown title' : song.title,
@@ -88,8 +91,12 @@ class MediaTrack {
       ),
       duration:
           song.duration == null ? null : Duration(milliseconds: song.duration!),
-      folder:
-          path.contains('/') ? path.substring(0, path.lastIndexOf('/')) : null,
+      folder: folder == '.' ? null : folder,
+      sizeBytes: song.size,
+      modifiedAt:
+          modifiedSeconds == null || modifiedSeconds <= 0
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(modifiedSeconds * 1000),
     );
   }
 

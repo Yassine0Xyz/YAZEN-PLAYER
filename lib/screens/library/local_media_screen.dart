@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/local_playlist_manager.dart';
+import '../../services/folder_identity.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/shimmer_skeleton.dart';
 import '../../widgets/playlist_picker_sheet.dart';
@@ -93,6 +94,19 @@ class LocalMediaScreen extends StatelessWidget {
     _LocalMediaSnapshot snapshot,
   ) {
     if (snapshot.isLoading) return const LibraryLoadingState();
+    if (snapshot.permissionRequired && selectedTab != LibraryTab.videos) {
+      return _MediaPermissionView(
+        onGrant: controller.requestMediaPermission,
+        onOpenSettings: () async {
+          final opened = await controller.openMediaPermissionSettings();
+          if (!opened && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unable to open Android Settings.')),
+            );
+          }
+        },
+      );
+    }
 
     return switch (selectedTab) {
       LibraryTab.songs => _SongsView(tracks: snapshot.visibleTracks),
@@ -116,6 +130,7 @@ class LocalMediaScreen extends StatelessWidget {
 class _LocalMediaSnapshot {
   const _LocalMediaSnapshot({
     required this.isLoading,
+    required this.permissionRequired,
     required this.visibleTracks,
     required this.localSongs,
     required this.hiddenTracks,
@@ -130,6 +145,7 @@ class _LocalMediaSnapshot {
   factory _LocalMediaSnapshot.from(HybridMusicController controller) {
     return _LocalMediaSnapshot(
       isLoading: controller.isLoading,
+      permissionRequired: controller.permissionRequired,
       visibleTracks: controller.visibleTracks,
       localSongs: controller.localSongs,
       hiddenTracks: controller.hiddenTracks,
@@ -143,6 +159,7 @@ class _LocalMediaSnapshot {
   }
 
   final bool isLoading;
+  final bool permissionRequired;
   final List<MediaTrack> visibleTracks;
   final List<MediaTrack> localSongs;
   final List<MediaTrack> hiddenTracks;
@@ -157,6 +174,7 @@ class _LocalMediaSnapshot {
   bool operator ==(Object other) =>
       other is _LocalMediaSnapshot &&
       other.isLoading == isLoading &&
+      other.permissionRequired == permissionRequired &&
       identical(other.visibleTracks, visibleTracks) &&
       identical(other.localSongs, localSongs) &&
       identical(other.hiddenTracks, hiddenTracks) &&
@@ -170,6 +188,7 @@ class _LocalMediaSnapshot {
   @override
   int get hashCode => Object.hash(
     isLoading,
+    permissionRequired,
     identityHashCode(visibleTracks),
     identityHashCode(localSongs),
     identityHashCode(hiddenTracks),
@@ -657,15 +676,20 @@ class _FoldersView extends StatelessWidget {
         final folder = folders[index];
         final count =
             tracks
-                .where((track) => track.folder?.endsWith(folder) ?? false)
+                .where(
+                  (track) =>
+                      track.folder != null &&
+                      normalizeFolderIdentity(track.folder!) == folder,
+                )
                 .length;
         return _FolderRow(
+          key: ValueKey<String>(folder),
           folder: folder,
           count: count,
           onTap:
               () => Navigator.of(context).push(
                 LocalEntityTracksScreen.route(
-                  title: folder,
+                  title: folderDisplayName(folder),
                   subtitle: 'Audio files in this folder will appear here.',
                   loadTracks:
                       () => context
@@ -681,6 +705,7 @@ class _FoldersView extends StatelessWidget {
 
 class _FolderRow extends StatelessWidget {
   const _FolderRow({
+    super.key,
     required this.folder,
     required this.count,
     required this.onTap,
@@ -720,7 +745,7 @@ class _FolderRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    folder,
+                    folderDisplayName(folder),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1190,4 +1215,53 @@ BoxDecoration _cardDecoration(BuildContext context) {
     borderRadius: BorderRadius.circular(18),
     border: Border.all(color: tokens.divider.withValues(alpha: 0.55)),
   );
+}
+
+class _MediaPermissionView extends StatelessWidget {
+  const _MediaPermissionView({
+    required this.onGrant,
+    required this.onOpenSettings,
+  });
+
+  final VoidCallback onGrant;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.library_music_rounded, size: 52, color: tokens.accent),
+            const SizedBox(height: 16),
+            const Text(
+              'Music permission required',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Allow YAZEN to access audio on this device to show your local library.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onGrant,
+              icon: const Icon(Icons.check_circle_outline_rounded),
+              label: const Text('Grant permission'),
+            ),
+            TextButton.icon(
+              onPressed: onOpenSettings,
+              icon: const Icon(Icons.settings_outlined),
+              label: const Text('Open app settings'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
