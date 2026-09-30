@@ -23,10 +23,94 @@ class PlaybackSnapshot {
   final double speed;
 }
 
-class PlaybackStateStore {
-  static const _key = 'echo.playback_snapshot.v1';
+/// The small storage surface used by [PlaybackStateStore].
+abstract interface class PlaybackStatePreferences {
+  String? getString(String key);
 
-  const PlaybackStateStore();
+  Future<bool> setString(String key, String value);
+
+  Future<bool> remove(String key);
+}
+
+class _SharedPreferencesAdapter implements PlaybackStatePreferences {
+  _SharedPreferencesAdapter(this._preferences);
+
+  final SharedPreferences _preferences;
+
+  @override
+  String? getString(String key) => _preferences.getString(key);
+
+  @override
+  Future<bool> setString(String key, String value) =>
+      _preferences.setString(key, value);
+
+  @override
+  Future<bool> remove(String key) => _preferences.remove(key);
+}
+
+class PlaybackStateStore {
+  static const queueKey = 'echo.playback_queue.v2';
+  static const progressKey = 'echo.playback_progress.v2';
+  static const legacyKey = 'echo.playback_snapshot.v1';
+
+  static Future<void> _operations = Future<void>.value();
+
+  const PlaybackStateStore({
+    Future<PlaybackStatePreferences> Function()? preferencesLoader,
+  }) : _preferencesLoader = preferencesLoader;
+
+  final Future<PlaybackStatePreferences> Function()? _preferencesLoader;
+
+  Future<PlaybackStatePreferences> _getPreferences() async {
+    final loader = _preferencesLoader;
+    if (loader != null) return loader();
+    return _SharedPreferencesAdapter(await SharedPreferences.getInstance());
+  }
+
+  Future<T> _enqueue<T>(
+    Future<T> Function(PlaybackStatePreferences preferences) operation,
+  ) {
+    final result = _operations.then<T>((_) async {
+      final preferences = await _getPreferences();
+      return operation(preferences);
+    });
+    // Keep later operations usable after this operation fails, while returning
+    // the original future so this operation's error reaches its caller.
+    _operations = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
+  /// Completes when all operations queued before this call have settled.
+  Future<void> get idle => _operations;
+
+  Future<void> saveQueue(List<MediaTrack> queue) {
+    return _enqueue<void>((preferences) async {
+      final payload = queue.map(mediaTrackToJson).toList(growable: false);
+      await preferences.setString(queueKey, jsonEncode(payload));
+    });
+  }
+
+  Future<void> saveProgress({
+    required int currentIndex,
+    required Duration position,
+    required bool playing,
+    int repeatMode = 0,
+    double speed = 1.0,
+  }) {
+    return _enqueue<void>((preferences) async {
+      final payload = <String, dynamic>{
+        'currentIndex': currentIndex,
+        'positionMs': position.inMilliseconds,
+        'playing': playing,
+        'repeatMode': repeatMode,
+        'speed': speed,
+      };
+      await preferences.setString(progressKey, jsonEncode(payload));
+    });
+  }
 
   Future<void> save({
     required List<MediaTrack> queue,
@@ -36,55 +120,143 @@ class PlaybackStateStore {
     int repeatMode = 0,
     double speed = 1.0,
   }) async {
-    final preferences = await SharedPreferences.getInstance();
-    final payload = <String, dynamic>{
-      'queue': queue.map(mediaTrackToJson).toList(growable: false),
-      'currentIndex': currentIndex,
-      'positionMs': position.inMilliseconds,
-      'playing': playing,
-      'repeatMode': repeatMode,
-      'speed': speed,
-    };
-    await preferences.setString(_key, jsonEncode(payload));
+    await _enqueue<void>((preferences) async {
+      final queuePayload = queue.map(mediaTrackToJson).toList(growable: false);
+      final progressPayload = <String, dynamic>{
+        'currentIndex': currentIndex,
+        'positionMs': position.inMilliseconds,
+        'playing': playing,
+        'repeatMode': repeatMode,
+        'speed': speed,
+      };
+      await preferences.setString(queueKey, jsonEncode(queuePayload));
+      await preferences.setString(progressKey, jsonEncode(progressPayload));
+    });
   }
 
   Future<PlaybackSnapshot?> load() async {
-    final preferences = await SharedPreferences.getInstance();
-    final raw = preferences.getString(_key);
+    return _enqueue<PlaybackSnapshot?>((preferences) async {
+      var queueRaw = preferences.getString(queueKey);
+      var progressRaw = preferences.getString(progressKey);
+
+      // Retain the old value until both v2 writes succeed, so a failed
+      // migration can be retried without data loss.
+      if (queueRaw == null || progressRaw == null) {
+        final legacy = _decodeLegacy(preferences.getString(legacyKey));
+        if (legacy != null) {
+          if (queueRaw == null) {
+            await preferences.setString(
+              queueKey,
+              jsonEncode(
+                legacy.queue.map(mediaTrackToJson).toList(growable: false),
+              ),
+            );
+          }
+          if (progressRaw == null) {
+            await preferences.setString(
+              progressKey,
+              jsonEncode(<String, dynamic>{
+                'currentIndex': legacy.currentIndex,
+                'positionMs': legacy.position.inMilliseconds,
+                'playing': legacy.playing,
+                'repeatMode': legacy.repeatMode,
+                'speed': legacy.speed,
+              }),
+            );
+          }
+          await preferences.remove(legacyKey);
+          queueRaw ??= preferences.getString(queueKey);
+          progressRaw ??= preferences.getString(progressKey);
+        }
+      }
+
+      final queue = _decodeQueue(queueRaw);
+      if (queue == null || queue.isEmpty) return null;
+      return _snapshot(queue, _decodeProgress(progressRaw));
+    });
+  }
+
+  Future<void> clear() async {
+    await _enqueue<void>((preferences) async {
+      await preferences.remove(queueKey);
+      await preferences.remove(progressKey);
+      await preferences.remove(legacyKey);
+    });
+  }
+
+  static List<MediaTrack>? _decodeQueue(String? raw) {
     if (raw == null || raw.isEmpty) return null;
     try {
-      final payload = jsonDecode(raw);
-      if (payload is! Map) return null;
-      final rawQueue = payload['queue'];
-      if (rawQueue is! List) return null;
-      final queue = rawQueue
-          .whereType<Map>()
-          .map((item) => mediaTrackFromJson(Map<String, dynamic>.from(item)))
-          .where((track) => track.id.isNotEmpty)
-          .toList(growable: false);
-      if (queue.isEmpty) return null;
-      final rawIndex = (payload['currentIndex'] as num?)?.toInt() ?? 0;
-      final index = rawIndex.clamp(0, queue.length - 1).toInt();
-      final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
-      return PlaybackSnapshot(
-        queue: List<MediaTrack>.unmodifiable(queue),
-        currentIndex: index,
-        position: Duration(
-          milliseconds: positionMs.clamp(0, 24 * 60 * 60 * 1000).toInt(),
-        ),
-        playing: payload['playing'] == true,
-        repeatMode: ((payload['repeatMode'] as num?)?.toInt() ?? 0).clamp(0, 2),
-        speed: ((payload['speed'] as num?)?.toDouble() ?? 1.0).clamp(0.25, 3.0),
-      );
-    } on FormatException {
-      return null;
-    } on TypeError {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return null;
+      final queue = <MediaTrack>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        try {
+          final track = mediaTrackFromJson(Map<String, dynamic>.from(item));
+          if (track.id.isNotEmpty) queue.add(track);
+        } on Object {
+          // Ignore malformed tracks while retaining valid queue entries.
+        }
+      }
+      return List<MediaTrack>.unmodifiable(queue);
+    } on Object {
       return null;
     }
   }
 
-  Future<void> clear() async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.remove(_key);
+  static PlaybackSnapshot? _decodeLegacy(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final queue = _decodeQueue(jsonEncode(decoded['queue']));
+      if (queue == null || queue.isEmpty) return null;
+      return _snapshot(queue, _decodeProgress(jsonEncode(decoded)));
+    } on Object {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic> _decodeProgress(String? raw) {
+    if (raw == null || raw.isEmpty) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } on Object {
+      // Treat malformed progress as defaults while retaining a valid queue.
+    }
+    return <String, dynamic>{};
+  }
+
+  static PlaybackSnapshot _snapshot(
+    List<MediaTrack> queue,
+    Map<String, dynamic> progress,
+  ) {
+    final rawIndex = _asInt(progress['currentIndex'], 0);
+    final positionMs = _asInt(progress['positionMs'], 0);
+    final repeatMode = _asInt(progress['repeatMode'], 0);
+    final speed = _asDouble(progress['speed'], 1.0);
+    return PlaybackSnapshot(
+      queue: List<MediaTrack>.unmodifiable(queue),
+      currentIndex: rawIndex.clamp(0, queue.length - 1).toInt(),
+      position: Duration(
+        milliseconds: positionMs.clamp(0, 24 * 60 * 60 * 1000).toInt(),
+      ),
+      playing: progress['playing'] == true,
+      repeatMode: repeatMode.clamp(0, 3).toInt(),
+      speed: speed.clamp(0.25, 3.0).toDouble(),
+    );
+  }
+
+  static int _asInt(dynamic value, int fallback) {
+    if (value is num && value.isFinite) return value.toInt();
+    return fallback;
+  }
+
+  static double _asDouble(dynamic value, double fallback) {
+    if (value is num && value.isFinite) return value.toDouble();
+    return fallback;
   }
 }

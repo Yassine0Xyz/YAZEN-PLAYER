@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +32,25 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
   String _selectedPreset = 'Flat';
   bool _enabled = false;
   bool _surroundEnabled = false;
+  bool _settingsLoaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_settingsLoaded) return;
+    _settingsLoaded = true;
+    final handler = context.read<HybridMusicController>().audioHandler;
+    unawaited(
+      handler.equalizerSettingsReady.then((_) {
+        if (!mounted) return;
+        setState(() {
+          _enabled = handler.equalizerEnabled;
+          _surroundEnabled = handler.threeDSurroundEnabled;
+          _selectedPreset = handler.equalizerPreset;
+        });
+      }),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,8 +84,8 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                       return const Center(child: CircularProgressIndicator());
                     }
                     return StreamBuilder<bool>(
-                      stream: handler.equalizer.enabledStream,
-                      initialData: handler.equalizer.enabled,
+                      stream: handler.equalizerEnabledStream,
+                      initialData: handler.equalizerEnabled,
                       builder:
                           (context, enabledSnapshot) => ListView(
                             physics: const BouncingScrollPhysics(),
@@ -74,7 +95,11 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                                 enabled: enabledSnapshot.data ?? _enabled,
                                 onToggle: (value) async {
                                   setState(() => _enabled = value);
-                                  await handler.setEqualizerEnabled(value);
+                                  final applied = await handler
+                                      .setEqualizerEnabled(value);
+                                  if (!applied && mounted) {
+                                    _showEffectsSoftError();
+                                  }
                                 },
                               ),
                               const SizedBox(height: 18),
@@ -84,6 +109,7 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                                 onChanged: (value) async {
                                   if (value == null) return;
                                   setState(() => _selectedPreset = value);
+                                  await handler.setEqualizerPreset(value);
                                   await _applyPreset(
                                     handler,
                                     parameters,
@@ -100,12 +126,30 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                                         .setEqualizerBandGain(index, gain),
                               ),
                               const SizedBox(height: 18),
-                              _SurroundCard(
-                                enabled: _surroundEnabled,
-                                onToggle: (value) async {
-                                  setState(() => _surroundEnabled = value);
-                                  await handler.setThreeDSurroundEnabled(value);
-                                },
+                              StreamBuilder<bool>(
+                                stream: handler.threeDSurroundEnabledStream,
+                                initialData: handler.threeDSurroundEnabled,
+                                builder:
+                                    (
+                                      context,
+                                      surroundSnapshot,
+                                    ) => _SurroundCard(
+                                      enabled:
+                                          surroundSnapshot.data ??
+                                          _surroundEnabled,
+                                      onToggle: (value) async {
+                                        setState(
+                                          () => _surroundEnabled = value,
+                                        );
+                                        await handler.setThreeDSurroundEnabled(
+                                          value,
+                                        );
+                                        if (handler.equalizerError != null &&
+                                            mounted) {
+                                          _showEffectsSoftError();
+                                        }
+                                      },
+                                    ),
                               ),
                             ],
                           ),
@@ -128,6 +172,14 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
       );
       await handler.setEqualizerBandGain(index, gain.toDouble());
     }
+  }
+
+  void _showEffectsSoftError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Playback will continue without audio effects.'),
+      ),
+    );
   }
 }
 

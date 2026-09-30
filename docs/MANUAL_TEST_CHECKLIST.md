@@ -24,6 +24,8 @@ This checklist records device-dependent regressions that cannot be covered relia
 - [ ] Large library (target: 5,000 songs) loads and scrolls without blocking the UI.
 - [ ] A deleted file in a saved queue is skipped safely.
 - [ ] Media permission denied, then granted in system Settings.
+- [ ] Rapidly select tracks and add, remove, reorder, skip, and clear queue items; verify the displayed queue and playing track stay aligned.
+- [ ] Set Equalizer enabled state, preset, band gains, and surround; restart the app and start playback to verify they are restored after a new audio session is created.
 
 ## Accessibility, motion, and layout
 
