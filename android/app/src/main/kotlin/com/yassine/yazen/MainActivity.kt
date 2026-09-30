@@ -20,6 +20,7 @@ import android.provider.Settings
 import android.util.Log
 import android.util.Rational
 import android.util.Size
+import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -125,6 +126,15 @@ class MainActivity : AudioServiceActivity() {
                         val attributes = window.attributes
                         attributes.screenBrightness = value
                         window.attributes = attributes
+                        result.success(null)
+                    }
+                    "setKeepScreenOn" -> {
+                        val keepScreenOn = call.argument<Boolean>("enabled") == true
+                        if (keepScreenOn) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
                         result.success(null)
                     }
                     "enterPictureInPicture" -> {

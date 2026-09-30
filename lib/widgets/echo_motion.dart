@@ -1,8 +1,15 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../core/theme/theme_tokens.dart';
+
+class EchoRevealSession {
+  final Set<Object> _revealedKeys = <Object>{};
+
+  bool claim(Object? key) => key == null || _revealedKeys.add(key);
+}
 
 class EchoReveal extends StatefulWidget {
   const EchoReveal({
@@ -10,6 +17,8 @@ class EchoReveal extends StatefulWidget {
     this.delay = Duration.zero,
     this.duration = const Duration(milliseconds: 620),
     this.offset = const Offset(0, 0.08),
+    this.session,
+    this.revealKey,
     super.key,
   });
 
@@ -17,6 +26,8 @@ class EchoReveal extends StatefulWidget {
   final Duration delay;
   final Duration duration;
   final Offset offset;
+  final EchoRevealSession? session;
+  final Object? revealKey;
 
   @override
   State<EchoReveal> createState() => _EchoRevealState();
@@ -25,42 +36,91 @@ class EchoReveal extends StatefulWidget {
 class _EchoRevealState extends State<EchoReveal>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final CurvedAnimation _curved;
+  late Animation<Offset> _slide;
+  Timer? _delayTimer;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
-    if (widget.delay == Duration.zero) {
-      _controller.forward();
+    _curved = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _slide = _createSlide(widget.offset);
+    _startReveal();
+  }
+
+  Animation<Offset> _createSlide(Offset offset) =>
+      Tween<Offset>(begin: offset, end: Offset.zero).animate(_curved);
+
+  void _startReveal() {
+    final session = widget.session;
+    if (session != null && !session.claim(widget.revealKey)) {
+      _controller.value = 1;
+      return;
+    }
+    void reveal() {
+      if (!mounted) return;
+      if (_reduceMotion) {
+        _controller.value = 1;
+      } else {
+        _controller.forward();
+      }
+    }
+
+    if (widget.delay <= Duration.zero) {
+      reveal();
     } else {
-      Future<void>.delayed(widget.delay, () {
-        if (mounted) _controller.forward();
-      });
+      _delayTimer = Timer(widget.delay, reveal);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _reduceMotion = true;
+      _delayTimer?.cancel();
+      _controller.value = 1;
+    } else if (!reduceMotion && _reduceMotion) {
+      _reduceMotion = false;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant EchoReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duration != widget.duration) {
+      _controller.duration = widget.duration;
+    }
+    if (oldWidget.offset != widget.offset) {
+      _slide = _createSlide(widget.offset);
+    }
+    if (oldWidget.session != widget.session ||
+        oldWidget.revealKey != widget.revealKey) {
+      _delayTimer?.cancel();
+      _controller.reset();
+      _startReveal();
     }
   }
 
   @override
   void dispose() {
+    _delayTimer?.cancel();
+    _curved.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (MediaQuery.disableAnimationsOf(context)) return widget.child;
-    final curved = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    );
+    if (_reduceMotion || MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
     return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: widget.offset,
-          end: Offset.zero,
-        ).animate(curved),
-        child: widget.child,
-      ),
+      opacity: _curved,
+      child: SlideTransition(position: _slide, child: widget.child),
     );
   }
 }

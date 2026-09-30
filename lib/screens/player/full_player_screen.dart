@@ -790,8 +790,9 @@ class _SeekSection extends StatelessWidget {
     return StreamBuilder<Duration?>(
       stream: handler.player.durationStream,
       builder: (context, durationSnapshot) {
-        final duration = durationSnapshot.data ?? Duration.zero;
-        final totalMs = math.max(duration.inMilliseconds, 1).toDouble();
+        final duration = durationSnapshot.data;
+        final totalMs = math.max(duration?.inMilliseconds ?? 0, 1).toDouble();
+        final hasKnownDuration = duration != null && duration > Duration.zero;
         return StreamBuilder<Duration>(
           stream: handler.player.positionStream,
           builder: (context, positionSnapshot) {
@@ -819,8 +820,8 @@ class _SeekSection extends StatelessWidget {
                     min: 0,
                     max: totalMs,
                     value: value.clamp(0, totalMs).toDouble(),
-                    onChanged: duration == Duration.zero ? null : onDragStart,
-                    onChangeEnd: duration == Duration.zero ? null : onDragEnd,
+                    onChanged: hasKnownDuration ? onDragStart : null,
+                    onChangeEnd: hasKnownDuration ? onDragEnd : null,
                   ),
                 ),
                 Padding(
@@ -836,7 +837,7 @@ class _SeekSection extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        _formatDuration(duration),
+                        playbackDurationLabel(duration),
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 12,
@@ -854,11 +855,20 @@ class _SeekSection extends StatelessWidget {
   }
 
   String _formatDuration(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+    return formatPlaybackDuration(duration);
   }
+}
+
+String playbackDurationLabel(Duration? duration) {
+  if (duration == null || duration <= Duration.zero) return '--:--';
+  return formatPlaybackDuration(duration);
+}
+
+String formatPlaybackDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
 }
 
 class _TransportControls extends StatelessWidget {

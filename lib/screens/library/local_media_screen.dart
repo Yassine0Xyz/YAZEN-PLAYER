@@ -249,6 +249,7 @@ class _SongsView extends StatefulWidget {
 
 class _SongsViewState extends State<_SongsView> {
   final Set<String> _selectedIds = <String>{};
+  final EchoRevealSession _revealSession = EchoRevealSession();
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
   List<MediaTrack> get _selectedTracks => widget.tracks
@@ -338,7 +339,10 @@ class _SongsViewState extends State<_SongsView> {
               final track = widget.tracks[index];
               final selected = _selectedIds.contains(track.id);
               return EchoReveal(
+                key: ValueKey<String>('song-reveal-${track.id}'),
                 delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
+                session: _revealSession,
+                revealKey: track.id,
                 child: TrackListTile(
                   key: ValueKey<String>('song-${track.id}'),
                   track: track,
