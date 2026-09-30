@@ -17,10 +17,20 @@ String normalizeFolderIdentity(String path) {
 String folderDisplayName(String path) {
   final identity = normalizeFolderIdentity(path);
   if (identity.isEmpty) return path;
-  final name = p.posix.basename(identity);
-  final parent = p.posix.dirname(identity);
-  if (parent == '.' || parent == '/') return name;
-  return '$name · $parent';
+  const storageRoots = <String>[
+    '/storage/emulated/0/',
+    '/storage/self/primary/',
+    '/sdcard/',
+  ];
+  for (final root in storageRoots) {
+    if (identity.startsWith(root)) {
+      final relative = identity.substring(root.length);
+      return relative.split('/').where((part) => part.isNotEmpty).join(' · ');
+    }
+  }
+  final relative = identity.startsWith('/') ? identity.substring(1) : identity;
+  final parts = relative.split('/').where((part) => part.isNotEmpty);
+  return parts.isEmpty ? p.posix.basename(identity) : parts.join(' · ');
 }
 
 /// Returns stable, unique full-path folder identities from local tracks.

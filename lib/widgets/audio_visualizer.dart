@@ -60,6 +60,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   StreamSubscription<Duration>? _positionSubscription;
   late final Ticker _renderTicker;
   final ValueNotifier<int> _painterRepaint = ValueNotifier<int>(0);
+  final ValueNotifier<double?> _liveProgress = ValueNotifier<double?>(null);
+  late final Listenable _painterListenable = Listenable.merge(<Listenable>[
+    _painterRepaint,
+    _liveProgress,
+  ]);
   Future<void> _lifecycleTail = Future<void>.value();
   final _visualizerSettings = VisualizerSettings.instance;
 
@@ -82,6 +87,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _livePosition = widget.position ?? Duration.zero;
     _positionAnchorAt = widget.playing ? DateTime.now() : null;
     _renderTicker = createTicker(_onRenderTick);
+    if (widget.playing) _renderTicker.start();
     _visualizerSettings.addListener(_onVisualizerSettingsChanged);
     unawaited(_visualizerSettings.load());
     _bindPositionStream();
@@ -102,10 +108,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       if (!widget.playing) {
         _livePosition = _effectivePosition;
         _positionAnchorAt = null;
+        _renderTicker.stop();
       } else {
         _positionAnchorAt = DateTime.now();
+        if (!_renderTicker.isActive) _renderTicker.start();
       }
     }
+    _updateProgress();
     if (oldWidget.playing != widget.playing ||
         oldWidget.sourceUri != widget.sourceUri ||
         oldWidget.barCount != widget.barCount ||
@@ -133,8 +142,17 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       if (!mounted) return;
       _livePosition = position;
       _positionAnchorAt = widget.playing ? DateTime.now() : null;
-      setState(() {});
+      _updateProgress();
     });
+  }
+
+  void _updateProgress() {
+    final durationMs = widget.duration?.inMilliseconds ?? 0;
+    final progress =
+        durationMs > 0
+            ? (_effectivePosition.inMilliseconds / durationMs).clamp(0.0, 1.0)
+            : null;
+    if (_liveProgress.value != progress) _liveProgress.value = progress;
   }
 
   Duration get _effectivePosition {
@@ -199,6 +217,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         started
             ? Timer.periodic(_readInterval, (_) => unawaited(_readFrame()))
             : null;
+    if (widget.playing && !_renderTicker.isActive) _renderTicker.start();
     if (mounted) setState(() {});
   }
 
@@ -265,13 +284,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _hasRealSignal = true;
       _mode = _mode == 'idle' ? 'pcm' : _mode;
       _lastTick = null;
-      _renderTicker.start();
+      if (!_renderTicker.isActive) _renderTicker.start();
       if (mounted) setState(() {});
     }
   }
 
   void _onRenderTick(Duration elapsed) {
-    if (!mounted || !_hasRealSignal || !widget.playing) return;
+    if (!mounted || !widget.playing) return;
+    _updateProgress();
+    if (!_hasRealSignal) return;
     final previousTick = _lastTick;
     _lastTick = elapsed;
     final dt =
@@ -329,6 +350,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _readTimer = null;
     _renderTicker.stop();
     _lastTick = null;
+    if (widget.playing && !_renderTicker.isActive) _renderTicker.start();
     _resetBands();
     if (mounted) setState(() {});
   }
@@ -382,6 +404,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _readTimer?.cancel();
     _renderTicker.dispose();
     _painterRepaint.dispose();
+    _liveProgress.dispose();
     if (Platform.isLinux) {
       unawaited(LinuxPcmSpectrumService.instance.stop());
     }
@@ -393,10 +416,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   Widget build(BuildContext context) {
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
     final durationMs = widget.duration?.inMilliseconds ?? 0;
-    final progress =
-        durationMs > 0
-            ? (_effectivePosition.inMilliseconds / durationMs).clamp(0.0, 1.0)
-            : null;
     final label =
         _hasRealSignal
             ? 'Audio spectrum, live PCM signal'
@@ -411,7 +430,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
           child: CustomPaint(
             size: Size(double.infinity, widget.height),
             painter: SourceSpectrumPainter(
-              repaint: _painterRepaint,
+              repaint: _painterListenable,
+              progressListenable: _liveProgress,
               color: color,
               barCount: widget.barCount,
               height: widget.height,
@@ -419,7 +439,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               levels: _displayLevels,
               peaks: _displayPeaks,
               hasSignal: _hasRealSignal,
-              progress: progress,
+              progress: null,
             ),
           ),
         ),
@@ -439,6 +459,7 @@ class SourceSpectrumPainter extends CustomPainter {
     required this.peaks,
     required this.hasSignal,
     required this.progress,
+    this.progressListenable,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -450,6 +471,7 @@ class SourceSpectrumPainter extends CustomPainter {
   final List<double> peaks;
   final bool hasSignal;
   final double? progress;
+  final ValueListenable<double?>? progressListenable;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -526,7 +548,7 @@ class SourceSpectrumPainter extends CustomPainter {
       baselinePaint,
     );
 
-    final progressValue = progress;
+    final progressValue = progressListenable?.value ?? progress;
     if (progressValue != null) {
       final progressPaint =
           Paint()
@@ -549,6 +571,7 @@ class SourceSpectrumPainter extends CustomPainter {
         oldDelegate.profile != profile ||
         oldDelegate.hasSignal != hasSignal ||
         oldDelegate.progress != progress ||
+        oldDelegate.progressListenable != progressListenable ||
         !listEquals(oldDelegate.levels, levels) ||
         !listEquals(oldDelegate.peaks, peaks);
   }

@@ -26,9 +26,16 @@ void main() {
     );
   });
 
-  test('display labels include parent context for same folder names', () {
-    expect(folderDisplayName('/Music/ArtistA/Live'), 'Live · /Music/ArtistA');
-    expect(folderDisplayName('/Music/ArtistB/Live'), 'Live · /Music/ArtistB');
+  test('display labels are relative to the Android storage root', () {
+    expect(
+      folderDisplayName('/storage/emulated/0/Music/Downloads'),
+      'Music · Downloads',
+    );
+    expect(
+      folderDisplayName('/storage/emulated/0/Download/WhatsApp'),
+      'Download · WhatsApp',
+    );
+    expect(folderDisplayName('/Music/ArtistA/Live'), 'Music · ArtistA · Live');
     expect(folderDisplayName('/Music'), 'Music');
   });
 }

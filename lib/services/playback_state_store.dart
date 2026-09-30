@@ -12,6 +12,7 @@ class PlaybackSnapshot {
     required this.position,
     required this.playing,
     this.repeatMode = 0,
+    this.shuffleMode = 0,
     this.speed = 1.0,
   });
 
@@ -20,6 +21,7 @@ class PlaybackSnapshot {
   final Duration position;
   final bool playing;
   final int repeatMode;
+  final int shuffleMode;
   final double speed;
 }
 
@@ -98,6 +100,7 @@ class PlaybackStateStore {
     required Duration position,
     required bool playing,
     int repeatMode = 0,
+    int shuffleMode = 0,
     double speed = 1.0,
   }) {
     return _enqueue<void>((preferences) async {
@@ -106,6 +109,7 @@ class PlaybackStateStore {
         'positionMs': position.inMilliseconds,
         'playing': playing,
         'repeatMode': repeatMode,
+        'shuffleMode': shuffleMode,
         'speed': speed,
       };
       await preferences.setString(progressKey, jsonEncode(payload));
@@ -118,6 +122,7 @@ class PlaybackStateStore {
     required Duration position,
     required bool playing,
     int repeatMode = 0,
+    int shuffleMode = 0,
     double speed = 1.0,
   }) async {
     await _enqueue<void>((preferences) async {
@@ -127,6 +132,7 @@ class PlaybackStateStore {
         'positionMs': position.inMilliseconds,
         'playing': playing,
         'repeatMode': repeatMode,
+        'shuffleMode': shuffleMode,
         'speed': speed,
       };
       await preferences.setString(queueKey, jsonEncode(queuePayload));
@@ -160,6 +166,7 @@ class PlaybackStateStore {
                 'positionMs': legacy.position.inMilliseconds,
                 'playing': legacy.playing,
                 'repeatMode': legacy.repeatMode,
+                'shuffleMode': legacy.shuffleMode,
                 'speed': legacy.speed,
               }),
             );
@@ -237,6 +244,7 @@ class PlaybackStateStore {
     final rawIndex = _asInt(progress['currentIndex'], 0);
     final positionMs = _asInt(progress['positionMs'], 0);
     final repeatMode = _asInt(progress['repeatMode'], 0);
+    final shuffleMode = _asInt(progress['shuffleMode'], 0);
     final speed = _asDouble(progress['speed'], 1.0);
     return PlaybackSnapshot(
       queue: List<MediaTrack>.unmodifiable(queue),
@@ -246,6 +254,7 @@ class PlaybackStateStore {
       ),
       playing: progress['playing'] == true,
       repeatMode: repeatMode.clamp(0, 3).toInt(),
+      shuffleMode: shuffleMode.clamp(0, 2).toInt(),
       speed: speed.clamp(0.25, 3.0).toDouble(),
     );
   }

@@ -194,6 +194,22 @@ void main() {
     });
   });
 
+  group('sleep countdown label', () {
+    test('shows mm:ss under an hour and h:mm:ss for longer timers', () {
+      expect(formatSleepTimerCountdown(const Duration(seconds: 35)), '00:35');
+      expect(
+        formatSleepTimerCountdown(const Duration(minutes: 12, seconds: 4)),
+        '12:04',
+      );
+      expect(
+        formatSleepTimerCountdown(
+          const Duration(hours: 2, minutes: 3, seconds: 4),
+        ),
+        '2:03:04',
+      );
+    });
+  });
+
   group('sleep fade math', () {
     test('short timers fade across their full duration', () {
       expect(

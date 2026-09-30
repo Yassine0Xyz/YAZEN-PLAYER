@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -11,6 +12,7 @@ import 'package:yazen/services/hybrid_audio_handler.dart';
 import 'package:yazen/services/local_playlist_manager.dart';
 import 'package:yazen/services/media_library_service.dart';
 import 'package:yazen/services/playback_state_store.dart';
+import 'package:yazen/services/playback_policies.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -87,6 +89,25 @@ void main() {
       await player.close();
     },
   );
+
+  test('end-of-track sleep timer pauses during repeat-one playback', () async {
+    final player = _FakeAudioPlayer()..duration = const Duration(seconds: 10);
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    await handler.playTrack(_track(0));
+    await handler.setRepeatMode(AudioServiceRepeatMode.one);
+    handler.setSleepTimer(null, mode: SleepTimerMode.endOfCurrentTrack);
+
+    player.emitPosition(const Duration(milliseconds: 9700));
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+
+    expect(player.playing, isFalse);
+    expect(handler.sleepTimerMode, SleepTimerMode.duration);
+    await handler.dispose();
+    await player.close();
+  });
 
   test(
     'restore skips missing files and remaps a missing current track',
@@ -282,12 +303,14 @@ class _FakeAudioPlayer implements AudioPlayer {
   final _playbackEventController = StreamController<PlaybackEvent>.broadcast();
   final _processingStateController =
       StreamController<ProcessingState>.broadcast();
+  final _positionController = StreamController<Duration>.broadcast();
   final List<AudioSource> _sources = <AudioSource>[];
   int? _currentIndex;
   bool _playing = false;
   double _volume = 1.0;
   double _speed = 1.0;
   Duration _position = Duration.zero;
+  Duration? _duration;
   LoopMode _loopMode = LoopMode.off;
   bool failNextAddAfterMutation = false;
 
@@ -304,6 +327,9 @@ class _FakeAudioPlayer implements AudioPlayer {
   @override
   Stream<ProcessingState> get processingStateStream =>
       _processingStateController.stream;
+
+  @override
+  Stream<Duration> get positionStream => _positionController.stream;
 
   @override
   List<IndexedAudioSource> get sequence =>
@@ -323,6 +349,16 @@ class _FakeAudioPlayer implements AudioPlayer {
 
   @override
   Duration get position => _position;
+
+  @override
+  Duration? get duration => _duration;
+
+  set duration(Duration? value) => _duration = value;
+
+  void emitPosition(Duration value) {
+    _position = value;
+    _positionController.add(value);
+  }
 
   @override
   Duration get bufferedPosition => Duration.zero;
@@ -482,6 +518,7 @@ class _FakeAudioPlayer implements AudioPlayer {
     await _playerStateController.close();
     await _playbackEventController.close();
     await _processingStateController.close();
+    await _positionController.close();
   }
 
   @override

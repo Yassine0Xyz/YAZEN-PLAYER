@@ -49,6 +49,15 @@ This checklist records device-dependent regressions that cannot be covered relia
 - [ ] Sleep timer: Stop cancels the timer and restores volume.
 - [ ] Sleep timer: queue boundary does not advance after end-of-current-track.
 
+## Round 2 device checks
+
+- [ ] R8 release-build smoke test: local playback, notification controls, visualizer, video thumbnails, and library query.
+- [ ] Video PiP: keep-screen-on remains active while video is playing in PiP, and releases after pause/exit.
+- [ ] End-of-current-track timer pauses before the next item with repeat-one enabled.
+- [ ] Visualizer progress line remains smooth between position events and avoids rebuilding unrelated player content.
+- [ ] Smoke effect: quiet/loud audio, pause/resume, missing artwork, theme contrast, and track palette change.
+- [ ] Smoke effect: rotate the device; run a ten-minute memory/frame-rate check; verify thermal and battery impact.
+
 ## Results / notes
 
 | Date | Device / OS | Scenario | Result | Notes |
