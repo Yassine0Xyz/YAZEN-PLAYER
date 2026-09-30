@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -33,7 +34,7 @@ class YazenVideoPlayer extends StatefulWidget {
 }
 
 class _YazenVideoPlayerState extends State<YazenVideoPlayer>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _platform = MethodChannel('yazen/player_controls');
 
   late final AnimationController _hudAnimation;
@@ -48,6 +49,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   double _volume = 0.75;
   String? _gestureLabel;
   Timer? _gestureTimer;
+  bool _appResumed = true;
 
   @override
   void initState() {
@@ -57,12 +59,32 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
       duration: const Duration(milliseconds: 240),
       value: 1,
     );
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.addListener(_onVideoChanged);
+    _syncKeepScreenOn();
     _scheduleHudHide();
   }
 
   @override
+  void didUpdateWidget(covariant YazenVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onVideoChanged);
+      widget.controller.addListener(_onVideoChanged);
+    }
+    _syncKeepScreenOn();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appResumed = state == AppLifecycleState.resumed;
+    _syncKeepScreenOn();
+  }
+
+  @override
   void dispose() {
+    _syncKeepScreenOn(force: false);
+    WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     _lockRevealTimer?.cancel();
     _gestureTimer?.cancel();
@@ -72,7 +94,22 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   }
 
   void _onVideoChanged() {
+    _syncKeepScreenOn();
     if (mounted) setState(() {});
+  }
+
+  void _syncKeepScreenOn({bool? force}) {
+    if (!Platform.isAndroid) return;
+    final value = widget.controller.value;
+    final keepScreenOn =
+        force ?? (_appResumed && value.isInitialized && value.isPlaying);
+    unawaited(
+      _platform
+          .invokeMethod<void>('setKeepScreenOn', <String, bool>{
+            'enabled': keepScreenOn,
+          })
+          .catchError((_) {}),
+    );
   }
 
   void _scheduleHudHide() {

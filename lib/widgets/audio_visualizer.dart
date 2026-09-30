@@ -59,6 +59,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   Timer? _readTimer;
   StreamSubscription<Duration>? _positionSubscription;
   late final Ticker _renderTicker;
+  final ValueNotifier<int> _painterRepaint = ValueNotifier<int>(0);
   Future<void> _lifecycleTail = Future<void>.value();
   final _visualizerSettings = VisualizerSettings.instance;
 
@@ -132,6 +133,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       if (!mounted) return;
       _livePosition = position;
       _positionAnchorAt = widget.playing ? DateTime.now() : null;
+      setState(() {});
     });
   }
 
@@ -316,7 +318,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _displayLevels[index] = next;
       _displayPeaks[index] = nextPeak.clamp(0.0, 1.0);
     }
-    if (changed) setState(() {});
+    if (changed) _painterRepaint.value++;
   }
 
   void _setUnavailable(String mode) {
@@ -379,6 +381,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _positionSubscription?.cancel();
     _readTimer?.cancel();
     _renderTicker.dispose();
+    _painterRepaint.dispose();
     if (Platform.isLinux) {
       unawaited(LinuxPcmSpectrumService.instance.stop());
     }
@@ -407,7 +410,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         child: RepaintBoundary(
           child: CustomPaint(
             size: Size(double.infinity, widget.height),
-            painter: _SourceSpectrumPainter(
+            painter: SourceSpectrumPainter(
+              repaint: _painterRepaint,
               color: color,
               barCount: widget.barCount,
               height: widget.height,
@@ -424,8 +428,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 }
 
-class _SourceSpectrumPainter extends CustomPainter {
-  const _SourceSpectrumPainter({
+@visibleForTesting
+class SourceSpectrumPainter extends CustomPainter {
+  SourceSpectrumPainter({
     required this.color,
     required this.barCount,
     required this.height,
@@ -434,7 +439,8 @@ class _SourceSpectrumPainter extends CustomPainter {
     required this.peaks,
     required this.hasSignal,
     required this.progress,
-  });
+    required Listenable repaint,
+  }) : super(repaint: repaint);
 
   final Color color;
   final int barCount;
@@ -536,7 +542,7 @@ class _SourceSpectrumPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SourceSpectrumPainter oldDelegate) {
+  bool shouldRepaint(covariant SourceSpectrumPainter oldDelegate) {
     return oldDelegate.color != color ||
         oldDelegate.barCount != barCount ||
         oldDelegate.height != height ||
