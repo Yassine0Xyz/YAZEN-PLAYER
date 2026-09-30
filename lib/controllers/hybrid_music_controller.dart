@@ -6,6 +6,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 
 import '../models/media_track.dart';
 import '../services/hybrid_audio_handler.dart';
+import '../services/playback_policies.dart';
 import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
@@ -39,7 +40,6 @@ class HybridMusicController extends ChangeNotifier {
   List<PlaylistModel> _playlists = const <PlaylistModel>[];
   List<String> _folders = const <String>[];
   bool _isLoading = false;
-  bool _repeatOne = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
   String _searchQuery = '';
@@ -60,7 +60,8 @@ class HybridMusicController extends ChangeNotifier {
   List<PlaylistModel> get playlists => _playlists;
   List<String> get folders => _folders;
   bool get isLoading => _isLoading;
-  bool get repeatOne => _repeatOne;
+  AudioServiceRepeatMode get repeatMode => _audioHandler.repeatMode;
+  bool get repeatOne => repeatMode == AudioServiceRepeatMode.one;
   LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQuery;
@@ -259,10 +260,8 @@ class HybridMusicController extends ChangeNotifier {
   }
 
   Future<void> toggleRepeat() async {
-    _repeatOne = !_repeatOne;
-    await _audioHandler.setRepeatMode(
-      _repeatOne ? AudioServiceRepeatMode.one : AudioServiceRepeatMode.none,
-    );
+    final next = nextRepeatMode(_audioHandler.repeatMode);
+    await _audioHandler.setRepeatMode(next);
     notifyListeners();
   }
 

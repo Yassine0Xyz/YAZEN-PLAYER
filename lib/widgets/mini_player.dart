@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme/theme_provider.dart';
 import '../models/media_track.dart';
+import '../services/playback_policies.dart';
 import 'echo_motion.dart';
 import 'media_artwork.dart';
 
@@ -22,7 +23,7 @@ class MiniPlayer extends StatelessWidget {
     this.onRepeat,
     this.onQueue,
     this.onTap,
-    this.repeatOne = false,
+    this.repeatMode = AudioServiceRepeatMode.none,
     super.key,
   });
 
@@ -39,7 +40,7 @@ class MiniPlayer extends StatelessWidget {
   final VoidCallback? onRepeat;
   final VoidCallback? onQueue;
   final VoidCallback? onTap;
-  final bool repeatOne;
+  final AudioServiceRepeatMode repeatMode;
 
   @override
   Widget build(BuildContext context) {
@@ -171,10 +172,13 @@ class MiniPlayer extends StatelessWidget {
                               ),
                             if (!compact && onRepeat != null)
                               _DockAction(
-                                tooltip: 'Repeat once',
-                                icon: Icons.repeat_rounded,
+                                tooltip: 'Repeat: ${_repeatLabel(repeatMode)}',
+                                icon:
+                                    repeatMode == AudioServiceRepeatMode.one
+                                        ? Icons.repeat_one_rounded
+                                        : Icons.repeat_rounded,
                                 color:
-                                    repeatOne
+                                    repeatModeIsEnabled(repeatMode)
                                         ? tokens.accent
                                         : tokens.textSecondary,
                                 onPressed: onRepeat!,
@@ -243,6 +247,15 @@ class MiniPlayer extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _repeatLabel(AudioServiceRepeatMode mode) {
+    return switch (mode) {
+      AudioServiceRepeatMode.none => 'off',
+      AudioServiceRepeatMode.one => 'one',
+      AudioServiceRepeatMode.all => 'all',
+      AudioServiceRepeatMode.group => 'group',
+    };
   }
 
   double? get _progress {

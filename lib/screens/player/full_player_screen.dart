@@ -4,11 +4,11 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:just_audio/just_audio.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../services/hybrid_audio_handler.dart';
+import '../../services/playback_policies.dart';
 import '../../models/media_track.dart';
 import '../../services/lyrics_service.dart';
 import '../../widgets/lyrics_view.dart';
@@ -880,130 +880,119 @@ class _TransportControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return StreamBuilder<bool>(
-      stream: handler.player.shuffleModeEnabledStream,
-      builder: (context, shuffleSnapshot) {
-        return StreamBuilder<LoopMode>(
-          stream: handler.player.loopModeStream,
-          builder: (context, loopSnapshot) {
-            final shuffleEnabled = shuffleSnapshot.data ?? false;
-            final loopMode = loopSnapshot.data ?? LoopMode.off;
-            return Column(
+    return StreamBuilder<PlaybackState>(
+      stream: handler.playbackState,
+      builder: (context, snapshot) {
+        final state = snapshot.data;
+        final shuffleMode = state?.shuffleMode ?? handler.shuffleMode;
+        final repeatMode = state?.repeatMode ?? handler.repeatMode;
+        final shuffleEnabled = shuffleMode != AudioServiceShuffleMode.none;
+        return Column(
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    EchoIconButton(
-                      tooltip: 'Shuffle',
-                      icon: Icons.shuffle_rounded,
-                      selected: shuffleEnabled,
-                      onPressed:
-                          () => handler.setShuffleMode(
-                            shuffleEnabled
-                                ? AudioServiceShuffleMode.none
-                                : AudioServiceShuffleMode.all,
-                          ),
-                      color: tokens.textSecondary,
-                      selectedColor: tokens.accent,
-                      size: 48,
-                    ),
-                    EchoIconButton(
-                      tooltip: 'Previous track',
-                      icon: Icons.skip_previous_rounded,
-                      onPressed: handler.skipToPrevious,
-                      color: tokens.textPrimary,
-                      size: 48,
-                    ),
-                    EchoBreathingGlow(
-                      enabled: isPlaying && !isBuffering,
-                      color: tokens.accentStrong,
-                      child: IconButton.filled(
-                        tooltip: isPlaying ? 'Pause' : 'Play',
-                        onPressed: onPlayPause,
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(68, 68),
-                          backgroundColor: tokens.accent,
-                          foregroundColor:
-                              tokens.isLight ? Colors.white : Colors.black,
-                        ),
-                        icon:
-                            isBuffering
-                                ? const SizedBox.square(
-                                  dimension: 26,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 3,
-                                    color: Colors.black,
-                                  ),
-                                )
-                                : Icon(
-                                  isPlaying
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                  size: 36,
-                                ),
+                EchoIconButton(
+                  tooltip: 'Shuffle',
+                  icon: Icons.shuffle_rounded,
+                  selected: shuffleEnabled,
+                  onPressed:
+                      () => handler.setShuffleMode(
+                        shuffleEnabled
+                            ? AudioServiceShuffleMode.none
+                            : AudioServiceShuffleMode.all,
                       ),
-                    ),
-                    EchoIconButton(
-                      tooltip: 'Next track',
-                      icon: Icons.skip_next_rounded,
-                      onPressed: handler.skipToNext,
-                      color: tokens.textPrimary,
-                      size: 48,
-                    ),
-                    EchoIconButton(
-                      tooltip: 'Repeat: ${_repeatLabel(loopMode)}',
-                      icon:
-                          loopMode == LoopMode.one
-                              ? Icons.repeat_one_rounded
-                              : Icons.repeat_rounded,
-                      selected: loopMode != LoopMode.off,
-                      onPressed:
-                          () =>
-                              handler.setRepeatMode(_nextRepeatMode(loopMode)),
-                      color: tokens.textSecondary,
-                      selectedColor: tokens.accent,
-                      size: 48,
-                    ),
-                  ],
+                  color: tokens.textSecondary,
+                  selectedColor: tokens.accent,
+                  size: 48,
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    _QuickSeekButton(
-                      label: '−10',
-                      icon: Icons.replay_10_rounded,
-                      onPressed: onSeekBack,
+                EchoIconButton(
+                  tooltip: 'Previous track',
+                  icon: Icons.skip_previous_rounded,
+                  onPressed: handler.skipToPrevious,
+                  color: tokens.textPrimary,
+                  size: 48,
+                ),
+                EchoBreathingGlow(
+                  enabled: isPlaying && !isBuffering,
+                  color: tokens.accentStrong,
+                  child: IconButton.filled(
+                    tooltip: isPlaying ? 'Pause' : 'Play',
+                    onPressed: onPlayPause,
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(68, 68),
+                      backgroundColor: tokens.accent,
+                      foregroundColor:
+                          tokens.isLight ? Colors.white : Colors.black,
                     ),
-                    const SizedBox(width: 22),
-                    _QuickSeekButton(
-                      label: '+10',
-                      icon: Icons.forward_10_rounded,
-                      onPressed: onSeekForward,
-                    ),
-                  ],
+                    icon:
+                        isBuffering
+                            ? const SizedBox.square(
+                              dimension: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3,
+                                color: Colors.black,
+                              ),
+                            )
+                            : Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 36,
+                            ),
+                  ),
+                ),
+                EchoIconButton(
+                  tooltip: 'Next track',
+                  icon: Icons.skip_next_rounded,
+                  onPressed: handler.skipToNext,
+                  color: tokens.textPrimary,
+                  size: 48,
+                ),
+                EchoIconButton(
+                  tooltip: 'Repeat: ${_repeatLabel(repeatMode)}',
+                  icon:
+                      repeatMode == AudioServiceRepeatMode.one
+                          ? Icons.repeat_one_rounded
+                          : Icons.repeat_rounded,
+                  selected: repeatMode != AudioServiceRepeatMode.none,
+                  onPressed:
+                      () => handler.setRepeatMode(nextRepeatMode(repeatMode)),
+                  color: tokens.textSecondary,
+                  selectedColor: tokens.accent,
+                  size: 48,
                 ),
               ],
-            );
-          },
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _QuickSeekButton(
+                  label: '−10',
+                  icon: Icons.replay_10_rounded,
+                  onPressed: onSeekBack,
+                ),
+                const SizedBox(width: 22),
+                _QuickSeekButton(
+                  label: '+10',
+                  icon: Icons.forward_10_rounded,
+                  onPressed: onSeekForward,
+                ),
+              ],
+            ),
+          ],
         );
       },
     );
   }
 
-  AudioServiceRepeatMode _nextRepeatMode(LoopMode mode) {
+  String _repeatLabel(AudioServiceRepeatMode mode) {
     return switch (mode) {
-      LoopMode.off => AudioServiceRepeatMode.one,
-      LoopMode.one => AudioServiceRepeatMode.all,
-      LoopMode.all => AudioServiceRepeatMode.none,
-    };
-  }
-
-  String _repeatLabel(LoopMode mode) {
-    return switch (mode) {
-      LoopMode.off => 'off',
-      LoopMode.one => 'one',
-      LoopMode.all => 'all',
+      AudioServiceRepeatMode.none => 'off',
+      AudioServiceRepeatMode.one => 'one',
+      AudioServiceRepeatMode.all => 'all',
+      AudioServiceRepeatMode.group => 'group',
     };
   }
 }
@@ -1508,6 +1497,12 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
             children: <Widget>[
               _TimerChip(label: 'Off', duration: null, handler: widget.handler),
               _TimerChip(
+                label: 'End of track',
+                duration: null,
+                mode: SleepTimerMode.endOfCurrentTrack,
+                handler: widget.handler,
+              ),
+              _TimerChip(
                 label: '15 min',
                 duration: const Duration(minutes: 15),
                 handler: widget.handler,
@@ -1541,10 +1536,12 @@ class _TimerChip extends StatelessWidget {
     required this.label,
     required this.duration,
     required this.handler,
+    this.mode = SleepTimerMode.duration,
   });
 
   final String label;
   final Duration? duration;
+  final SleepTimerMode mode;
   final HybridAudioHandler handler;
 
   @override
@@ -1552,7 +1549,7 @@ class _TimerChip extends StatelessWidget {
     final tokens = context.read<ThemeProvider>().tokens;
     return ActionChip(
       label: Text(label),
-      onPressed: () => handler.setSleepTimer(duration),
+      onPressed: () => handler.setSleepTimer(duration, mode: mode),
       avatar: Icon(
         duration == null ? Icons.timer_off_rounded : Icons.timer_rounded,
         size: 16,

@@ -489,7 +489,8 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
               onDismiss: () => unawaited(handler.stop()),
               onRepeat: controller.toggleRepeat,
               onQueue: () => Navigator.of(context).push(QueueScreen.route()),
-              repeatOne: controller.repeatOne,
+              repeatMode:
+                  playbackSnapshot.data?.repeatMode ?? controller.repeatMode,
               onStop: handler.stop,
               onTap: () => Navigator.of(context).push(FullPlayerScreen.route()),
             );
