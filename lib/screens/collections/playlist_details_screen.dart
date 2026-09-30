@@ -628,7 +628,8 @@ class _PlaylistMiniPlayerHost extends StatelessWidget {
                 onDismiss: () => unawaited(handler.stop()),
                 onRepeat: controller.toggleRepeat,
                 onQueue: () {},
-                repeatOne: controller.repeatOne,
+                repeatMode:
+                    playbackSnapshot.data?.repeatMode ?? controller.repeatMode,
                 onStop: handler.stop,
                 onTap:
                     () => Navigator.of(context).push(FullPlayerScreen.route()),

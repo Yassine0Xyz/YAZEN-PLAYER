@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/media_track.dart';
 import 'playback_state_store.dart';
+import 'playback_policies.dart';
 
 /// Single source of truth for audio playback, notification controls, and queue metadata.
 ///
@@ -43,6 +44,9 @@ class HybridAudioHandler extends BaseAudioHandler
        _playbackStore = playbackStore,
        _equalizer = equalizer {
     _equalizerAvailable = Platform.isAndroid;
+    _sleepRemainingController = StreamController<Duration?>.broadcast(
+      sync: true,
+    );
     _subscriptions.add(
       _player.playbackEventStream.listen((_) => _broadcastPlaybackState()),
     );
@@ -73,7 +77,13 @@ class HybridAudioHandler extends BaseAudioHandler
   Timer? _resumeTimer;
   Timer? _sleepTimer;
   Timer? _sleepFadeTimer;
+  Timer? _sleepCountdownTimer;
   DateTime? _sleepDeadline;
+  SleepTimerMode _sleepTimerMode = SleepTimerMode.duration;
+  int? _sleepTrackIndex;
+  late final StreamController<Duration?> _sleepRemainingController;
+  final InterruptionCoordinator _interruptionCoordinator =
+      InterruptionCoordinator();
   Future<void> _lastResumeSave = Future<void>.value();
   Future<void> _navigationTail = Future<void>.value();
   static const _effectsChannel = MethodChannel('yazen/audio_effects');
@@ -86,7 +96,7 @@ class HybridAudioHandler extends BaseAudioHandler
   double _volume = 1.0;
   double _playbackSpeed = 1.0;
   AudioServiceRepeatMode _repeatMode = AudioServiceRepeatMode.none;
-  bool _crossfadeEnabled = false;
+  AudioServiceShuffleMode _shuffleMode = AudioServiceShuffleMode.none;
 
   AudioPlayer get player => _player;
   MediaTrack? get activeTrack => _activeTrack;
@@ -95,7 +105,10 @@ class HybridAudioHandler extends BaseAudioHandler
   bool get equalizerAvailable => _equalizerAvailable;
   double get playbackSpeed => _playbackSpeed;
   AudioServiceRepeatMode get repeatMode => _repeatMode;
-  bool get crossfadeEnabled => _crossfadeEnabled;
+  AudioServiceShuffleMode get shuffleMode => _shuffleMode;
+  SleepTimerMode get sleepTimerMode => _sleepTimerMode;
+  Stream<Duration?> get sleepTimerRemainingStream =>
+      _sleepRemainingController.stream;
   List<MediaTrack> get queueTracks =>
       List<MediaTrack>.unmodifiable(_queueTracks);
   int get currentQueueIndex => _player.currentIndex ?? 0;
@@ -107,44 +120,116 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<void> configureAudioSession(AudioSession session) async {
-    _subscriptions.add(session.becomingNoisyEventStream.listen((_) => pause()));
+    _subscriptions.add(
+      session.becomingNoisyEventStream.listen((_) => _handleBecomingNoisy()),
+    );
     // Keep playback alive when another media app opens. Android may still
     // attenuate or revoke audio focus for calls, alarms, or exclusive apps,
     // but YAZEN must not pause itself in response to a normal app switch.
-    _subscriptions.add(session.interruptionEventStream.listen((_) {}));
+    // just_audio owns activation requests through handleAudioSessionActivation;
+    // interruption policy is explicit because handleInterruptions is disabled.
+    _subscriptions.add(
+      session.interruptionEventStream.listen(_handleInterruption),
+    );
   }
 
-  void setSleepTimer(Duration? duration) {
-    _sleepTimer?.cancel();
-    _sleepFadeTimer?.cancel();
-    _sleepDeadline = null;
-    if (duration == null || duration <= Duration.zero) return;
-    _sleepDeadline = DateTime.now().add(duration);
-    const fadeDuration = Duration(seconds: 12);
-    final fadeStart =
-        duration > fadeDuration ? duration - fadeDuration : Duration.zero;
+  void setSleepTimer(
+    Duration? duration, {
+    SleepTimerMode mode = SleepTimerMode.duration,
+  }) {
+    _cancelSleepTimer();
+    if (mode == SleepTimerMode.duration &&
+        (duration == null || duration <= Duration.zero)) {
+      return;
+    }
+    _sleepTimerMode = mode;
+    if (mode == SleepTimerMode.endOfCurrentTrack) {
+      _sleepTrackIndex = _player.currentIndex;
+      _sleepRemainingController.add(null);
+      return;
+    }
+    final timerDuration = duration!;
+    _sleepDeadline = DateTime.now().add(timerDuration);
+    _sleepRemainingController.add(timerDuration);
+    _sleepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _sleepRemainingController.add(sleepTimerRemaining);
+    });
+    final fadeDuration = sleepFadeDuration(timerDuration);
+    final fadeStart = timerDuration - fadeDuration;
     _sleepTimer = Timer(fadeStart, () {
       final startedAt = DateTime.now();
       _sleepFadeTimer = Timer.periodic(const Duration(milliseconds: 250), (
         timer,
       ) {
         final elapsed = DateTime.now().difference(startedAt);
-        final remaining = duration - fadeStart - elapsed;
-        final factor =
-            (remaining.inMilliseconds / fadeDuration.inMilliseconds)
-                .clamp(0.0, 1.0)
-                .toDouble();
+        final factor = sleepFadeFactor(
+          elapsed: elapsed,
+          fadeDuration: fadeDuration,
+        );
         unawaited(_player.setVolume(_volume * factor));
+        _sleepRemainingController.add(sleepTimerRemaining);
         if (factor <= 0) {
           timer.cancel();
           _sleepFadeTimer = null;
           _sleepTimer = null;
-          _sleepDeadline = null;
-          unawaited(pause());
-          unawaited(_player.setVolume(_volume));
+          _finishSleepTimer();
         }
       });
     });
+  }
+
+  void _cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepFadeTimer?.cancel();
+    _sleepCountdownTimer?.cancel();
+    _sleepTimer = null;
+    _sleepFadeTimer = null;
+    _sleepCountdownTimer = null;
+    _sleepDeadline = null;
+    _sleepTimerMode = SleepTimerMode.duration;
+    _sleepTrackIndex = null;
+    _sleepRemainingController.add(null);
+    unawaited(_player.setVolume(_volume));
+  }
+
+  void _finishSleepTimer() {
+    _sleepCountdownTimer?.cancel();
+    _sleepCountdownTimer = null;
+    _sleepDeadline = null;
+    _sleepTimerMode = SleepTimerMode.duration;
+    _sleepTrackIndex = null;
+    _sleepRemainingController.add(null);
+    unawaited(pause());
+    unawaited(_player.setVolume(_volume));
+  }
+
+  Future<void> _handleBecomingNoisy() async {
+    if (!_player.playing) return;
+    await pause();
+  }
+
+  Future<void> _handleInterruption(AudioInterruptionEvent event) async {
+    final action = _interruptionCoordinator.handle(
+      begin: event.begin,
+      type: event.type,
+      isPlaying: _player.playing,
+      currentVolume: _player.volume,
+    );
+    switch (action) {
+      case InterruptionAction.none:
+        return;
+      case InterruptionAction.pause:
+        await _player.pause();
+        _persistPlayback();
+      case InterruptionAction.duck:
+        await _player.setVolume(_player.volume * 0.3);
+      case InterruptionAction.restoreDuck:
+        final restoreVolume = _interruptionCoordinator.takeDuckRestoreVolume();
+        if (restoreVolume != null) await _player.setVolume(restoreVolume);
+      case InterruptionAction.resume:
+        await _player.play();
+        _persistPlayback();
+    }
   }
 
   Future<bool> setEqualizerEnabled(bool enabled) async {
@@ -478,18 +563,21 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> play() async {
+    _interruptionCoordinator.onUserPlay();
     await _player.play();
     _persistPlayback();
   }
 
   @override
   Future<void> pause() async {
+    _interruptionCoordinator.onUserPause();
     await _player.pause();
     _persistPlayback();
   }
 
   @override
   Future<void> stop() async {
+    _cancelSleepTimer();
     // Stop is the explicit close action from the notification/mini-player.
     // Cancel pending selections and clear just_audio's native sources and our
     // mirrored queue so old media cannot be resurrected by next/previous.
@@ -565,6 +653,10 @@ class HybridAudioHandler extends BaseAudioHandler
         generation == _queueGeneration && request == _selectionRequest;
     try {
       if (!stillCurrent()) return;
+      if (_sleepTimerMode == SleepTimerMode.endOfCurrentTrack) {
+        _finishSleepTimer();
+        return;
+      }
       if (_player.loopMode == LoopMode.one) {
         await _player.seek(Duration.zero);
         await play();
@@ -573,9 +665,8 @@ class HybridAudioHandler extends BaseAudioHandler
       await _waitForQueuePopulation();
       if (!stillCurrent()) return;
       if (_player.hasNext) {
-        if (_crossfadeEnabled) await _fadeTo(0.0);
+        // True between-track crossfade is intentionally deferred to Phase 5.
         await skipToNext();
-        if (_crossfadeEnabled) await _fadeTo(_volume);
         await play();
       } else if (_player.loopMode == LoopMode.all && _queueTracks.length > 1) {
         await _player.seek(Duration.zero, index: 0);
@@ -583,17 +674,6 @@ class HybridAudioHandler extends BaseAudioHandler
       }
     } finally {
       _autoAdvanceInFlight = false;
-    }
-  }
-
-  Future<void> _fadeTo(double target) async {
-    final start = _player.volume;
-    const steps = 8;
-    for (var step = 1; step <= steps; step++) {
-      if (_isDisposed) return;
-      final value = start + (target - start) * (step / steps);
-      await _player.setVolume(value.clamp(0.0, 1.0));
-      await Future<void>.delayed(const Duration(milliseconds: 18));
     }
   }
 
@@ -609,19 +689,14 @@ class HybridAudioHandler extends BaseAudioHandler
     await _player.setVolume(_volume);
   }
 
-  Future<void> setCrossfadeEnabled(bool enabled) async {
-    // just_audio 0.10 has no native crossfade API. Keep this preference
-    // explicit and use a short guarded fade during auto-advance instead of
-    // pretending that a platform crossfade is active.
-    _crossfadeEnabled = enabled;
-  }
-
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
     await _player.setShuffleModeEnabled(
       shuffleMode != AudioServiceShuffleMode.none,
     );
+    _shuffleMode = shuffleMode;
     await super.setShuffleMode(shuffleMode);
+    _broadcastPlaybackState();
   }
 
   @override
@@ -634,17 +709,28 @@ class HybridAudioHandler extends BaseAudioHandler
     };
     await _player.setLoopMode(loopMode);
     _repeatMode = repeatMode;
-    _persistPlayback();
     await super.setRepeatMode(repeatMode);
+    _broadcastPlaybackState();
+    _persistPlayback();
   }
 
   void _onCurrentIndexChanged(int? index) {
     if (index == null || index < 0 || index >= _queueTracks.length) return;
+    final shouldFinishTimer = shouldFinishSleepTimerOnTrackChange(
+      mode: _sleepTimerMode,
+      targetIndex: _sleepTrackIndex,
+      currentIndex: index,
+    );
+    if (_sleepTimerMode == SleepTimerMode.endOfCurrentTrack &&
+        _sleepTrackIndex == null) {
+      _sleepTrackIndex = index;
+    }
     final track = _queueTracks[index];
     _activeTrack = track;
     mediaItem.add(track.toMediaItem());
     _broadcastPlaybackState();
     _persistPlayback();
+    if (shouldFinishTimer) _finishSleepTimer();
   }
 
   void _publishQueueState(List<MediaItem> items, int index) {
@@ -706,6 +792,8 @@ class HybridAudioHandler extends BaseAudioHandler
         updatePosition: _player.position,
         bufferedPosition: _player.bufferedPosition,
         speed: _player.speed,
+        repeatMode: _repeatMode,
+        shuffleMode: _shuffleMode,
         queueIndex: _player.currentIndex ?? 0,
       ),
     );
@@ -723,12 +811,11 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> dispose() async {
     _isDisposed = true;
     _resumeTimer?.cancel();
-    _sleepTimer?.cancel();
-    _sleepFadeTimer?.cancel();
-    _sleepDeadline = null;
+    _cancelSleepTimer();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
+    await _sleepRemainingController.close();
     await _player.dispose();
   }
 }

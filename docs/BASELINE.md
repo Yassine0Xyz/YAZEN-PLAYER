@@ -27,6 +27,12 @@ PR #1 was reviewed and merged into the repository's integration branch, `develop
 | Release build | `flutter build apk --release --target-platform android-arm64 --split-per-abi` passed in 82 s; arm64 APK = 32,960,585 bytes |
 | Connected targets | Linux only; `adb devices` returned no Android device or emulator |
 
+### Post-merge integration recheck
+
+A fresh full run against the merged develop snapshot (`c6fed12`) produced 0 analyzer errors, 0 warnings, and 19 informational findings with the default `flutter analyze --no-pub` command. This supersedes the 11-info figure recorded for the earlier PR #1 run; the full integration analysis also includes informational findings from the vendored plugin.
+
+The same snapshot's first full `flutter test --no-pub` run had 12 passing tests and one failure in `linux_pcm_spectrum_service_test.dart`. The test read the requested later-position frame as soon as any frame was live, so the service could clamp both reads to the first decoded frame. The isolated test passed when rerun. This is a readiness race to address with the visualizer tests; no PCM source was changed in Phase 1A, and the subsequent Phase 1A full test run passed.
+
 ### Baseline analyzer warnings
 
 - Unused declarations `_views` and `_date`, plus unused `tokens`, in `lib/screens/discover/youtube_video_detail_screen.dart`.

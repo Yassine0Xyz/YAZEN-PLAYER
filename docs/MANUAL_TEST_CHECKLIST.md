@@ -36,7 +36,10 @@ This checklist records device-dependent regressions that cannot be covered relia
 
 - [ ] Picture-in-Picture entry and return.
 - [ ] Video screen-on behavior while playing, and release on pause/background/dispose.
-- [ ] Sleep timer: duration, end-of-track, end-of-queue, cancellation, and fade-out.
+- [ ] Sleep timer: duration, end-of-current-track, end-of-queue, cancellation, and fade-out.
+- [ ] Sleep timer: cancel or replace during fade restores the user volume.
+- [ ] Sleep timer: Stop cancels the timer and restores volume.
+- [ ] Sleep timer: queue boundary does not advance after end-of-current-track.
 
 ## Results / notes
 
