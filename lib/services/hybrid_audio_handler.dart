@@ -12,8 +12,6 @@ import 'playback_policies.dart';
 import 'serial_async_queue.dart';
 import 'equalizer_settings_store.dart';
 
-/// Single source of truth for audio playback, notification controls, and queue metadata.
-///
 /// Single source of truth for local audio playback and queue metadata.
 class HybridAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
@@ -68,6 +66,9 @@ class HybridAudioHandler extends BaseAudioHandler
       _player.currentIndexStream.listen(_onCurrentIndexChanged),
     );
     _subscriptions.add(
+      _player.positionStream.listen(_onSleepTimerPositionChanged),
+    );
+    _subscriptions.add(
       _player.processingStateStream.listen(_onProcessingStateChanged),
     );
     _subscriptions.add(
@@ -114,6 +115,8 @@ class HybridAudioHandler extends BaseAudioHandler
   List<double> _equalizerBandGains = <double>[];
   String? _equalizerError;
   int _equalizerRetryAttempt = 0;
+  int? _equalizerRetrySessionId;
+  bool _endingTrackForSleepTimer = false;
   MediaTrack? _activeTrack;
   bool _isDisposed = false;
   Future<void>? _disposeFuture;
@@ -228,6 +231,7 @@ class HybridAudioHandler extends BaseAudioHandler
     if (mode == SleepTimerMode.endOfCurrentTrack) {
       _sleepTrackIndex = _player.currentIndex;
       _sleepRemainingController.add(null);
+      _onSleepTimerPositionChanged(_player.position);
       return;
     }
     final timerDuration = duration!;
@@ -270,11 +274,15 @@ class HybridAudioHandler extends BaseAudioHandler
     _sleepDeadline = null;
     _sleepTimerMode = SleepTimerMode.duration;
     _sleepTrackIndex = null;
+    _endingTrackForSleepTimer = false;
     _sleepRemainingController.add(null);
     unawaited(_player.setVolume(_volume));
   }
 
   void _finishSleepTimer() {
+    _sleepFadeTimer?.cancel();
+    _sleepFadeTimer = null;
+    _endingTrackForSleepTimer = false;
     _sleepCountdownTimer?.cancel();
     _sleepCountdownTimer = null;
     _sleepDeadline = null;
@@ -283,6 +291,35 @@ class HybridAudioHandler extends BaseAudioHandler
     _sleepRemainingController.add(null);
     unawaited(pause());
     unawaited(_player.setVolume(_volume));
+  }
+
+  void _onSleepTimerPositionChanged(Duration position) {
+    if (_sleepTimerMode != SleepTimerMode.endOfCurrentTrack ||
+        _endingTrackForSleepTimer ||
+        _sleepTrackIndex == null ||
+        _player.currentIndex != _sleepTrackIndex) {
+      return;
+    }
+    final duration = _player.duration;
+    if (duration == null || duration <= Duration.zero) return;
+    if (duration - position > const Duration(milliseconds: 300)) return;
+
+    _endingTrackForSleepTimer = true;
+    final startedAt = DateTime.now();
+    const fadeDuration = Duration(milliseconds: 250);
+    _sleepFadeTimer?.cancel();
+    _sleepFadeTimer = Timer.periodic(const Duration(milliseconds: 25), (timer) {
+      final factor = sleepFadeFactor(
+        elapsed: DateTime.now().difference(startedAt),
+        fadeDuration: fadeDuration,
+      );
+      unawaited(_player.setVolume(_volume * factor));
+      if (factor <= 0) {
+        timer.cancel();
+        _sleepFadeTimer = null;
+        _finishSleepTimer();
+      }
+    });
   }
 
   Future<void> _handleBecomingNoisy() async {
@@ -318,6 +355,7 @@ class HybridAudioHandler extends BaseAudioHandler
     await _equalizerSettingsReady;
     _equalizerEnabled = enabled;
     _equalizerEnabledController.add(enabled);
+    _resetEqualizerRetry();
     await _persistEqualizerSettingsNow();
     if (!_equalizerAvailable) return false;
     try {
@@ -361,6 +399,7 @@ class HybridAudioHandler extends BaseAudioHandler
     await _equalizerSettingsReady;
     _threeDSurroundEnabled = enabled;
     _surroundEnabledController.add(enabled);
+    _resetEqualizerRetry();
     await _persistEqualizerSettingsNow();
     if (!_equalizerAvailable || _player.androidAudioSessionId == null) return;
     try {
@@ -389,8 +428,18 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   void _onAudioSessionIdChanged(int? sessionId) {
+    if (sessionId != _equalizerRetrySessionId) {
+      _equalizerRetrySessionId = sessionId;
+      _resetEqualizerRetry();
+    }
     if (sessionId == null || !_equalizerAvailable || _isDisposed) return;
     unawaited(_equalizerSettingsReady.then((_) => _applyEqualizerSettings()));
+  }
+
+  void _resetEqualizerRetry() {
+    _equalizerRetryAttempt = 0;
+    _equalizerRetryTimer?.cancel();
+    _equalizerRetryTimer = null;
   }
 
   Future<AndroidEqualizerParameters> _getEqualizerParameters() {
@@ -500,11 +549,14 @@ class HybridAudioHandler extends BaseAudioHandler
 
   void _recordEqualizerFailure(Object error) {
     _equalizerError = error.toString();
-    if (_isDisposed || !_equalizerAvailable || _equalizerRetryTimer != null) {
+    if (_isDisposed ||
+        !_equalizerAvailable ||
+        _equalizerRetryTimer != null ||
+        _equalizerRetryAttempt >= 5) {
       return;
     }
     final delaySeconds = (1 << _equalizerRetryAttempt).clamp(1, 30).toInt();
-    _equalizerRetryAttempt = (_equalizerRetryAttempt + 1).clamp(0, 5).toInt();
+    _equalizerRetryAttempt++;
     _equalizerRetryTimer = Timer(Duration(seconds: delaySeconds), () {
       _equalizerRetryTimer = null;
       unawaited(_applyEqualizerSettings());
@@ -681,8 +733,15 @@ class HybridAudioHandler extends BaseAudioHandler
       _repeatMode = AudioServiceRepeatMode.values.elementAt(
         snapshot.repeatMode.clamp(0, AudioServiceRepeatMode.values.length - 1),
       );
+      _shuffleMode = AudioServiceShuffleMode.values.elementAt(
+        snapshot.shuffleMode.clamp(
+          0,
+          AudioServiceShuffleMode.values.length - 1,
+        ),
+      );
       await _player.setSpeed(_playbackSpeed);
       await setRepeatMode(_repeatMode);
+      await setShuffleMode(_shuffleMode);
       _publishQueueState(items, index);
       if (restoredTracks.length != snapshot.queue.length ||
           index != snapshot.currentIndex) {
@@ -835,21 +894,6 @@ class HybridAudioHandler extends BaseAudioHandler
       if (!stillCurrent()) return;
       if (_sleepTimerMode == SleepTimerMode.endOfCurrentTrack) {
         _finishSleepTimer();
-        return;
-      }
-      if (_player.loopMode == LoopMode.one) {
-        await _player.seek(Duration.zero);
-        await play();
-        return;
-      }
-      if (!stillCurrent()) return;
-      if (_player.hasNext) {
-        // True between-track crossfade is intentionally deferred to Phase 5.
-        await skipToNext();
-        await play();
-      } else if (_player.loopMode == LoopMode.all && _queueTracks.length > 1) {
-        await _player.seek(Duration.zero, index: 0);
-        await play();
       }
     } finally {
       _autoAdvanceInFlight = false;
@@ -876,6 +920,7 @@ class HybridAudioHandler extends BaseAudioHandler
     _shuffleMode = shuffleMode;
     await super.setShuffleMode(shuffleMode);
     _broadcastPlaybackState();
+    _persistPlayback();
   }
 
   @override
@@ -940,6 +985,7 @@ class HybridAudioHandler extends BaseAudioHandler
             position: _player.position,
             playing: _player.playing,
             repeatMode: _repeatMode.index,
+            shuffleMode: _shuffleMode.index,
             speed: _playbackSpeed,
           )
           .catchError((Object error, StackTrace stackTrace) {}),
@@ -959,6 +1005,7 @@ class HybridAudioHandler extends BaseAudioHandler
             position: _player.position,
             playing: _player.playing,
             repeatMode: _repeatMode.index,
+            shuffleMode: _shuffleMode.index,
             speed: _playbackSpeed,
           )
           .catchError((Object error, StackTrace stackTrace) {}),

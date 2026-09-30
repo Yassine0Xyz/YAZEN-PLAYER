@@ -340,7 +340,11 @@ class _SongsViewState extends State<_SongsView> {
               final selected = _selectedIds.contains(track.id);
               return EchoReveal(
                 key: ValueKey<String>('song-reveal-${track.id}'),
-                delay: Duration(milliseconds: (index.clamp(0, 8) * 45)),
+                delay:
+                    index < 10
+                        ? Duration(milliseconds: index * 32)
+                        : Duration.zero,
+                duration: const Duration(milliseconds: 120),
                 session: _revealSession,
                 revealKey: track.id,
                 child: TrackListTile(
@@ -672,24 +676,23 @@ class _FoldersView extends StatelessWidget {
         subtitle: 'Folders containing local audio will appear here.',
       );
     }
+    final counts = <String, int>{};
+    for (final track in tracks) {
+      final folder = track.folder;
+      if (folder == null) continue;
+      final identity = normalizeFolderIdentity(folder);
+      counts.update(identity, (count) => count + 1, ifAbsent: () => 1);
+    }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       itemCount: folders.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final folder = folders[index];
-        final count =
-            tracks
-                .where(
-                  (track) =>
-                      track.folder != null &&
-                      normalizeFolderIdentity(track.folder!) == folder,
-                )
-                .length;
         return _FolderRow(
           key: ValueKey<String>(folder),
           folder: folder,
-          count: count,
+          count: counts[folder] ?? 0,
           onTap:
               () => Navigator.of(context).push(
                 LocalEntityTracksScreen.route(

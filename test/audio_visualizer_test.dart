@@ -44,6 +44,41 @@ void main() {
     repaint.dispose();
   });
 
+  testWidgets('live position notifier repaints the progress line', (
+    tester,
+  ) async {
+    final repaint = ValueNotifier<int>(0);
+    final progress = ValueNotifier<double?>(0.1);
+    final painter = _CountingSpectrumPainter(
+      repaint: Listenable.merge(<Listenable>[repaint, progress]),
+      color: Colors.cyan,
+      barCount: 16,
+      height: 60,
+      profile: AudioVisualizerProfile.full,
+      levels: List<double>.filled(16, 0),
+      peaks: List<double>.filled(16, 0),
+      hasSignal: false,
+      progress: null,
+      progressListenable: progress,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: CustomPaint(size: const Size(320, 60), painter: painter),
+          ),
+        ),
+      ),
+    );
+    final firstPaint = painter.paintCount;
+    progress.value = 0.2;
+    await tester.pump();
+    expect(painter.paintCount, greaterThan(firstPaint));
+    await tester.pumpWidget(const SizedBox.shrink());
+    repaint.dispose();
+    progress.dispose();
+  });
+
   testWidgets('unknown duration remains valid for the visualizer widget', (
     tester,
   ) async {
@@ -80,6 +115,7 @@ class _CountingSpectrumPainter extends SourceSpectrumPainter {
     required super.peaks,
     required super.hasSignal,
     required super.progress,
+    super.progressListenable,
   });
 
   int paintCount = 0;

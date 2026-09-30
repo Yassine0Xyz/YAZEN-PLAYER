@@ -20,8 +20,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _appVersion = '0.1.0+1';
-  static const _equalizerKey = 'yazen.settings.equalizer_enabled';
-  static const _surroundKey = 'yazen.settings.surround_enabled';
   static const _speedKey = 'yazen.settings.playback_speed';
 
   bool _equalizerEnabled = true;
@@ -284,16 +282,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadPreferences() async {
+    final controller = context.read<HybridMusicController>();
     final preferences = await SharedPreferences.getInstance();
     await VisualizerSettings.instance.load();
+    await controller.audioHandler.equalizerSettingsReady;
     if (!mounted) return;
     setState(() {
-      _equalizerEnabled = preferences.getBool(_equalizerKey) ?? true;
-      _surroundEnabled = preferences.getBool(_surroundKey) ?? false;
+      _equalizerEnabled = controller.audioHandler.equalizerEnabled;
+      _surroundEnabled = controller.audioHandler.threeDSurroundEnabled;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;
       _preferencesLoaded = true;
     });
-    final controller = context.read<HybridMusicController>();
     await controller.audioHandler.setSpeed(_playbackSpeed);
     await controller.audioHandler.setEqualizerEnabled(_equalizerEnabled);
     await controller.audioHandler.setThreeDSurroundEnabled(_surroundEnabled);
@@ -326,7 +325,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return 'End of current track';
     }
     if (remaining == null) return 'Off';
-    return '${remaining.inMinutes} min remaining';
+    return '${formatSleepTimerCountdown(remaining)} remaining';
   }
 
   Future<void> _chooseSleepTimer(HybridMusicController controller) async {
@@ -370,27 +369,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _setPreference(
-    String key,
-    bool value,
-    void Function(bool value) apply,
-  ) async {
-    apply(value);
-    setState(() {});
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(key, value);
-  }
-
   Future<void> _setEqualizer(
     HybridMusicController controller,
     bool value,
   ) async {
     final applied = await controller.audioHandler.setEqualizerEnabled(value);
-    await _setPreference(
-      _equalizerKey,
-      value,
-      (next) => _equalizerEnabled = next,
-    );
+    setState(() => _equalizerEnabled = value);
     if (!applied && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -405,11 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool value,
   ) async {
     await controller.audioHandler.setThreeDSurroundEnabled(value);
-    await _setPreference(
-      _surroundKey,
-      value,
-      (next) => _surroundEnabled = next,
-    );
+    if (mounted) setState(() => _surroundEnabled = value);
     if (controller.audioHandler.equalizerError != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

@@ -49,7 +49,8 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   double _volume = 0.75;
   String? _gestureLabel;
   Timer? _gestureTimer;
-  bool _appResumed = true;
+  bool _appVisible = true;
+  bool? _lastKeepScreenOn;
 
   @override
   void initState() {
@@ -77,7 +78,11 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _appResumed = state == AppLifecycleState.resumed;
+    // Android may report inactive while transitioning into picture-in-picture.
+    // Keep the display flag for active video during that visible transition.
+    _appVisible =
+        state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
     _syncKeepScreenOn();
   }
 
@@ -102,7 +107,9 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     if (!Platform.isAndroid) return;
     final value = widget.controller.value;
     final keepScreenOn =
-        force ?? (_appResumed && value.isInitialized && value.isPlaying);
+        force ?? (_appVisible && value.isInitialized && value.isPlaying);
+    if (_lastKeepScreenOn == keepScreenOn) return;
+    _lastKeepScreenOn = keepScreenOn;
     unawaited(
       _platform
           .invokeMethod<void>('setKeepScreenOn', <String, bool>{

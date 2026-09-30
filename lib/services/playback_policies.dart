@@ -98,6 +98,19 @@ Duration sleepFadeDuration(Duration timerDuration) {
   return timerDuration < maximum ? timerDuration : maximum;
 }
 
+/// Formats a remaining timer value without truncating short durations to zero.
+String formatSleepTimerCountdown(Duration remaining) {
+  final totalSeconds = remaining.inSeconds.clamp(0, 24 * 60 * 60);
+  final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+  if (totalSeconds >= 3600) {
+    final hours = totalSeconds ~/ 3600;
+    final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
+  }
+  final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
 AudioServiceRepeatMode nextRepeatMode(AudioServiceRepeatMode mode) {
   return switch (mode) {
     AudioServiceRepeatMode.none => AudioServiceRepeatMode.one,

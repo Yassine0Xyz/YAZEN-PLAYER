@@ -61,6 +61,7 @@ void main() {
       position: const Duration(seconds: 42),
       playing: true,
       repeatMode: 3,
+      shuffleMode: 1,
       speed: 1.5,
     );
 
@@ -79,6 +80,7 @@ void main() {
       'positionMs': 42000,
       'playing': true,
       'repeatMode': 3,
+      'shuffleMode': 1,
       'speed': 1.5,
     });
 
@@ -88,6 +90,7 @@ void main() {
     expect(snapshot.position, const Duration(seconds: 42));
     expect(snapshot.playing, isTrue);
     expect(snapshot.repeatMode, 3);
+    expect(snapshot.shuffleMode, 1);
     expect(snapshot.speed, 1.5);
   });
 
@@ -225,6 +228,7 @@ void main() {
     expect(snapshot!.currentIndex, 0);
     expect(snapshot.position, const Duration(days: 1));
     expect(snapshot.playing, isTrue);
+    expect(snapshot.shuffleMode, 0);
   });
 }
 
