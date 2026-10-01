@@ -11,6 +11,7 @@ import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
 import 'services/startup_restore.dart';
+import 'widgets/now_playing_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -101,8 +102,9 @@ class HybridMusicApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: themeState.theme,
             builder:
-                (context, child) =>
-                    ThemeBackdrop(child: child ?? const SizedBox.shrink()),
+                (context, child) => NowPlayingScope(
+                  child: ThemeBackdrop(child: child ?? const SizedBox.shrink()),
+                ),
             home: const HomeScreen(),
           );
         },
