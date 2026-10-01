@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../core/theme/motion_tokens.dart';
 import '../../services/hybrid_audio_handler.dart';
 import '../../services/playback_policies.dart';
 import '../../models/media_track.dart';
@@ -57,6 +58,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   double? _draggedPosition;
   String? _lyricsItemId;
   Future<SyncedLyrics?>? _lyricsFuture;
+  int? _previousQueueIndex;
+  int _trackChangeDirection = 1;
 
   @override
   void initState() {
@@ -189,6 +192,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
           builder: (context, mediaSnapshot) {
             final item = mediaSnapshot.data;
             if (item == null) return const _NoTrackState();
+            final queueIndex = handler.player.currentIndex;
+            if (queueIndex != null &&
+                _previousQueueIndex != null &&
+                queueIndex != _previousQueueIndex) {
+              _trackChangeDirection =
+                  queueIndex > _previousQueueIndex! ? 1 : -1;
+            }
+            if (queueIndex != null) _previousQueueIndex = queueIndex;
 
             return StreamBuilder<PlaybackState>(
               stream: handler.playbackState,
@@ -275,29 +286,54 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                             handler,
                                             const Duration(seconds: 10),
                                           ),
-                                      child: Hero(
-                                        tag: 'track-art-${item.id}',
-                                        child:
-                                            _artworkStyle ==
-                                                    AudioArtworkStyle.lark
-                                                ? _LarkArtwork(
-                                                  key: ValueKey(
-                                                    'lark-${item.id}',
-                                                  ),
-                                                  artUri: item.artUri,
-                                                  track: activeTrack,
-                                                  isPlaying: isPlaying,
-                                                  size: recordSize,
-                                                )
-                                                : _AnimatedVinyl(
-                                                  key: ValueKey(
-                                                    'vinyl-${item.id}',
-                                                  ),
-                                                  artUri: item.artUri,
-                                                  track: activeTrack,
-                                                  isPlaying: isPlaying,
-                                                  size: recordSize,
+                                      child: AnimatedSwitcher(
+                                        duration: MotionTokens.base,
+                                        transitionBuilder: (child, animation) {
+                                          final begin = Offset(
+                                            _trackChangeDirection * 0.08,
+                                            0,
+                                          );
+                                          return FadeTransition(
+                                            opacity: animation,
+                                            child: SlideTransition(
+                                              position: Tween<Offset>(
+                                                begin: begin,
+                                                end: Offset.zero,
+                                              ).animate(
+                                                CurvedAnimation(
+                                                  parent: animation,
+                                                  curve: MotionTokens.standard,
                                                 ),
+                                              ),
+                                              child: child,
+                                            ),
+                                          );
+                                        },
+                                        child: Hero(
+                                          key: ValueKey('hero-art-${item.id}'),
+                                          tag: 'track-art-${item.id}',
+                                          child:
+                                              _artworkStyle ==
+                                                      AudioArtworkStyle.lark
+                                                  ? _LarkArtwork(
+                                                    key: ValueKey(
+                                                      'lark-${item.id}',
+                                                    ),
+                                                    artUri: item.artUri,
+                                                    track: activeTrack,
+                                                    isPlaying: isPlaying,
+                                                    size: recordSize,
+                                                  )
+                                                  : _AnimatedVinyl(
+                                                    key: ValueKey(
+                                                      'vinyl-${item.id}',
+                                                    ),
+                                                    artUri: item.artUri,
+                                                    track: activeTrack,
+                                                    isPlaying: isPlaying,
+                                                    size: recordSize,
+                                                  ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -325,10 +361,31 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                   ),
                                   const SizedBox(height: 20),
                                   AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    switchInCurve: Curves.easeOutCubic,
+                                    duration: MotionTokens.base,
+                                    transitionBuilder: (child, animation) {
+                                      final begin = Offset(
+                                        0,
+                                        _trackChangeDirection * 0.05,
+                                      );
+                                      return FadeTransition(
+                                        opacity: animation,
+                                        child: SlideTransition(
+                                          position: Tween<Offset>(
+                                            begin: begin,
+                                            end: Offset.zero,
+                                          ).animate(
+                                            CurvedAnimation(
+                                              parent: animation,
+                                              curve: MotionTokens.standard,
+                                            ),
+                                          ),
+                                          child: child,
+                                        ),
+                                      );
+                                    },
                                     child: _TrackMeta(
                                       key: ValueKey(item.id),
+                                      trackId: item.id,
                                       title: item.title,
                                       artist: item.artist ?? 'Unknown artist',
                                       source:
@@ -341,7 +398,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                     ),
                                   ),
                                   AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 260),
+                                    duration: MotionTokens.fast,
                                     child:
                                         _showLyrics
                                             ? LyricsView(
@@ -702,6 +759,7 @@ class _Artwork extends StatelessWidget {
 
 class _TrackMeta extends StatelessWidget {
   const _TrackMeta({
+    required this.trackId,
     required this.title,
     required this.artist,
     required this.source,
@@ -710,6 +768,7 @@ class _TrackMeta extends StatelessWidget {
     super.key,
   });
 
+  final String trackId;
   final String title;
   final String artist;
   final String? source;
@@ -721,16 +780,22 @@ class _TrackMeta extends StatelessWidget {
     final tokens = context.read<ThemeProvider>().tokens;
     return Column(
       children: <Widget>[
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontSize: 21,
-            height: 1.15,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.35,
+        Hero(
+          tag: 'track-title-$trackId',
+          child: Material(
+            color: Colors.transparent,
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontSize: 21,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.35,
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 7),

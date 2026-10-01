@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/theme_provider.dart';
+import '../core/theme/motion_tokens.dart';
 import '../models/media_track.dart';
 import '../services/playback_policies.dart';
 import 'echo_motion.dart';
 import 'media_artwork.dart';
 import 'play_pause_morph.dart';
+import 'mini_player_gesture_surface.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({
@@ -50,40 +52,10 @@ class MiniPlayer extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
-        var horizontalTravel = 0.0;
-        var verticalTravel = 0.0;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: (_) {
-            horizontalTravel = 0;
-            verticalTravel = 0;
-          },
-          onHorizontalDragUpdate: (details) {
-            horizontalTravel += details.delta.dx;
-            verticalTravel += details.delta.dy.abs();
-          },
-          onHorizontalDragCancel: () {
-            horizontalTravel = 0;
-            verticalTravel = 0;
-          },
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            const minimumTravel = 96.0;
-            if (horizontalTravel.abs() < minimumTravel ||
-                horizontalTravel.abs() < verticalTravel * 1.35 ||
-                velocity.abs() < 220) {
-              horizontalTravel = 0;
-              verticalTravel = 0;
-              return;
-            }
-            if (velocity < 0) {
-              onNext?.call();
-            } else {
-              onPrevious?.call();
-            }
-            horizontalTravel = 0;
-            verticalTravel = 0;
-          },
+        return MiniPlayerGestureSurface(
+          onNext: onNext,
+          onPrevious: onPrevious,
+          onExpand: onTap,
           child: EchoBreathingGlow(
             enabled: isPlaying,
             color: tokens.accentStrong,
@@ -124,7 +96,27 @@ class MiniPlayer extends StatelessWidget {
                       children: <Widget>[
                         Row(
                           children: <Widget>[
-                            RepaintBoundary(child: _MiniArtwork(item: item)),
+                            RepaintBoundary(
+                              child: AnimatedSwitcher(
+                                duration: MotionTokens.fast,
+                                transitionBuilder:
+                                    (child, animation) => FadeTransition(
+                                      opacity: animation,
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0.16, 0),
+                                          end: Offset.zero,
+                                        ).animate(animation),
+                                        child: child,
+                                      ),
+                                    ),
+                                child: Hero(
+                                  key: ValueKey('mini-art-${item.id}'),
+                                  tag: 'track-art-${item.id}',
+                                  child: _MiniArtwork(item: item),
+                                ),
+                              ),
+                            ),
                             const SizedBox(width: 11),
                             Expanded(
                               child: Column(
@@ -141,13 +133,34 @@ class MiniPlayer extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 3),
-                                  Text(
-                                    item.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: tokens.textPrimary,
-                                      fontWeight: FontWeight.w900,
+                                  AnimatedSwitcher(
+                                    duration: MotionTokens.fast,
+                                    transitionBuilder:
+                                        (child, animation) => FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin: const Offset(0.12, 0),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: child,
+                                          ),
+                                        ),
+                                    child: Hero(
+                                      key: ValueKey('mini-title-${item.id}'),
+                                      tag: 'track-title-${item.id}',
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: Text(
+                                          item.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: tokens.textPrimary,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 3),
