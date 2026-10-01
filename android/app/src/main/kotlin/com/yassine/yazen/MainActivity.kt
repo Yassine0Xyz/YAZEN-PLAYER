@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.media.audiofx.Visualizer
 import android.net.Uri
@@ -38,6 +39,7 @@ class MainActivity : AudioServiceActivity() {
     private var lastFftDiagnosticMs = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pcmExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val artworkExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var pcmGeneration = 0
     private var pcmState = "idle"
     private var pcmResult: PcmSpectrumAnalyzer.Result? = null
@@ -76,6 +78,11 @@ class MainActivity : AudioServiceActivity() {
                     "videoThumbnail" -> videoThumbnail(
                         call.argument<String>("uri"),
                         call.argument<Int>("width") ?: 640,
+                        result,
+                    )
+                    "readArtworkPixels" -> readArtworkPixels(
+                        call.argument<String>("uri"),
+                        call.argument<Int>("size") ?: 64,
                         result,
                     )
                     else -> result.notImplemented()
@@ -389,6 +396,7 @@ class MainActivity : AudioServiceActivity() {
         stopAudioVisualizer()
         stopPcmAnalyzer()
         pcmExecutor.shutdownNow()
+        artworkExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -442,6 +450,58 @@ class MainActivity : AudioServiceActivity() {
             result.success(null)
         } catch (_: Exception) {
             result.success(null)
+        }
+    }
+
+    private fun readArtworkPixels(
+        uriString: String?,
+        requestedSize: Int,
+        result: MethodChannel.Result,
+    ) {
+        if (uriString.isNullOrBlank()) {
+            result.success(null)
+            return
+        }
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+        if (uri == null) {
+            result.success(null)
+            return
+        }
+        val size = requestedSize.coerceIn(16, 128)
+        artworkExecutor.execute {
+            val pixels = try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { input ->
+                    BitmapFactory.decodeStream(input, null, bounds)
+                }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    null
+                } else {
+                    var sample = 1
+                    while (bounds.outWidth / (sample * 2) >= size &&
+                        bounds.outHeight / (sample * 2) >= size
+                    ) {
+                        sample *= 2
+                    }
+                    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                    val decoded = contentResolver.openInputStream(uri)?.use { input ->
+                        BitmapFactory.decodeStream(input, null, options)
+                    }
+                    if (decoded == null) {
+                        null
+                    } else {
+                        val scaled = Bitmap.createScaledBitmap(decoded, size, size, true)
+                        val output = IntArray(size * size)
+                        scaled.getPixels(output, 0, size, 0, 0, size, size)
+                        if (scaled !== decoded) scaled.recycle()
+                        decoded.recycle()
+                        output.toList()
+                    }
+                }
+            } catch (_: Exception) {
+                null
+            }
+            mainHandler.post { result.success(pixels) }
         }
     }
 

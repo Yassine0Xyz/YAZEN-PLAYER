@@ -7,6 +7,7 @@ import '../models/media_track.dart';
 import '../services/playback_policies.dart';
 import 'echo_motion.dart';
 import 'media_artwork.dart';
+import 'play_pause_morph.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({
@@ -190,30 +191,15 @@ class MiniPlayer extends StatelessWidget {
                                 color: tokens.textSecondary,
                                 onPressed: onPrevious!,
                               ),
-                            IconButton.filled(
-                              tooltip: isPlaying ? 'Pause' : 'Play',
+                            PlayPauseMorph(
+                              playing: isPlaying,
                               onPressed: onPlayPause,
-                              style: IconButton.styleFrom(
-                                backgroundColor: tokens.accent,
-                                foregroundColor:
-                                    tokens.isLight
-                                        ? Colors.white
-                                        : Colors.black,
-                              ),
-                              icon: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 220),
-                                transitionBuilder:
-                                    (child, animation) => ScaleTransition(
-                                      scale: animation,
-                                      child: child,
-                                    ),
-                                child: Icon(
-                                  isPlaying
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                  key: ValueKey<bool>(isPlaying),
-                                ),
-                              ),
+                              tooltip: isPlaying ? 'Pause' : 'Play',
+                              minimumSize: const Size(44, 44),
+                              iconSize: 23,
+                              backgroundColor: tokens.accent,
+                              foregroundColor:
+                                  tokens.isLight ? Colors.white : Colors.black,
                             ),
                             if (onNext != null)
                               _DockAction(

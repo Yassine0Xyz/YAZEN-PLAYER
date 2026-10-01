@@ -5,6 +5,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../models/media_track.dart';
 import '../../../widgets/echo_motion.dart';
 import '../../../widgets/media_artwork.dart';
+import '../../../widgets/now_playing_scope.dart';
 
 class TrackListTile extends StatelessWidget {
   const TrackListTile({
@@ -31,6 +32,8 @@ class TrackListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.watch<ThemeProvider>().tokens;
+    final nowPlaying = nowPlayingRowStateOf(context, track.id);
+    final isCurrentTrack = nowPlaying?.isCurrent ?? false;
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 470;
@@ -57,6 +60,29 @@ class TrackListTile extends StatelessWidget {
                             track: track,
                             size: compact ? 58 : 64,
                           ),
+                          if (isCurrentTrack)
+                            Positioned(
+                              right: 3,
+                              bottom: 3,
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: tokens.surface.withValues(alpha: 0.92),
+                                  borderRadius: BorderRadius.circular(9),
+                                  border: Border.all(
+                                    color: tokens.accent.withValues(alpha: 0.6),
+                                  ),
+                                ),
+                                child: NowPlayingIndicator(
+                                  isCurrent: true,
+                                  isPlaying: nowPlaying!.isPlaying,
+                                  pulse: nowPlaying.pulse,
+                                  color: tokens.accentStrong,
+                                ),
+                              ),
+                            ),
                           if (selected)
                             Positioned.fill(
                               child: DecoratedBox(
@@ -88,6 +114,7 @@ class TrackListTile extends StatelessWidget {
                               style: Theme.of(
                                 context,
                               ).textTheme.titleSmall?.copyWith(
+                                color: isCurrentTrack ? tokens.accent : null,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.1,
                               ),

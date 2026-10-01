@@ -1,13 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../services/linux_pcm_spectrum_service.dart';
+import '../services/playback_energy_service.dart';
 import '../services/visualizer_settings.dart';
 
 enum AudioVisualizerProfile { compact, full }
@@ -53,10 +51,6 @@ class AudioVisualizer extends StatefulWidget {
 
 class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
-  static const _channel = MethodChannel('yazen/audio_visualizer');
-  static const _readInterval = Duration(milliseconds: 40);
-
-  Timer? _readTimer;
   StreamSubscription<Duration>? _positionSubscription;
   late final Ticker _renderTicker;
   final ValueNotifier<int> _painterRepaint = ValueNotifier<int>(0);
@@ -65,8 +59,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _painterRepaint,
     _liveProgress,
   ]);
-  Future<void> _lifecycleTail = Future<void>.value();
   final _visualizerSettings = VisualizerSettings.instance;
+  final PlaybackEnergyService _energyService = PlaybackEnergyService.instance;
+  PlaybackEnergyConsumer? _energyConsumer;
+  bool _energyVisible = true;
 
   Duration _livePosition = Duration.zero;
   DateTime? _positionAnchorAt;
@@ -74,11 +70,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   List<double> _lastRawBands = const <double>[];
   List<double> _displayLevels = const <double>[];
   List<double> _displayPeaks = const <double>[];
-  bool _attached = false;
   bool _hasRealSignal = false;
-  bool _readInFlight = false;
-  int _generation = 0;
-  String _mode = 'idle';
   Duration? _lastTick;
 
   @override
@@ -90,9 +82,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     if (widget.playing) _renderTicker.start();
     _visualizerSettings.addListener(_onVisualizerSettingsChanged);
     unawaited(_visualizerSettings.load());
+    _energyService.energy.addListener(_onEnergyChanged);
+    _energyConsumer = _energyService.attachConsumer(
+      sourceUri: widget.sourceUri,
+      positionMs: _livePosition.inMilliseconds,
+      playing: widget.playing,
+      visible: _energyVisible,
+    );
     _bindPositionStream();
     _resetBands();
-    _synchronize();
   }
 
   @override
@@ -115,13 +113,23 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       }
     }
     _updateProgress();
+    _updateEnergyConsumer();
     if (oldWidget.playing != widget.playing ||
         oldWidget.sourceUri != widget.sourceUri ||
         oldWidget.barCount != widget.barCount ||
         oldWidget.seed != widget.seed) {
       _livePosition = widget.position ?? Duration.zero;
       _resetBands();
-      _synchronize();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.of(context);
+    if (visible != _energyVisible) {
+      _energyVisible = visible;
+      _updateEnergyConsumer();
     }
   }
 
@@ -143,6 +151,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _livePosition = position;
       _positionAnchorAt = widget.playing ? DateTime.now() : null;
       _updateProgress();
+      _energyConsumer?.update(positionMs: position.inMilliseconds);
     });
   }
 
@@ -165,101 +174,25 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     return estimated;
   }
 
-  void _synchronize() {
-    final generation = ++_generation;
-    _lifecycleTail = _lifecycleTail.then((_) async {
-      await _stopSource();
-      if (!mounted || generation != _generation || !widget.playing) return;
-      await _startSource(generation);
-    });
+  void _updateEnergyConsumer() {
+    _energyConsumer?.update(
+      sourceUri: widget.sourceUri ?? '',
+      positionMs: _effectivePosition.inMilliseconds,
+      playing: widget.playing,
+      visible: _energyVisible,
+    );
   }
 
-  Future<void> _startSource(int generation) async {
-    final uri = widget.sourceUri;
-    if (uri == null || uri.isEmpty) {
-      _setUnavailable('waiting_for_local_source');
+  void _onEnergyChanged() {
+    final energy = _energyService.energy.value;
+    if (energy.available && energy.bands.isNotEmpty) {
+      _setRealFrame(energy.bands);
       return;
     }
-
-    bool started = false;
-    String mode = 'unavailable';
-    try {
-      if (Platform.isLinux) {
-        started = await LinuxPcmSpectrumService.instance.start(uri);
-        mode = 'linux_pcm_file';
-      } else if (Platform.isAndroid) {
-        final response = await _channel.invokeMethod<dynamic>(
-          'startPcm',
-          <String, Object?>{'uri': uri},
-        );
-        started =
-            response is Map<dynamic, dynamic> && response['started'] == true;
-        mode = 'android_pcm_file';
-      }
-    } on MissingPluginException {
-      started = false;
-    } on PlatformException {
-      started = false;
-    }
-
-    if (!mounted || generation != _generation || !widget.playing) {
-      if (started) await _stopSource();
-      return;
-    }
-
-    _attached = started;
-    _positionAnchorAt = started && widget.playing ? DateTime.now() : null;
-    _mode = started ? mode : 'unavailable';
+    if (!_hasRealSignal) return;
     _hasRealSignal = false;
-    _readInFlight = false;
-    _readTimer?.cancel();
-    _readTimer =
-        started
-            ? Timer.periodic(_readInterval, (_) => unawaited(_readFrame()))
-            : null;
-    if (widget.playing && !_renderTicker.isActive) _renderTicker.start();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _readFrame() async {
-    if (!_attached || !widget.playing || _readInFlight) return;
-    final generation = _generation;
-    _readInFlight = true;
-    try {
-      final response =
-          Platform.isLinux
-              ? LinuxPcmSpectrumService.instance.read(
-                _effectivePosition.inMilliseconds,
-              )
-              : await _channel.invokeMethod<dynamic>(
-                'readPcm',
-                <String, Object?>{
-                  'positionMs': _effectivePosition.inMilliseconds,
-                },
-              );
-      if (!mounted ||
-          !widget.playing ||
-          !_attached ||
-          generation != _generation) {
-        return;
-      }
-      if (response is! Map<dynamic, dynamic>) return;
-      if (response['state']?.toString() != 'live') return;
-      final rawBands = response['bands'];
-      if (rawBands is! List<dynamic>) return;
-      final bands = rawBands
-          .whereType<num>()
-          .map((value) => value.toDouble().clamp(0.0, 1.0))
-          .toList(growable: false);
-      if (bands.isEmpty) return;
-      _setRealFrame(bands);
-    } on MissingPluginException {
-      if (generation == _generation) _setUnavailable('pcm_bridge_missing');
-    } on PlatformException {
-      if (generation == _generation) _setUnavailable('pcm_read_failed');
-    } finally {
-      _readInFlight = false;
-    }
+    _lastTick = null;
+    _resetBands();
   }
 
   void _setRealFrame(List<double> bands) {
@@ -282,7 +215,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _targetLevels = next;
     if (!_hasRealSignal) {
       _hasRealSignal = true;
-      _mode = _mode == 'idle' ? 'pcm' : _mode;
       _lastTick = null;
       if (!_renderTicker.isActive) _renderTicker.start();
       if (mounted) setState(() {});
@@ -342,42 +274,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     if (changed) _painterRepaint.value++;
   }
 
-  void _setUnavailable(String mode) {
-    _attached = false;
-    _hasRealSignal = false;
-    _mode = mode;
-    _readTimer?.cancel();
-    _readTimer = null;
-    _renderTicker.stop();
-    _lastTick = null;
-    if (widget.playing && !_renderTicker.isActive) _renderTicker.start();
-    _resetBands();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _stopSource() async {
-    _readTimer?.cancel();
-    _readTimer = null;
-    _renderTicker.stop();
-    _lastTick = null;
-    _positionAnchorAt = null;
-    _readInFlight = false;
-    _attached = false;
-    _hasRealSignal = false;
-    _mode = 'idle';
-    _resetBands();
-    if (Platform.isLinux) {
-      await LinuxPcmSpectrumService.instance.stop();
-    }
-    try {
-      await _channel.invokeMethod<void>('stopPcm');
-    } on MissingPluginException {
-      // No native bridge exists on this platform.
-    } on PlatformException {
-      // There is no active PCM session to stop.
-    }
-  }
-
   void _resetBands() {
     final count = math.max(1, widget.barCount);
     _targetLevels = List<double>.filled(count, 0.0);
@@ -398,17 +294,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   @override
   void dispose() {
-    _generation++;
     _visualizerSettings.removeListener(_onVisualizerSettingsChanged);
+    _energyService.energy.removeListener(_onEnergyChanged);
+    _energyConsumer?.dispose();
     _positionSubscription?.cancel();
-    _readTimer?.cancel();
     _renderTicker.dispose();
     _painterRepaint.dispose();
     _liveProgress.dispose();
-    if (Platform.isLinux) {
-      unawaited(LinuxPcmSpectrumService.instance.stop());
-    }
-    unawaited(_channel.invokeMethod<void>('stopPcm').catchError((_) {}));
     super.dispose();
   }
 

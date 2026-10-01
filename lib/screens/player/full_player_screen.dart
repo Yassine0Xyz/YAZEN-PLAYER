@@ -15,6 +15,7 @@ import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/audio_visualizer.dart';
 import '../../widgets/media_artwork.dart';
+import '../../widgets/play_pause_morph.dart';
 import '../effects/equalizer_screen.dart';
 
 enum AudioArtworkStyle { lark, vinyl }
@@ -926,30 +927,16 @@ class _TransportControls extends StatelessWidget {
                 EchoBreathingGlow(
                   enabled: isPlaying && !isBuffering,
                   color: tokens.accentStrong,
-                  child: IconButton.filled(
+                  child: PlayPauseMorph(
+                    playing: isPlaying,
                     tooltip: isPlaying ? 'Pause' : 'Play',
                     onPressed: onPlayPause,
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(68, 68),
-                      backgroundColor: tokens.accent,
-                      foregroundColor:
-                          tokens.isLight ? Colors.white : Colors.black,
-                    ),
-                    icon:
-                        isBuffering
-                            ? const SizedBox.square(
-                              dimension: 26,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3,
-                                color: Colors.black,
-                              ),
-                            )
-                            : Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              size: 36,
-                            ),
+                    minimumSize: const Size(68, 68),
+                    iconSize: 36,
+                    backgroundColor: tokens.accent,
+                    foregroundColor:
+                        tokens.isLight ? Colors.white : Colors.black,
+                    buffering: isBuffering,
                   ),
                 ),
                 EchoIconButton(
