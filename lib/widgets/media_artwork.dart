@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -27,42 +28,85 @@ class YazenMediaArtwork extends StatefulWidget {
 }
 
 class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
-  static final Map<String, Uint8List> _memoryCache = <String, Uint8List>{};
+  static const int _maxArtworkPixels = 2048;
+  static const int _minArtworkPixels = 256;
+  static const int _maxCacheBytes = 32 * 1024 * 1024;
+  static final LinkedHashMap<String, Uint8List> _memoryCache =
+      LinkedHashMap<String, Uint8List>();
+  static int _memoryCacheBytes = 0;
+
   final _audioQuery = OnAudioQuery();
-  Future<Uint8List?>? _future;
+  Future<Uint8List?>? _future = Future<Uint8List?>.value();
   Uint8List? _lastBytes;
   String? _cacheKey;
+  int _requestedPixels = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _startLoad();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _startLoad(_pixelSize(context));
   }
 
   @override
   void didUpdateWidget(covariant YazenMediaArtwork oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final nextKey = _keyFor(widget.track);
-    if (nextKey != _cacheKey) _startLoad();
+    _startLoad(_pixelSize(context));
   }
 
-  String? _keyFor(MediaTrack? track) {
+  int _pixelSize(BuildContext context) =>
+      (widget.size * MediaQuery.devicePixelRatioOf(context))
+          .ceil()
+          .clamp(_minArtworkPixels, _maxArtworkPixels)
+          .toInt();
+
+  String? _keyFor(MediaTrack? track, int pixels) {
     if (track == null) return null;
-    return '${track.source.name}:${track.id}:${track.artworkUri}';
+    final base = '${track.source.name}:${track.id}:${track.artworkUri}';
+    // Local artwork is downsampled by Android's loadThumbnail. Keep separate
+    // cache entries so a tiny list image never becomes the full-player cover.
+    return track.isLocal ? '$base:$pixels' : base;
   }
 
-  void _startLoad() {
-    _cacheKey = _keyFor(widget.track);
-    final cached = _cacheKey == null ? null : _memoryCache[_cacheKey!];
-    // Keep the previous frame visible until the replacement artwork is ready.
-    // Clearing this immediately creates a blank flash during track changes.
+  Uint8List? _readCache(String key) {
+    final bytes = _memoryCache.remove(key);
+    if (bytes != null) _memoryCache[key] = bytes;
+    return bytes;
+  }
+
+  void _writeCache(String key, Uint8List bytes) {
+    final previous = _memoryCache.remove(key);
+    if (previous != null) _memoryCacheBytes -= previous.length;
+    if (bytes.length > _maxCacheBytes) return;
+    _memoryCache[key] = bytes;
+    _memoryCacheBytes += bytes.length;
+    while (_memoryCacheBytes > _maxCacheBytes) {
+      final oldestKey = _memoryCache.keys.first;
+      final oldestBytes = _memoryCache.remove(oldestKey);
+      if (oldestBytes != null) _memoryCacheBytes -= oldestBytes.length;
+    }
+  }
+
+  void _startLoad(int pixels) {
+    final key = _keyFor(widget.track, pixels);
+    if (key == _cacheKey && pixels == _requestedPixels) return;
+    _cacheKey = key;
+    _requestedPixels = pixels;
+    final cached = key == null ? null : _readCache(key);
+    // Keep the previous frame visible until replacement art is ready; cached
+    // low-resolution art is still replaced by its high-resolution variant.
     if (cached != null && cached.isNotEmpty) _lastBytes = cached;
-    _future = _load(widget.track, _cacheKey);
+    _future =
+        cached == null
+            ? _load(widget.track, key, pixels)
+            : Future<Uint8List?>.value(cached);
   }
 
-  Future<Uint8List?> _load(MediaTrack? track, String? key) async {
+  Future<Uint8List?> _load(MediaTrack? track, String? key, int pixels) async {
     if (track == null) return null;
-    if (key != null && _memoryCache.containsKey(key)) return _memoryCache[key];
+    if (key != null) {
+      final cached = _readCache(key);
+      if (cached != null) return cached;
+    }
 
     Uint8List? bytes;
     if (track.isLocal) {
@@ -72,7 +116,7 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
           id,
           ArtworkType.AUDIO,
           format: ArtworkFormat.JPEG,
-          size: widget.size.round().clamp(120, 1200),
+          size: pixels,
           quality: 100,
         );
       }
@@ -88,7 +132,7 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
       }
     }
     if (bytes != null && bytes.isNotEmpty && key != null) {
-      _memoryCache[key] = bytes;
+      _writeCache(key, bytes);
     }
     return bytes;
   }
@@ -115,6 +159,8 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
               height: widget.size,
               fit: BoxFit.cover,
               gaplessPlayback: true,
+              cacheWidth: _requestedPixels,
+              cacheHeight: _requestedPixels,
             );
           }
           return Container(

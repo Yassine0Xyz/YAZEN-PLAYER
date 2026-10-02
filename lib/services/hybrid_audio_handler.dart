@@ -15,6 +15,8 @@ import 'equalizer_settings_store.dart';
 /// Single source of truth for local audio playback and queue metadata.
 class HybridAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
+  static const String _notificationStopAction = 'yazen.stop';
+
   factory HybridAudioHandler({
     AudioPlayer? player,
     PlaybackStateStore? playbackStore,
@@ -606,7 +608,7 @@ class HybridAudioHandler extends BaseAudioHandler
       ..add(track);
     _publishQueueState(<MediaItem>[item], 0);
     _persistQueueAndProgress();
-    if (autoPlay && stillCurrent()) await play();
+    if (autoPlay && stillCurrent()) _startPlaybackWithoutHoldingQueue();
   }
 
   Future<void> playTrackQueue(List<MediaTrack> tracks, {int initialIndex = 0}) {
@@ -657,7 +659,7 @@ class HybridAudioHandler extends BaseAudioHandler
       ..addAll(tracks);
     _publishQueueState(items, initialIndex);
     _persistQueueAndProgress();
-    if (stillCurrent()) await play();
+    if (stillCurrent()) _startPlaybackWithoutHoldingQueue();
   }
 
   Future<void> addToQueue(MediaTrack track) => _runQueueMutation(() async {
@@ -824,9 +826,22 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> play() async {
     _interruptionCoordinator.onUserPlay();
-    await _player.play();
+    final playback = _player.play();
     _syncProgressSaveTimer();
     _persistPlayback();
+    _broadcastPlaybackState();
+    await playback;
+    _syncProgressSaveTimer();
+    _persistPlayback();
+  }
+
+  void _startPlaybackWithoutHoldingQueue() {
+    unawaited(
+      play().catchError((Object _) {
+        // The player streams report ongoing state; don't hold the queue lock
+        // while just_audio's play future waits for the track to finish.
+      }),
+    );
   }
 
   @override
@@ -856,6 +871,18 @@ class HybridAudioHandler extends BaseAudioHandler
       await _playbackStore.clear();
       await super.stop();
     });
+  }
+
+  @override
+  Future<dynamic> customAction(
+    String name, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    if (name == _notificationStopAction) {
+      await stop();
+      return null;
+    }
+    return super.customAction(name, extras);
   }
 
   @override
@@ -1027,18 +1054,20 @@ class HybridAudioHandler extends BaseAudioHandler
       PlaybackState(
         controls: <MediaControl>[
           MediaControl.skipToPrevious,
-          MediaControl.rewind,
           if (_player.playing) MediaControl.pause else MediaControl.play,
-          MediaControl.fastForward,
           MediaControl.skipToNext,
-          MediaControl.stop,
+          MediaControl.custom(
+            androidIcon: 'drawable/yazen_notification_close',
+            label: 'Stop playback',
+            name: _notificationStopAction,
+          ),
         ],
         systemActions: const <MediaAction>{
           MediaAction.seek,
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
-        androidCompactActionIndices: const <int>[0, 2, 4],
+        androidCompactActionIndices: const <int>[0, 1, 2],
         processingState: processingState,
         playing: _player.playing,
         updatePosition: _player.position,

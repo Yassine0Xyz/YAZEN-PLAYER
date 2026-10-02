@@ -110,6 +110,57 @@ void main() {
   });
 
   test(
+    'track replacement and notification stop do not wait for song end',
+    () async {
+      final player = _FakeAudioPlayer();
+      final firstPlaybackGate = Completer<void>();
+      player.nextPlayGate = firstPlaybackGate;
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+
+      final firstSelection = handler.playTrackQueue(<MediaTrack>[
+        _track(0),
+        _track(1),
+      ]);
+      for (var attempt = 0; attempt < 100 && !player.playing; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(player.playing, isTrue);
+      await firstSelection.timeout(const Duration(seconds: 1));
+
+      await handler.playTrack(_track(2)).timeout(const Duration(seconds: 1));
+      expect(handler.activeTrack?.id, _track(2).id);
+      expect(handler.queueTracks.map((track) => track.id), <String>[
+        _track(2).id,
+      ]);
+      expect(player.playing, isTrue);
+
+      final state = await handler.playbackState.first;
+      expect(
+        state.controls.any(
+          (control) =>
+              control.action == MediaAction.custom &&
+              control.customAction?.name == 'yazen.stop',
+        ),
+        isTrue,
+      );
+      await handler
+          .customAction('yazen.stop')
+          .timeout(const Duration(seconds: 1));
+      expect(handler.queueTracks, isEmpty);
+      expect(handler.activeTrack, isNull);
+      expect(player.sequence, isEmpty);
+      expect(player.playing, isFalse);
+
+      if (!firstPlaybackGate.isCompleted) firstPlaybackGate.complete();
+      await handler.dispose();
+      await player.close();
+    },
+  );
+
+  test(
     'restore skips missing files and remaps a missing current track',
     () async {
       final directory = await Directory.systemTemp.createTemp('yazen-restore-');
@@ -313,6 +364,8 @@ class _FakeAudioPlayer implements AudioPlayer {
   Duration? _duration;
   LoopMode _loopMode = LoopMode.off;
   bool failNextAddAfterMutation = false;
+  Completer<void>? nextPlayGate;
+  Completer<void>? _activePlayGate;
 
   @override
   Stream<int?> get currentIndexStream => _currentIndexController.stream;
@@ -463,6 +516,11 @@ class _FakeAudioPlayer implements AudioPlayer {
   @override
   Future<void> play() async {
     _playing = true;
+    final gate = nextPlayGate;
+    nextPlayGate = null;
+    _activePlayGate = gate;
+    if (gate != null) await gate.future;
+    if (identical(_activePlayGate, gate)) _activePlayGate = null;
   }
 
   @override
@@ -474,6 +532,8 @@ class _FakeAudioPlayer implements AudioPlayer {
   Future<void> stop() async {
     _playing = false;
     _position = Duration.zero;
+    final gate = _activePlayGate;
+    if (gate != null && !gate.isCompleted) gate.complete();
   }
 
   @override

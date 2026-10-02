@@ -264,6 +264,7 @@ class MiniPlayer extends StatelessWidget {
                                         icon: Icons.close_rounded,
                                         color: tokens.textSecondary,
                                         onPressed: onDismiss ?? onStop,
+                                        size: 44,
                                       ),
                                     ],
                                   ),
@@ -370,12 +371,14 @@ class _DockAction extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onPressed,
+    this.size = 34,
   });
 
   final String tooltip;
   final IconData icon;
   final Color color;
   final VoidCallback onPressed;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +387,7 @@ class _DockAction extends StatelessWidget {
       onPressed: onPressed,
       icon: icon,
       color: color,
-      size: 34,
+      size: size,
     );
   }
 }
