@@ -7,6 +7,8 @@ import '../../core/theme/theme_provider.dart';
 import '../../services/visualizer_settings.dart';
 import '../../services/haptic_settings.dart';
 import '../../services/playback_policies.dart';
+import '../../services/dynamic_color_settings.dart';
+import '../../services/smoke_effect_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -26,6 +28,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _equalizerEnabled = true;
   bool _surroundEnabled = false;
   bool _hapticFeedbackEnabled = true;
+  bool _dynamicColorsEnabled = true;
+  bool _smokeEffectEnabled = true;
   double _playbackSpeed = 1.0;
   bool _preferencesLoaded = false;
 
@@ -60,16 +64,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SectionLabel(label: 'Appearance', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
-            child: RadioGroup<EchoThemePreset>(
-              groupValue: theme.preset,
-              onChanged: (value) {
-                if (value != null) theme.setPreset(value);
-              },
-              child: Column(
-                children: EchoThemePreset.values
-                    .map((preset) => _ThemeOption(preset: preset))
-                    .toList(growable: false),
-              ),
+            child: Column(
+              children: <Widget>[
+                RadioGroup<EchoThemePreset>(
+                  groupValue: theme.preset,
+                  onChanged: (value) {
+                    if (value != null) theme.setPreset(value);
+                  },
+                  child: Column(
+                    children: EchoThemePreset.values
+                        .map((preset) => _ThemeOption(preset: preset))
+                        .toList(growable: false),
+                  ),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                _PreferenceSwitch(
+                  icon: Icons.color_lens_outlined,
+                  title: 'Dynamic colors from artwork',
+                  subtitle: 'Tint the player with colors from the album art',
+                  value: _dynamicColorsEnabled,
+                  enabled: _preferencesLoaded,
+                  onChanged: _setDynamicColors,
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
@@ -264,6 +281,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ? (value) => settings.setNoiseGate(value)
                               : null,
                     ),
+                    Divider(color: tokens.divider, height: 1),
+                    _PreferenceSwitch(
+                      icon: Icons.cloud_outlined,
+                      title: SmokeEffectSettings.title,
+                      subtitle: SmokeEffectSettings.subtitle,
+                      value: _smokeEffectEnabled,
+                      enabled: _preferencesLoaded,
+                      onChanged: _setSmokeEffect,
+                    ),
                   ],
                 ),
               );
@@ -297,12 +323,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final preferences = await SharedPreferences.getInstance();
     await VisualizerSettings.instance.load();
     await HapticSettings.instance.load();
+    await DynamicColorSettings.instance.load();
+    await SmokeEffectSettings.instance.load();
     await controller.audioHandler.equalizerSettingsReady;
     if (!mounted) return;
     setState(() {
       _equalizerEnabled = controller.audioHandler.equalizerEnabled;
       _surroundEnabled = controller.audioHandler.threeDSurroundEnabled;
       _hapticFeedbackEnabled = HapticSettings.instance.enabled;
+      _dynamicColorsEnabled = DynamicColorSettings.instance.enabled;
+      _smokeEffectEnabled = SmokeEffectSettings.instance.enabled;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;
       _preferencesLoaded = true;
     });
@@ -314,6 +344,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setHapticFeedback(bool value) async {
     setState(() => _hapticFeedbackEnabled = value);
     await HapticSettings.instance.setEnabled(value);
+  }
+
+  Future<void> _setDynamicColors(bool value) async {
+    setState(() => _dynamicColorsEnabled = value);
+    await DynamicColorSettings.instance.setEnabled(value);
+  }
+
+  Future<void> _setSmokeEffect(bool value) async {
+    setState(() => _smokeEffectEnabled = value);
+    await SmokeEffectSettings.instance.setEnabled(value);
   }
 
   Future<void> _setSpeed(HybridMusicController controller, double value) async {

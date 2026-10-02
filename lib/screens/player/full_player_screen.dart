@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
@@ -12,8 +13,12 @@ import '../../services/hybrid_audio_handler.dart';
 import '../../services/playback_policies.dart';
 import '../../models/media_track.dart';
 import '../../services/lyrics_service.dart';
+import '../../services/artwork_palette_service.dart';
+import '../../services/dynamic_color_settings.dart';
+import '../../services/smoke_effect_settings.dart';
 import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
+import '../../widgets/smoke_layer.dart';
 import '../../widgets/audio_visualizer.dart';
 import '../../widgets/media_artwork.dart';
 import '../../widgets/play_pause_morph.dart';
@@ -60,11 +65,58 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   Future<SyncedLyrics?>? _lyricsFuture;
   int? _previousQueueIndex;
   int _trackChangeDirection = 1;
+  String? _paletteRequestKey;
+  final ArtworkPaletteService _paletteService = ArtworkPaletteService.instance;
 
   @override
   void initState() {
     super.initState();
+    _paletteService.current.addListener(_onPaletteChanged);
+    DynamicColorSettings.instance.addListener(_onDynamicColorSettingsChanged);
     _loadArtworkStyle();
+    unawaited(DynamicColorSettings.instance.load());
+    unawaited(SmokeEffectSettings.instance.load());
+  }
+
+  void _onPaletteChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onDynamicColorSettingsChanged() {
+    if (!mounted) return;
+    _paletteRequestKey = null;
+    final track = context.read<HybridMusicController>().activeTrack;
+    _syncArtworkPalette(track, context.read<ThemeProvider>().tokens);
+    setState(() {});
+  }
+
+  void _syncArtworkPalette(MediaTrack? track, ThemeTokens tokens) {
+    final enabled = DynamicColorSettings.instance.enabled;
+    final requestKey =
+        enabled
+            ? '${track?.id ?? 'none'}:${tokens.accent.toARGB32()}:${tokens.background.toARGB32()}'
+            : 'disabled';
+    if (_paletteRequestKey == requestKey) return;
+    _paletteRequestKey = requestKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _paletteRequestKey != requestKey) return;
+      unawaited(
+        _paletteService.setCurrentTrack(
+          enabled ? track : null,
+          themeAccent: tokens.accent,
+          surface: tokens.background,
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _paletteService.current.removeListener(_onPaletteChanged);
+    DynamicColorSettings.instance.removeListener(
+      _onDynamicColorSettingsChanged,
+    );
+    super.dispose();
   }
 
   Future<void> _loadArtworkStyle() async {
@@ -183,309 +235,413 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
     final handler = controller.audioHandler;
+    final tokens = context.watch<ThemeProvider>().tokens;
+    final dynamicColors = DynamicColorSettings.instance.enabled;
+    final palette = _paletteService.current.value;
+    final accentColor = dynamicColors ? palette.safeAccent : tokens.accent;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: StreamBuilder<MediaItem?>(
-          stream: handler.mediaItem,
-          builder: (context, mediaSnapshot) {
-            final item = mediaSnapshot.data;
-            if (item == null) return const _NoTrackState();
-            final queueIndex = handler.player.currentIndex;
-            if (queueIndex != null &&
-                _previousQueueIndex != null &&
-                queueIndex != _previousQueueIndex) {
-              _trackChangeDirection =
-                  queueIndex > _previousQueueIndex! ? 1 : -1;
-            }
-            if (queueIndex != null) _previousQueueIndex = queueIndex;
+      backgroundColor: tokens.background,
+      body: TweenAnimationBuilder<Color?>(
+        tween: ColorTween(end: accentColor),
+        duration: const Duration(milliseconds: 800),
+        builder:
+            (context, animatedAccent, child) => DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[
+                    tokens.background,
+                    (animatedAccent ?? tokens.accent).withValues(alpha: 0.11),
+                    tokens.background,
+                  ],
+                  stops: const <double>[0, 0.48, 1],
+                ),
+              ),
+              child: child,
+            ),
+        child: SafeArea(
+          child: StreamBuilder<MediaItem?>(
+            stream: handler.mediaItem,
+            builder: (context, mediaSnapshot) {
+              final item = mediaSnapshot.data;
+              if (item == null) return const _NoTrackState();
+              final queueIndex = handler.player.currentIndex;
+              if (queueIndex != null &&
+                  _previousQueueIndex != null &&
+                  queueIndex != _previousQueueIndex) {
+                _trackChangeDirection =
+                    queueIndex > _previousQueueIndex! ? 1 : -1;
+              }
+              if (queueIndex != null) _previousQueueIndex = queueIndex;
 
-            return StreamBuilder<PlaybackState>(
-              stream: handler.playbackState,
-              builder: (context, playbackSnapshot) {
-                final playbackState = playbackSnapshot.data;
-                final isPlaying = playbackState?.playing ?? false;
-                final isBuffering =
-                    playbackState?.processingState ==
-                        AudioProcessingState.buffering ||
-                    playbackState?.processingState ==
-                        AudioProcessingState.loading;
+              return StreamBuilder<PlaybackState>(
+                stream: handler.playbackState,
+                builder: (context, playbackSnapshot) {
+                  final playbackState = playbackSnapshot.data;
+                  final isPlaying = playbackState?.playing ?? false;
+                  final isBuffering =
+                      playbackState?.processingState ==
+                          AudioProcessingState.buffering ||
+                      playbackState?.processingState ==
+                          AudioProcessingState.loading;
 
-                final activeTrack = handler.activeTrack;
-                final isFavorite =
-                    activeTrack != null && controller.isFavorite(activeTrack);
-                return Column(
-                  children: <Widget>[
-                    _TopBar(
-                      item: item,
-                      onClose: () => Navigator.of(context).maybePop(),
-                      onEffects: () => _showAudioControls(context, handler),
-                    ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final recordSize =
-                              math
-                                  .min(
-                                    constraints.maxWidth - 48,
-                                    math.max(220, constraints.maxHeight * 0.40),
-                                  )
-                                  .toDouble();
-                          var horizontalTravel = 0.0;
-                          var verticalTravel = 0.0;
-                          return GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onHorizontalDragStart: (_) {
-                              horizontalTravel = 0;
-                              verticalTravel = 0;
-                            },
-                            onHorizontalDragUpdate: (details) {
-                              horizontalTravel += details.delta.dx;
-                              verticalTravel += details.delta.dy.abs();
-                            },
-                            onHorizontalDragCancel: () {
-                              horizontalTravel = 0;
-                              verticalTravel = 0;
-                            },
-                            onHorizontalDragEnd: (details) async {
-                              final velocity = details.primaryVelocity ?? 0;
-                              const minimumTravel = 110.0;
-                              if (horizontalTravel.abs() < minimumTravel ||
-                                  horizontalTravel.abs() <
-                                      verticalTravel * 1.35 ||
-                                  velocity.abs() < 220) {
-                                horizontalTravel = 0;
-                                verticalTravel = 0;
-                                return;
-                              }
-                              if (velocity < 0) {
-                                await handler.skipToNext();
-                              } else {
-                                await handler.skipToPrevious();
-                              }
-                              horizontalTravel = 0;
-                              verticalTravel = 0;
-                            },
-                            onVerticalDragEnd: (details) {
-                              if ((details.primaryVelocity ?? 0) > 650) {
-                                Navigator.of(context).maybePop();
-                              }
-                            },
-                            child: SingleChildScrollView(
-                              physics: const BouncingScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-                              child: Column(
-                                children: <Widget>[
-                                  EchoReveal(
-                                    duration: const Duration(milliseconds: 760),
-                                    offset: const Offset(0, 0.05),
-                                    child: GestureDetector(
-                                      onDoubleTap:
-                                          () => _seekBy(
-                                            handler,
-                                            const Duration(seconds: 10),
+                  final activeTrack = handler.activeTrack;
+                  _syncArtworkPalette(activeTrack, tokens);
+                  final isFavorite =
+                      activeTrack != null && controller.isFavorite(activeTrack);
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      Positioned.fill(
+                        child: AnimatedBuilder(
+                          animation: SmokeEffectSettings.instance,
+                          builder: (context, _) {
+                            if (!SmokeEffectSettings.instance.enabled) {
+                              return const SizedBox.shrink();
+                            }
+                            return SmokeLayer(
+                              sourceUri:
+                                  item.extras?['source']?.toString() == 'local'
+                                      ? item.id
+                                      : null,
+                              positionStream: handler.player.positionStream,
+                              playing: isPlaying,
+                              themeAccent: tokens.accent,
+                              lightTheme: tokens.isLight,
+                            );
+                          },
+                        ),
+                      ),
+                      Column(
+                        children: <Widget>[
+                          _TopBar(
+                            item: item,
+                            onClose: () => Navigator.of(context).maybePop(),
+                            onEffects:
+                                () => _showAudioControls(context, handler),
+                          ),
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final recordSize =
+                                    math
+                                        .min(
+                                          constraints.maxWidth - 48,
+                                          math.max(
+                                            220,
+                                            constraints.maxHeight * 0.40,
                                           ),
-                                      child: AnimatedSwitcher(
-                                        duration: MotionTokens.base,
-                                        transitionBuilder: (child, animation) {
-                                          final begin = Offset(
-                                            _trackChangeDirection * 0.08,
-                                            0,
-                                          );
-                                          return FadeTransition(
-                                            opacity: animation,
-                                            child: SlideTransition(
-                                              position: Tween<Offset>(
-                                                begin: begin,
-                                                end: Offset.zero,
-                                              ).animate(
-                                                CurvedAnimation(
-                                                  parent: animation,
-                                                  curve: MotionTokens.standard,
+                                        )
+                                        .toDouble();
+                                var horizontalTravel = 0.0;
+                                var verticalTravel = 0.0;
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onHorizontalDragStart: (_) {
+                                    horizontalTravel = 0;
+                                    verticalTravel = 0;
+                                  },
+                                  onHorizontalDragUpdate: (details) {
+                                    horizontalTravel += details.delta.dx;
+                                    verticalTravel += details.delta.dy.abs();
+                                  },
+                                  onHorizontalDragCancel: () {
+                                    horizontalTravel = 0;
+                                    verticalTravel = 0;
+                                  },
+                                  onHorizontalDragEnd: (details) async {
+                                    final velocity =
+                                        details.primaryVelocity ?? 0;
+                                    const minimumTravel = 110.0;
+                                    if (horizontalTravel.abs() <
+                                            minimumTravel ||
+                                        horizontalTravel.abs() <
+                                            verticalTravel * 1.35 ||
+                                        velocity.abs() < 220) {
+                                      horizontalTravel = 0;
+                                      verticalTravel = 0;
+                                      return;
+                                    }
+                                    if (velocity < 0) {
+                                      await handler.skipToNext();
+                                    } else {
+                                      await handler.skipToPrevious();
+                                    }
+                                    horizontalTravel = 0;
+                                    verticalTravel = 0;
+                                  },
+                                  onVerticalDragEnd: (details) {
+                                    if ((details.primaryVelocity ?? 0) > 650) {
+                                      Navigator.of(context).maybePop();
+                                    }
+                                  },
+                                  child: SingleChildScrollView(
+                                    physics: const BouncingScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      8,
+                                      24,
+                                      28,
+                                    ),
+                                    child: Column(
+                                      children: <Widget>[
+                                        EchoReveal(
+                                          duration: const Duration(
+                                            milliseconds: 760,
+                                          ),
+                                          offset: const Offset(0, 0.05),
+                                          child: GestureDetector(
+                                            onDoubleTap:
+                                                () => _seekBy(
+                                                  handler,
+                                                  const Duration(seconds: 10),
                                                 ),
+                                            child: AnimatedSwitcher(
+                                              duration: MotionTokens.base,
+                                              transitionBuilder: (
+                                                child,
+                                                animation,
+                                              ) {
+                                                final begin = Offset(
+                                                  _trackChangeDirection * 0.08,
+                                                  0,
+                                                );
+                                                return FadeTransition(
+                                                  opacity: animation,
+                                                  child: SlideTransition(
+                                                    position: Tween<Offset>(
+                                                      begin: begin,
+                                                      end: Offset.zero,
+                                                    ).animate(
+                                                      CurvedAnimation(
+                                                        parent: animation,
+                                                        curve:
+                                                            MotionTokens
+                                                                .standard,
+                                                      ),
+                                                    ),
+                                                    child: child,
+                                                  ),
+                                                );
+                                              },
+                                              child: Hero(
+                                                key: ValueKey(
+                                                  'hero-art-${item.id}',
+                                                ),
+                                                tag: 'track-art-${item.id}',
+                                                child:
+                                                    _artworkStyle ==
+                                                            AudioArtworkStyle
+                                                                .lark
+                                                        ? _LarkArtwork(
+                                                          key: ValueKey(
+                                                            'lark-${item.id}',
+                                                          ),
+                                                          artUri: item.artUri,
+                                                          track: activeTrack,
+                                                          isPlaying: isPlaying,
+                                                          accentColor:
+                                                              accentColor,
+                                                          size: recordSize,
+                                                        )
+                                                        : _AnimatedVinyl(
+                                                          key: ValueKey(
+                                                            'vinyl-${item.id}',
+                                                          ),
+                                                          artUri: item.artUri,
+                                                          track: activeTrack,
+                                                          isPlaying: isPlaying,
+                                                          accentColor:
+                                                              accentColor,
+                                                          size: recordSize,
+                                                        ),
                                               ),
-                                              child: child,
                                             ),
-                                          );
-                                        },
-                                        child: Hero(
-                                          key: ValueKey('hero-art-${item.id}'),
-                                          tag: 'track-art-${item.id}',
+                                          ),
+                                        ),
+                                        const SizedBox(height: 18),
+                                        AudioVisualizer(
+                                          playing: isPlaying,
+                                          sourceUri:
+                                              item.extras?['source']
+                                                          ?.toString() ==
+                                                      'local'
+                                                  ? item.id
+                                                  : null,
+                                          audioSessionId:
+                                              handler
+                                                  .player
+                                                  .androidAudioSessionId,
+                                          position:
+                                              playbackState?.updatePosition,
+                                          positionStream:
+                                              handler.player.positionStream,
+                                          duration: handler.player.duration,
+                                          onSeek: handler.seek,
+                                          height: 62,
+                                          barCount: 36,
+                                          profile: AudioVisualizerProfile.full,
+                                          seed: item.id,
+                                          color:
+                                              Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                        ),
+                                        const SizedBox(height: 20),
+                                        AnimatedSwitcher(
+                                          duration: MotionTokens.base,
+                                          transitionBuilder: (
+                                            child,
+                                            animation,
+                                          ) {
+                                            final begin = Offset(
+                                              0,
+                                              _trackChangeDirection * 0.05,
+                                            );
+                                            return FadeTransition(
+                                              opacity: animation,
+                                              child: SlideTransition(
+                                                position: Tween<Offset>(
+                                                  begin: begin,
+                                                  end: Offset.zero,
+                                                ).animate(
+                                                  CurvedAnimation(
+                                                    parent: animation,
+                                                    curve:
+                                                        MotionTokens.standard,
+                                                  ),
+                                                ),
+                                                child: child,
+                                              ),
+                                            );
+                                          },
+                                          child: _TrackMeta(
+                                            key: ValueKey(item.id),
+                                            trackId: item.id,
+                                            title: item.title,
+                                            artist:
+                                                item.artist ?? 'Unknown artist',
+                                            source:
+                                                item.extras?['source']
+                                                    ?.toString(),
+                                            onLyrics:
+                                                () => setState(
+                                                  () =>
+                                                      _showLyrics =
+                                                          !_showLyrics,
+                                                ),
+                                            lyricsSelected: _showLyrics,
+                                          ),
+                                        ),
+                                        AnimatedSwitcher(
+                                          duration: MotionTokens.fast,
                                           child:
-                                              _artworkStyle ==
-                                                      AudioArtworkStyle.lark
-                                                  ? _LarkArtwork(
+                                              _showLyrics
+                                                  ? LyricsView(
                                                     key: ValueKey(
-                                                      'lark-${item.id}',
+                                                      'lyrics-${item.id}',
                                                     ),
-                                                    artUri: item.artUri,
-                                                    track: activeTrack,
-                                                    isPlaying: isPlaying,
-                                                    size: recordSize,
+                                                    lyricsFuture: _loadLyrics(
+                                                      controller,
+                                                      item,
+                                                    ),
+                                                    positionStream:
+                                                        handler
+                                                            .player
+                                                            .positionStream,
+                                                    onLineTap: handler.seek,
+                                                    onRetry: _retryLyrics,
                                                   )
-                                                  : _AnimatedVinyl(
+                                                  : const SizedBox(
                                                     key: ValueKey(
-                                                      'vinyl-${item.id}',
+                                                      'empty-lyrics',
                                                     ),
-                                                    artUri: item.artUri,
-                                                    track: activeTrack,
-                                                    isPlaying: isPlaying,
-                                                    size: recordSize,
                                                   ),
                                         ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 18),
-                                  AudioVisualizer(
-                                    playing: isPlaying,
-                                    sourceUri:
-                                        item.extras?['source']?.toString() ==
-                                                'local'
-                                            ? item.id
-                                            : null,
-                                    audioSessionId:
-                                        handler.player.androidAudioSessionId,
-                                    position: playbackState?.updatePosition,
-                                    positionStream:
-                                        handler.player.positionStream,
-                                    duration: handler.player.duration,
-                                    onSeek: handler.seek,
-                                    height: 62,
-                                    barCount: 36,
-                                    profile: AudioVisualizerProfile.full,
-                                    seed: item.id,
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                  ),
-                                  const SizedBox(height: 20),
-                                  AnimatedSwitcher(
-                                    duration: MotionTokens.base,
-                                    transitionBuilder: (child, animation) {
-                                      final begin = Offset(
-                                        0,
-                                        _trackChangeDirection * 0.05,
-                                      );
-                                      return FadeTransition(
-                                        opacity: animation,
-                                        child: SlideTransition(
-                                          position: Tween<Offset>(
-                                            begin: begin,
-                                            end: Offset.zero,
-                                          ).animate(
-                                            CurvedAnimation(
-                                              parent: animation,
-                                              curve: MotionTokens.standard,
-                                            ),
-                                          ),
-                                          child: child,
-                                        ),
-                                      );
-                                    },
-                                    child: _TrackMeta(
-                                      key: ValueKey(item.id),
-                                      trackId: item.id,
-                                      title: item.title,
-                                      artist: item.artist ?? 'Unknown artist',
-                                      source:
-                                          item.extras?['source']?.toString(),
-                                      onLyrics:
-                                          () => setState(
-                                            () => _showLyrics = !_showLyrics,
-                                          ),
-                                      lyricsSelected: _showLyrics,
-                                    ),
-                                  ),
-                                  AnimatedSwitcher(
-                                    duration: MotionTokens.fast,
-                                    child:
-                                        _showLyrics
-                                            ? LyricsView(
-                                              key: ValueKey(
-                                                'lyrics-${item.id}',
+                                        const SizedBox(height: 18),
+                                        _SeekSection(
+                                          handler: handler,
+                                          draggedPosition: _draggedPosition,
+                                          accentColor: accentColor,
+                                          buffering: isBuffering,
+                                          onDragStart:
+                                              (value) => setState(
+                                                () => _draggedPosition = value,
                                               ),
-                                              lyricsFuture: _loadLyrics(
+                                          onDragEnd: (value) async {
+                                            setState(
+                                              () => _draggedPosition = null,
+                                            );
+                                            await handler.seek(
+                                              Duration(
+                                                milliseconds: value.round(),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: 10),
+                                        _TransportControls(
+                                          handler: handler,
+                                          accentColor: accentColor,
+                                          isPlaying: isPlaying,
+                                          isBuffering: isBuffering,
+                                          onPlayPause:
+                                              controller.togglePlayback,
+                                          onSeekBack:
+                                              () => _seekBy(
+                                                handler,
+                                                const Duration(seconds: -10),
+                                              ),
+                                          onSeekForward:
+                                              () => _seekBy(
+                                                handler,
+                                                const Duration(seconds: 10),
+                                              ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _PlayerActionDock(
+                                          favorite: isFavorite,
+                                          favoritePulse: _favoritePulse,
+                                          onFavorite:
+                                              () => _toggleFavorite(
+                                                controller,
+                                                activeTrack,
+                                              ),
+                                          onLyrics:
+                                              () => _showFullLyrics(
+                                                context,
                                                 controller,
                                                 item,
+                                                handler,
                                               ),
-                                              positionStream:
-                                                  handler.player.positionStream,
-                                              onLineTap: handler.seek,
-                                              onRetry: _retryLyrics,
-                                            )
-                                            : const SizedBox(
-                                              key: ValueKey('empty-lyrics'),
-                                            ),
+                                          onQueue:
+                                              () => _showQueuePeek(
+                                                context,
+                                                handler,
+                                              ),
+                                          onControls:
+                                              () => _showAudioControls(
+                                                context,
+                                                handler,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(height: 18),
-                                  _SeekSection(
-                                    handler: handler,
-                                    draggedPosition: _draggedPosition,
-                                    onDragStart:
-                                        (value) => setState(
-                                          () => _draggedPosition = value,
-                                        ),
-                                    onDragEnd: (value) async {
-                                      setState(() => _draggedPosition = null);
-                                      await handler.seek(
-                                        Duration(milliseconds: value.round()),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(height: 10),
-                                  _TransportControls(
-                                    handler: handler,
-                                    isPlaying: isPlaying,
-                                    isBuffering: isBuffering,
-                                    onPlayPause: controller.togglePlayback,
-                                    onSeekBack:
-                                        () => _seekBy(
-                                          handler,
-                                          const Duration(seconds: -10),
-                                        ),
-                                    onSeekForward:
-                                        () => _seekBy(
-                                          handler,
-                                          const Duration(seconds: 10),
-                                        ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _PlayerActionDock(
-                                    favorite: isFavorite,
-                                    favoritePulse: _favoritePulse,
-                                    onFavorite:
-                                        () => _toggleFavorite(
-                                          controller,
-                                          activeTrack,
-                                        ),
-                                    onLyrics:
-                                        () => _showFullLyrics(
-                                          context,
-                                          controller,
-                                          item,
-                                          handler,
-                                        ),
-                                    onQueue:
-                                        () => _showQueuePeek(context, handler),
-                                    onControls:
-                                        () => _showAudioControls(
-                                          context,
-                                          handler,
-                                        ),
-                                  ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
-                          );
-                        },
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
+                    ],
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -552,6 +708,7 @@ class _LarkArtwork extends StatelessWidget {
     required this.artUri,
     required this.track,
     required this.isPlaying,
+    required this.accentColor,
     required this.size,
     super.key,
   });
@@ -559,11 +716,11 @@ class _LarkArtwork extends StatelessWidget {
   final Uri? artUri;
   final MediaTrack? track;
   final bool isPlaying;
+  final Color accentColor;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
     final artwork =
         track == null
             ? _Artwork(uri: artUri)
@@ -580,9 +737,7 @@ class _LarkArtwork extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.16),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: tokens.accentStrong.withValues(
-              alpha: isPlaying ? 0.34 : 0.14,
-            ),
+            color: accentColor.withValues(alpha: isPlaying ? 0.34 : 0.14),
             blurRadius: isPlaying ? 34 : 16,
             spreadRadius: isPlaying ? 3 : 1,
           ),
@@ -601,6 +756,7 @@ class _AnimatedVinyl extends StatefulWidget {
     required this.artUri,
     required this.track,
     required this.isPlaying,
+    required this.accentColor,
     required this.size,
     super.key,
   });
@@ -608,6 +764,7 @@ class _AnimatedVinyl extends StatefulWidget {
   final Uri? artUri;
   final MediaTrack? track;
   final bool isPlaying;
+  final Color accentColor;
   final double size;
 
   @override
@@ -638,7 +795,12 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
     if (widget.isPlaying) {
       _rotationController.repeat();
     } else {
-      _rotationController.stop();
+      final target = (_rotationController.value + 0.035).clamp(0.0, 1.0);
+      _rotationController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 700),
+        curve: MotionTokens.exit,
+      );
     }
   }
 
@@ -651,72 +813,86 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
   @override
   Widget build(BuildContext context) {
     final size = widget.size;
-    final tokens = context.read<ThemeProvider>().tokens;
-    return AnimatedBuilder(
-      animation: _rotationController,
-      builder: (context, child) {
-        return Transform.rotate(
-          angle: _rotationController.value * math.pi * 2,
-          child: AnimatedScale(
-            scale: widget.isPlaying ? 1.0 : 0.94,
-            duration: const Duration(milliseconds: 520),
-            curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 500),
+    final disc = Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        DecoratedBox(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: <Color>[Color(0xFF333333), Color(0xFF080808)],
+            ),
+          ),
+          child: ClipOval(
+            child: SizedBox.expand(
+              child:
+                  widget.track == null
+                      ? _Artwork(uri: widget.artUri)
+                      : YazenMediaArtwork(
+                        track: widget.track,
+                        size: size,
+                        circular: true,
+                      ),
+            ),
+          ),
+        ),
+        Container(
+          width: size * 0.18,
+          height: size * 0.18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.accentColor,
+            border: Border.all(color: Colors.black, width: 5),
+          ),
+        ),
+      ],
+    );
+
+    return AnimatedScale(
+      scale: widget.isPlaying ? 1 : 0.96,
+      duration: MotionTokens.base,
+      curve: MotionTokens.standard,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            AnimatedContainer(
+              duration: MotionTokens.base,
               width: size,
               height: size,
-              padding: EdgeInsets.all(size * 0.045),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFF080808),
                 boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: tokens.accentStrong.withValues(
-                      alpha: widget.isPlaying ? 0.38 : 0.16,
+                    color: widget.accentColor.withValues(
+                      alpha: widget.isPlaying ? 0.32 : 0.13,
                     ),
-                    blurRadius: widget.isPlaying ? 44 : 18,
-                    spreadRadius: widget.isPlaying ? 7 : 2,
-                  ),
-                ],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: <Widget>[
-                  DecoratedBox(
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: <Color>[Color(0xFF333333), Color(0xFF080808)],
-                      ),
-                    ),
-                    child: ClipOval(
-                      child: SizedBox.expand(
-                        child:
-                            widget.track == null
-                                ? _Artwork(uri: widget.artUri)
-                                : YazenMediaArtwork(
-                                  track: widget.track,
-                                  size: size,
-                                  circular: true,
-                                ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    width: size * 0.18,
-                    height: size * 0.18,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: tokens.accent,
-                      border: Border.all(color: Colors.black, width: 5),
-                    ),
+                    blurRadius: widget.isPlaying ? 38 : 16,
+                    spreadRadius: widget.isPlaying ? 5 : 1,
                   ),
                 ],
               ),
             ),
-          ),
-        );
-      },
+            AnimatedBuilder(
+              animation: _rotationController,
+              child: RepaintBoundary(
+                child: Padding(
+                  padding: EdgeInsets.all(size * 0.045),
+                  child: disc,
+                ),
+              ),
+              builder:
+                  (context, child) => Transform.rotate(
+                    angle: _rotationController.value * math.pi * 2,
+                    child: child,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -841,12 +1017,16 @@ class _SeekSection extends StatelessWidget {
   const _SeekSection({
     required this.handler,
     required this.draggedPosition,
+    required this.accentColor,
+    required this.buffering,
     required this.onDragStart,
     required this.onDragEnd,
   });
 
   final HybridAudioHandler handler;
   final double? draggedPosition;
+  final Color accentColor;
+  final bool buffering;
   final ValueChanged<double> onDragStart;
   final ValueChanged<double> onDragEnd;
 
@@ -871,25 +1051,41 @@ class _SeekSection extends StatelessWidget {
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 4,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 7,
+                    thumbShape: RoundSliderThumbShape(
+                      enabledThumbRadius: draggedPosition == null ? 7 : 10,
                     ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 16,
+                    overlayShape: RoundSliderOverlayShape(
+                      overlayRadius: draggedPosition == null ? 15 : 20,
                     ),
-                    activeTrackColor: tokens.accent,
+                    showValueIndicator:
+                        draggedPosition == null
+                            ? ShowValueIndicator.never
+                            : ShowValueIndicator.onDrag,
+                    activeTrackColor: accentColor,
                     inactiveTrackColor: tokens.surfaceMuted,
                     thumbColor: tokens.textPrimary,
-                    overlayColor: tokens.accent.withValues(alpha: 0.16),
+                    overlayColor: accentColor.withValues(alpha: 0.18),
                   ),
                   child: Slider(
                     min: 0,
                     max: totalMs,
                     value: value.clamp(0, totalMs).toDouble(),
+                    label:
+                        draggedPosition == null
+                            ? null
+                            : _formatDuration(
+                              Duration(milliseconds: value.round()),
+                            ),
                     onChanged: hasKnownDuration ? onDragStart : null,
                     onChangeEnd: hasKnownDuration ? onDragEnd : null,
                   ),
                 ),
+                if (buffering)
+                  LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: tokens.surfaceMuted,
+                    color: accentColor.withValues(alpha: 0.72),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Row(
@@ -940,6 +1136,7 @@ String formatPlaybackDuration(Duration duration) {
 class _TransportControls extends StatelessWidget {
   const _TransportControls({
     required this.handler,
+    required this.accentColor,
     required this.isPlaying,
     required this.isBuffering,
     required this.onPlayPause,
@@ -948,6 +1145,7 @@ class _TransportControls extends StatelessWidget {
   });
 
   final HybridAudioHandler handler;
+  final Color accentColor;
   final bool isPlaying;
   final bool isBuffering;
   final VoidCallback onPlayPause;
@@ -991,14 +1189,14 @@ class _TransportControls extends StatelessWidget {
                 ),
                 EchoBreathingGlow(
                   enabled: isPlaying && !isBuffering,
-                  color: tokens.accentStrong,
+                  color: accentColor,
                   child: PlayPauseMorph(
                     playing: isPlaying,
                     tooltip: isPlaying ? 'Pause' : 'Play',
                     onPressed: onPlayPause,
                     minimumSize: const Size(68, 68),
                     iconSize: 36,
-                    backgroundColor: tokens.accent,
+                    backgroundColor: accentColor,
                     foregroundColor:
                         tokens.isLight ? Colors.white : Colors.black,
                     buffering: isBuffering,

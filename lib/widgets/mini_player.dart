@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/theme_provider.dart';
+import '../services/artwork_palette_service.dart';
+import '../services/dynamic_color_settings.dart';
 import '../core/theme/motion_tokens.dart';
 import '../models/media_track.dart';
 import '../services/playback_policies.dart';
@@ -56,192 +58,231 @@ class MiniPlayer extends StatelessWidget {
           onNext: onNext,
           onPrevious: onPrevious,
           onExpand: onTap,
-          child: EchoBreathingGlow(
-            enabled: isPlaying,
-            color: tokens.accentStrong,
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(24),
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(24),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    gradient: LinearGradient(
-                      colors: <Color>[tokens.surfaceElevated, tokens.surface],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    border: Border.all(
-                      color:
-                          isPlaying
-                              ? tokens.accent.withValues(alpha: 0.42)
-                              : tokens.divider,
-                    ),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: tokens.accentStrong.withValues(
-                          alpha: isPlaying ? 0.16 : 0.08,
-                        ),
-                        blurRadius: 24,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 8, 7),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Row(
-                          children: <Widget>[
-                            RepaintBoundary(
-                              child: AnimatedSwitcher(
-                                duration: MotionTokens.fast,
-                                transitionBuilder:
-                                    (child, animation) => FadeTransition(
-                                      opacity: animation,
-                                      child: SlideTransition(
-                                        position: Tween<Offset>(
-                                          begin: const Offset(0.16, 0),
-                                          end: Offset.zero,
-                                        ).animate(animation),
-                                        child: child,
-                                      ),
-                                    ),
-                                child: Hero(
-                                  key: ValueKey('mini-art-${item.id}'),
-                                  tag: 'track-art-${item.id}',
-                                  child: _MiniArtwork(item: item),
-                                ),
+          child: AnimatedBuilder(
+            animation: DynamicColorSettings.instance,
+            builder:
+                (context, _) => ValueListenableBuilder<ArtworkPalette>(
+                  valueListenable: ArtworkPaletteService.instance.current,
+                  builder: (context, palette, _) {
+                    final dynamicAccent =
+                        DynamicColorSettings.instance.enabled
+                            ? palette.safeAccent
+                            : tokens.accentStrong;
+                    return EchoBreathingGlow(
+                      enabled: isPlaying,
+                      color: dynamicAccent,
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(24),
+                        child: InkWell(
+                          onTap: onTap,
+                          borderRadius: BorderRadius.circular(24),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 800),
+                            curve: Curves.easeInOutCubic,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(24),
+                              gradient: LinearGradient(
+                                colors: <Color>[
+                                  tokens.surfaceElevated,
+                                  tokens.surface,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
+                              border: Border.all(
+                                color:
+                                    isPlaying
+                                        ? dynamicAccent.withValues(alpha: 0.42)
+                                        : tokens.divider,
+                              ),
+                              boxShadow: <BoxShadow>[
+                                BoxShadow(
+                                  color: dynamicAccent.withValues(
+                                    alpha: isPlaying ? 0.16 : 0.08,
+                                  ),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 11),
-                            Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 10, 8, 7),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  Text(
-                                    'NOW PLAYING',
-                                    style: TextStyle(
-                                      color: tokens.accent,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.9,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  AnimatedSwitcher(
-                                    duration: MotionTokens.fast,
-                                    transitionBuilder:
-                                        (child, animation) => FadeTransition(
-                                          opacity: animation,
-                                          child: SlideTransition(
-                                            position: Tween<Offset>(
-                                              begin: const Offset(0.12, 0),
-                                              end: Offset.zero,
-                                            ).animate(animation),
-                                            child: child,
-                                          ),
-                                        ),
-                                    child: Hero(
-                                      key: ValueKey('mini-title-${item.id}'),
-                                      tag: 'track-title-${item.id}',
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: Text(
-                                          item.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: tokens.textPrimary,
-                                            fontWeight: FontWeight.w900,
+                                  Row(
+                                    children: <Widget>[
+                                      RepaintBoundary(
+                                        child: AnimatedSwitcher(
+                                          duration: MotionTokens.fast,
+                                          transitionBuilder:
+                                              (child, animation) =>
+                                                  FadeTransition(
+                                                    opacity: animation,
+                                                    child: SlideTransition(
+                                                      position: Tween<Offset>(
+                                                        begin: const Offset(
+                                                          0.16,
+                                                          0,
+                                                        ),
+                                                        end: Offset.zero,
+                                                      ).animate(animation),
+                                                      child: child,
+                                                    ),
+                                                  ),
+                                          child: Hero(
+                                            key: ValueKey(
+                                              'mini-art-${item.id}',
+                                            ),
+                                            tag: 'track-art-${item.id}',
+                                            child: _MiniArtwork(item: item),
                                           ),
                                         ),
                                       ),
-                                    ),
+                                      const SizedBox(width: 11),
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: <Widget>[
+                                            Text(
+                                              'NOW PLAYING',
+                                              style: TextStyle(
+                                                color: tokens.accent,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: 0.9,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            AnimatedSwitcher(
+                                              duration: MotionTokens.fast,
+                                              transitionBuilder:
+                                                  (
+                                                    child,
+                                                    animation,
+                                                  ) => FadeTransition(
+                                                    opacity: animation,
+                                                    child: SlideTransition(
+                                                      position: Tween<Offset>(
+                                                        begin: const Offset(
+                                                          0.12,
+                                                          0,
+                                                        ),
+                                                        end: Offset.zero,
+                                                      ).animate(animation),
+                                                      child: child,
+                                                    ),
+                                                  ),
+                                              child: Hero(
+                                                key: ValueKey(
+                                                  'mini-title-${item.id}',
+                                                ),
+                                                tag: 'track-title-${item.id}',
+                                                child: Material(
+                                                  color: Colors.transparent,
+                                                  child: Text(
+                                                    item.title,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      color: tokens.textPrimary,
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              item.artist ?? 'Unknown artist',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: tokens.textSecondary,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (!compact && onQueue != null)
+                                        _DockAction(
+                                          tooltip: 'Queue',
+                                          icon: Icons.queue_music_rounded,
+                                          color: tokens.textSecondary,
+                                          onPressed: onQueue!,
+                                        ),
+                                      if (!compact && onRepeat != null)
+                                        _DockAction(
+                                          tooltip:
+                                              'Repeat: ${_repeatLabel(repeatMode)}',
+                                          icon:
+                                              repeatMode ==
+                                                      AudioServiceRepeatMode.one
+                                                  ? Icons.repeat_one_rounded
+                                                  : Icons.repeat_rounded,
+                                          color:
+                                              repeatModeIsEnabled(repeatMode)
+                                                  ? tokens.accent
+                                                  : tokens.textSecondary,
+                                          onPressed: onRepeat!,
+                                        ),
+                                      if (onPrevious != null)
+                                        _DockAction(
+                                          tooltip: 'Previous',
+                                          icon: Icons.skip_previous_rounded,
+                                          color: tokens.textSecondary,
+                                          onPressed: onPrevious!,
+                                        ),
+                                      PlayPauseMorph(
+                                        playing: isPlaying,
+                                        onPressed: onPlayPause,
+                                        tooltip: isPlaying ? 'Pause' : 'Play',
+                                        minimumSize: const Size(44, 44),
+                                        iconSize: 23,
+                                        backgroundColor: dynamicAccent,
+                                        foregroundColor:
+                                            tokens.isLight
+                                                ? Colors.white
+                                                : Colors.black,
+                                      ),
+                                      if (onNext != null)
+                                        _DockAction(
+                                          tooltip: 'Next',
+                                          icon: Icons.skip_next_rounded,
+                                          color: tokens.textSecondary,
+                                          onPressed: onNext!,
+                                        ),
+                                      _DockAction(
+                                        tooltip: 'Stop and close mini player',
+                                        icon: Icons.close_rounded,
+                                        color: tokens.textSecondary,
+                                        onPressed: onDismiss ?? onStop,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    item.artist ?? 'Unknown artist',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: tokens.textSecondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                                  if (positionStream != null)
+                                    _MiniProgress(
+                                      positionStream: positionStream!,
+                                      duration: duration,
+                                    )
+                                  else if (progress != null)
+                                    _MiniProgressValue(value: progress),
                                 ],
                               ),
                             ),
-                            if (!compact && onQueue != null)
-                              _DockAction(
-                                tooltip: 'Queue',
-                                icon: Icons.queue_music_rounded,
-                                color: tokens.textSecondary,
-                                onPressed: onQueue!,
-                              ),
-                            if (!compact && onRepeat != null)
-                              _DockAction(
-                                tooltip: 'Repeat: ${_repeatLabel(repeatMode)}',
-                                icon:
-                                    repeatMode == AudioServiceRepeatMode.one
-                                        ? Icons.repeat_one_rounded
-                                        : Icons.repeat_rounded,
-                                color:
-                                    repeatModeIsEnabled(repeatMode)
-                                        ? tokens.accent
-                                        : tokens.textSecondary,
-                                onPressed: onRepeat!,
-                              ),
-                            if (onPrevious != null)
-                              _DockAction(
-                                tooltip: 'Previous',
-                                icon: Icons.skip_previous_rounded,
-                                color: tokens.textSecondary,
-                                onPressed: onPrevious!,
-                              ),
-                            PlayPauseMorph(
-                              playing: isPlaying,
-                              onPressed: onPlayPause,
-                              tooltip: isPlaying ? 'Pause' : 'Play',
-                              minimumSize: const Size(44, 44),
-                              iconSize: 23,
-                              backgroundColor: tokens.accent,
-                              foregroundColor:
-                                  tokens.isLight ? Colors.white : Colors.black,
-                            ),
-                            if (onNext != null)
-                              _DockAction(
-                                tooltip: 'Next',
-                                icon: Icons.skip_next_rounded,
-                                color: tokens.textSecondary,
-                                onPressed: onNext!,
-                              ),
-                            _DockAction(
-                              tooltip: 'Stop and close mini player',
-                              icon: Icons.close_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onDismiss ?? onStop,
-                            ),
-                          ],
+                          ),
                         ),
-                        if (positionStream != null)
-                          _MiniProgress(
-                            positionStream: positionStream!,
-                            duration: duration,
-                          )
-                        else if (progress != null)
-                          _MiniProgressValue(value: progress),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-            ),
           ),
         );
       },
