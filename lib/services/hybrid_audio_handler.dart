@@ -15,6 +15,8 @@ import 'equalizer_settings_store.dart';
 /// Single source of truth for local audio playback and queue metadata.
 class HybridAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
+  static const String _notificationStopAction = 'yazen.stop';
+
   factory HybridAudioHandler({
     AudioPlayer? player,
     PlaybackStateStore? playbackStore,
@@ -91,6 +93,7 @@ class HybridAudioHandler extends BaseAudioHandler
   int _queueGeneration = 0;
   int _selectionRequest = 0;
   int _queueMutationDepth = 0;
+  bool _selectionOperationInFlight = false;
   final SerialAsyncQueue _queueOperations = SerialAsyncQueue();
   bool _autoAdvanceInFlight = false;
   Timer? _resumeTimer;
@@ -183,6 +186,17 @@ class HybridAudioHandler extends BaseAudioHandler
         }
       }
     });
+  }
+
+  void _interruptSupersededSelection() {
+    if (!_selectionOperationInFlight || _isDisposed) return;
+    // Stop outside the serial queue: just_audio's active setAudioSources/load
+    // must be interrupted before the newest selection can acquire the queue.
+    unawaited(
+      _player.stop().catchError((Object _) {
+        // The stale source may already have completed or been stopped.
+      }),
+    );
   }
 
   Future<void> _repairQueueInvariant() async {
@@ -566,6 +580,7 @@ class HybridAudioHandler extends BaseAudioHandler
   Future<void> playTrack(MediaTrack track, {bool autoPlay = true}) {
     final request = ++_selectionRequest;
     _queueGeneration++;
+    _interruptSupersededSelection();
     final generation = _queueGeneration;
     return _runQueueMutation(() async {
       if (_isDisposed || request != _selectionRequest) return;
@@ -586,27 +601,34 @@ class HybridAudioHandler extends BaseAudioHandler
   }) async {
     bool stillCurrent() =>
         generation == _queueGeneration && (isCurrent?.call() ?? true);
-    final item = track.toMediaItem();
-    final source = await _resolveSource(track, item);
     if (!stillCurrent()) return;
-    // A direct selection is a source replacement, not an append. Stop the
-    // previous native source before loading the next one so just_audio does
-    // not keep a stale loading session alive behind the new request.
-    await _player.stop();
-    if (!stillCurrent()) return;
-
-    await _player.setAudioSource(source);
-    if (!stillCurrent()) {
+    _selectionOperationInFlight = true;
+    try {
+      final item = track.toMediaItem();
+      final source = _resolveSource(track, item);
+      if (!stillCurrent()) return;
       await _player.stop();
-      return;
+      if (!stillCurrent()) return;
+
+      try {
+        await _player.setAudioSource(source);
+      } catch (error) {
+        if (!stillCurrent()) return;
+        rethrow;
+      }
+      if (!stillCurrent()) {
+        await _player.stop();
+        return;
+      }
+      _queueTracks
+        ..clear()
+        ..add(track);
+      _publishQueueState(<MediaItem>[item], 0);
+      _persistQueueAndProgress();
+      if (autoPlay && stillCurrent()) _startPlaybackWithoutHoldingQueue();
+    } finally {
+      _selectionOperationInFlight = false;
     }
-    if (!stillCurrent()) return;
-    _queueTracks
-      ..clear()
-      ..add(track);
-    _publishQueueState(<MediaItem>[item], 0);
-    _persistQueueAndProgress();
-    if (autoPlay && stillCurrent()) await play();
   }
 
   Future<void> playTrackQueue(List<MediaTrack> tracks, {int initialIndex = 0}) {
@@ -614,6 +636,7 @@ class HybridAudioHandler extends BaseAudioHandler
     final requestedTracks = List<MediaTrack>.unmodifiable(tracks);
     final request = ++_selectionRequest;
     _queueGeneration++;
+    _interruptSupersededSelection();
     final generation = _queueGeneration;
     final safeIndex = initialIndex.clamp(0, requestedTracks.length - 1).toInt();
     return _runQueueMutation(() async {
@@ -635,35 +658,48 @@ class HybridAudioHandler extends BaseAudioHandler
   }) async {
     bool stillCurrent() =>
         generation == _queueGeneration && isCurrent() && !_isDisposed;
-
-    final items = tracks.map((track) => track.toMediaItem()).toList();
-    final sources = <AudioSource>[];
-    for (var index = 0; index < tracks.length; index++) {
+    if (!stillCurrent()) return;
+    _selectionOperationInFlight = true;
+    try {
+      final items = tracks.map((track) => track.toMediaItem()).toList();
+      final sources = <AudioSource>[];
+      for (var index = 0; index < tracks.length; index++) {
+        if (!stillCurrent()) return;
+        sources.add(_resolveSource(tracks[index], items[index]));
+        if ((index + 1) % 128 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
       if (!stillCurrent()) return;
-      sources.add(await _resolveSource(tracks[index], items[index]));
-    }
-    if (!stillCurrent()) return;
 
-    await _player.stop();
-    if (!stillCurrent()) return;
-    await _player.setAudioSources(sources, initialIndex: initialIndex);
-    if (!stillCurrent()) {
       await _player.stop();
-      return;
-    }
+      if (!stillCurrent()) return;
+      try {
+        await _player.setAudioSources(sources, initialIndex: initialIndex);
+      } catch (error) {
+        if (!stillCurrent()) return;
+        rethrow;
+      }
+      if (!stillCurrent()) {
+        await _player.stop();
+        return;
+      }
 
-    _queueTracks
-      ..clear()
-      ..addAll(tracks);
-    _publishQueueState(items, initialIndex);
-    _persistQueueAndProgress();
-    if (stillCurrent()) await play();
+      _queueTracks
+        ..clear()
+        ..addAll(tracks);
+      _publishQueueState(items, initialIndex);
+      _persistQueueAndProgress();
+      if (stillCurrent()) _startPlaybackWithoutHoldingQueue();
+    } finally {
+      _selectionOperationInFlight = false;
+    }
   }
 
   Future<void> addToQueue(MediaTrack track) => _runQueueMutation(() async {
     if (_isDisposed) return;
     final item = track.toMediaItem();
-    final source = await _resolveSource(track, item);
+    final source = _resolveSource(track, item);
     await _player.addAudioSource(source);
     _queueTracks.add(track);
     queue.add(<MediaItem>[...queue.value, item]);
@@ -692,7 +728,7 @@ class HybridAudioHandler extends BaseAudioHandler
         try {
           if (!await _isRestorableTrack(track)) continue;
           final item = track.toMediaItem();
-          final source = await _resolveSource(track, item);
+          final source = _resolveSource(track, item);
           if (sourceIndex == savedCurrentIndex) restoredIndex = items.length;
           items.add(item);
           sources.add(source);
@@ -791,6 +827,7 @@ class HybridAudioHandler extends BaseAudioHandler
     _cancelSleepTimer();
     _selectionRequest++;
     _queueGeneration++;
+    _interruptSupersededSelection();
     return _runQueueMutation(() async {
       await _player.stop();
       await _player.clearAudioSources();
@@ -802,7 +839,7 @@ class HybridAudioHandler extends BaseAudioHandler
     });
   }
 
-  Future<AudioSource> _resolveSource(MediaTrack track, MediaItem item) async {
+  AudioSource _resolveSource(MediaTrack track, MediaItem item) {
     if (!track.isLocal) {
       throw StateError('Only local media is supported.');
     }
@@ -824,9 +861,22 @@ class HybridAudioHandler extends BaseAudioHandler
   @override
   Future<void> play() async {
     _interruptionCoordinator.onUserPlay();
-    await _player.play();
+    final playback = _player.play();
     _syncProgressSaveTimer();
     _persistPlayback();
+    _broadcastPlaybackState();
+    await playback;
+    _syncProgressSaveTimer();
+    _persistPlayback();
+  }
+
+  void _startPlaybackWithoutHoldingQueue() {
+    unawaited(
+      play().catchError((Object _) {
+        // The player streams report ongoing state; don't hold the queue lock
+        // while just_audio's play future waits for the track to finish.
+      }),
+    );
   }
 
   @override
@@ -845,6 +895,7 @@ class HybridAudioHandler extends BaseAudioHandler
     // mirrored queue so old media cannot be resurrected by next/previous.
     _selectionRequest++;
     _queueGeneration++;
+    _interruptSupersededSelection();
     return _runQueueMutation(() async {
       await _player.stop();
       _syncProgressSaveTimer();
@@ -856,6 +907,18 @@ class HybridAudioHandler extends BaseAudioHandler
       await _playbackStore.clear();
       await super.stop();
     });
+  }
+
+  @override
+  Future<dynamic> customAction(
+    String name, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    if (name == _notificationStopAction) {
+      await stop();
+      return null;
+    }
+    return super.customAction(name, extras);
   }
 
   @override
@@ -1027,18 +1090,20 @@ class HybridAudioHandler extends BaseAudioHandler
       PlaybackState(
         controls: <MediaControl>[
           MediaControl.skipToPrevious,
-          MediaControl.rewind,
           if (_player.playing) MediaControl.pause else MediaControl.play,
-          MediaControl.fastForward,
           MediaControl.skipToNext,
-          MediaControl.stop,
+          MediaControl.custom(
+            androidIcon: 'drawable/yazen_notification_close',
+            label: 'Stop playback',
+            name: _notificationStopAction,
+          ),
         ],
         systemActions: const <MediaAction>{
           MediaAction.seek,
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
-        androidCompactActionIndices: const <int>[0, 2, 4],
+        androidCompactActionIndices: const <int>[0, 1, 2],
         processingState: processingState,
         playing: _player.playing,
         updatePosition: _player.position,
