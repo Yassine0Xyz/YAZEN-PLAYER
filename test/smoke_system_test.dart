@@ -9,6 +9,7 @@ void main() {
     required int frames,
     required double level,
     required double bass,
+    double beat = 0,
     required bool available,
     required bool playing,
   }) {
@@ -19,6 +20,7 @@ void main() {
         height: 800,
         level: level,
         bass: bass,
+        beat: beat,
         available: available,
         playing: playing,
       );
@@ -78,7 +80,7 @@ void main() {
   });
 
   test(
-    'bass spike creates a bounded puff burst and palette drift stays bounded',
+    'beat spike creates a bounded puff burst and palette drift stays bounded',
     () {
       final system = makeSystem();
       system.update(
@@ -87,6 +89,7 @@ void main() {
         height: 800,
         level: 0.7,
         bass: 0.1,
+        beat: 0.1,
         available: true,
         playing: true,
       );
@@ -96,10 +99,11 @@ void main() {
         height: 800,
         level: 0.7,
         bass: 0.9,
+        beat: 0.9,
         available: true,
         playing: true,
       );
-      expect(system.lastPuffCount, inInclusiveRange(1, 4));
+      expect(system.lastPuffCount, inInclusiveRange(2, 6));
       expect(system.paletteHueDrift.abs(), lessThanOrEqualTo(7));
       expect(system.paletteLightnessDrift.abs(), lessThanOrEqualTo(0.025));
     },

@@ -14,6 +14,7 @@ class SmokeSystem {
       _rotation = Float32List(maxParticles),
       _spin = Float32List(maxParticles),
       _phase = Float32List(maxParticles),
+      _flash = Float32List(maxParticles),
       _hueJitter = Float32List(maxParticles),
       _lightJitter = Float32List(maxParticles),
       _saturationJitter = Float32List(maxParticles),
@@ -55,6 +56,7 @@ class SmokeSystem {
   final Float32List _rotation;
   final Float32List _spin;
   final Float32List _phase;
+  final Float32List _flash;
   final Float32List _hueJitter;
   final Float32List _lightJitter;
   final Float32List _saturationJitter;
@@ -71,7 +73,7 @@ class SmokeSystem {
   double _countValue = 0;
   double _elapsed = 0;
   double _smokeIntensity = 0.14;
-  double _lastBass = 0;
+  double _lastBeat = 0;
   double _burstRemaining = 0;
   double _paletteBlend = 1;
   double _lastSpawnX = 0;
@@ -127,6 +129,7 @@ class SmokeSystem {
     required double height,
     required double level,
     required double bass,
+    required double beat,
     required bool available,
     required bool playing,
   }) {
@@ -135,6 +138,7 @@ class SmokeSystem {
     _elapsed += step;
     _paletteBlend = (_paletteBlend + step / 0.8).clamp(0.0, 1.0);
     _level = level.clamp(0.0, 1.0);
+    final safeBeat = beat.clamp(0.0, 1.0);
     final signalActive = available && playing;
     final targetIntensity =
         !playing ? 0.12 : (available ? 0.22 + _level * 0.78 : 0.18);
@@ -142,29 +146,23 @@ class SmokeSystem {
     _smokeIntensity +=
         (targetIntensity - _smokeIntensity) * (step / (intensityRate + step));
 
-    var targetCount = signalActive ? 7 + _level * 41 : 7.0;
+    var targetCount = signalActive ? 7 + _level * 30 + safeBeat * 18 : 7.0;
     _burstRemaining = math.max(0, _burstRemaining - step);
     _lastPuffCount = 0;
-    if (signalActive &&
-        bass > 0.58 &&
-        bass - _lastBass > 0.2 &&
-        _burstRemaining <= 0) {
-      _lastPuffCount = 4;
+    final beatRise = safeBeat - _lastBeat;
+    if (signalActive && beatRise > 0.22 && _burstRemaining <= 0) {
+      _lastPuffCount = (2 + (safeBeat * 4).round()).clamp(2, 6);
       targetCount += _lastPuffCount;
-      _burstRemaining = 0.24;
-      final firstBurstIndex = math.min(
-        _activeCount,
-        _qualityLimit - _lastPuffCount,
-      );
-      for (
-        var index = firstBurstIndex;
-        index < firstBurstIndex + _lastPuffCount;
-        index++
-      ) {
-        if (index >= 0 && index < maxParticles) _spawn(index);
+      _burstRemaining = 0.17;
+      final capacity = math.min(_qualityLimit, maxParticles);
+      final added = math.min(_lastPuffCount, capacity - _activeCount);
+      for (var offset = 0; offset < added; offset++) {
+        _spawn(_activeCount + offset);
       }
+      _activeCount += added;
+      _countValue = math.max(_countValue, _activeCount.toDouble());
     }
-    _lastBass = bass;
+    _lastBeat = safeBeat;
     targetCount = targetCount.clamp(
       5.0,
       math.min(_qualityLimit, maxParticles).toDouble(),
@@ -208,12 +206,22 @@ class SmokeSystem {
       final fadeIn = (ageProgress / 0.15).clamp(0.0, 1.0);
       final fadeOut = ((1 - ageProgress) / 0.25).clamp(0.0, 1.0);
       final lifeAlpha = math.min(fadeIn, fadeOut);
-      final alpha = (maximumAlpha * lifeAlpha * _smokeIntensity).clamp(
-        0.0,
-        0.35,
-      );
+      final flashDecay = math.exp(-step / 0.19);
+      _flash[index] *= flashDecay;
+      if (signalActive && beatRise > 0.22) {
+        final phaseResponse =
+            0.68 + 0.32 * ((math.sin(_phase[index] * 2.3) + 1) / 2);
+        _flash[index] = math.max(_flash[index], safeBeat * phaseResponse);
+      }
+      final flash = _flash[index];
+      final alpha = (maximumAlpha *
+              lifeAlpha *
+              _smokeIntensity *
+              (1 + flash * 1.15))
+          .clamp(0.0, 0.35);
       final growth = (0.6 + 1.2 * ageProgress) * _size[index];
-      final pixelSize = width * 0.075 * growth * (0.9 + _level * 0.24);
+      final pixelSize =
+          width * 0.075 * growth * (0.9 + _level * 0.24) * (1 + flash * 0.28);
       final scale = pixelSize / _spriteSize;
       final cosine = math.cos(_rotation[index]);
       final sine = math.sin(_rotation[index]);
@@ -229,8 +237,8 @@ class SmokeSystem {
       colors[index] = _jitterColor(
         _mixColor(_paletteFrom[index % 5], _palette[index % 5], _paletteBlend),
         _hueJitter[index] + globalHue,
-        _lightJitter[index] + globalLightness,
-        _saturationJitter[index],
+        _lightJitter[index] + globalLightness + flash * 0.18,
+        _saturationJitter[index] + flash * 0.08,
         alpha,
       );
     }
@@ -241,6 +249,7 @@ class SmokeSystem {
       transforms[transformOffset + 2] = 0;
       transforms[transformOffset + 3] = 0;
       colors[index] = 0;
+      _flash[index] = 0;
     }
   }
 
@@ -259,6 +268,7 @@ class SmokeSystem {
     _rotation[index] = _random.nextDouble() * math.pi * 2;
     _spin[index] = (_random.nextDouble() - 0.5) * 0.18;
     _phase[index] = _random.nextDouble() * math.pi * 2;
+    _flash[index] = 0;
     _hueJitter[index] = (_random.nextDouble() * 16) - 8;
     _lightJitter[index] = (_random.nextDouble() * 0.12) - 0.06;
     _saturationJitter[index] = (_random.nextDouble() * 0.16) - 0.08;

@@ -238,6 +238,7 @@ class _SmokeLayerState extends State<SmokeLayer>
       height: _height,
       level: energy.level,
       bass: energy.bass,
+      beat: energy.beat,
       available: energy.available,
       playing: widget.playing,
     );
