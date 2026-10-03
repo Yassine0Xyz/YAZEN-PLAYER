@@ -76,7 +76,7 @@ void main() {
       );
       player.nextSetAudioSourcesGate = Completer<void>();
 
-      final first = handler.playTrack(_track(0));
+      final first = handler.playTrackQueue(<MediaTrack>[_track(0)]);
       for (
         var attempt = 0;
         attempt < 100 && !player.waitingForSource;
@@ -86,7 +86,7 @@ void main() {
       }
       expect(player.waitingForSource, isTrue);
 
-      final newest = handler.playTrack(_track(1));
+      final newest = handler.playTrackQueue(<MediaTrack>[_track(1)]);
       await Future.wait(<Future<void>>[
         first,
         newest,

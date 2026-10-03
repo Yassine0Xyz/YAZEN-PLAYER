@@ -1,7 +1,7 @@
 import 'dart:collection';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
@@ -28,6 +28,9 @@ class YazenMediaArtwork extends StatefulWidget {
 }
 
 class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
+  static const MethodChannel _localMediaChannel = MethodChannel(
+    'yazen/local_media',
+  );
   static const int _maxArtworkPixels = 2048;
   static const int _minArtworkPixels = 256;
   static const int _maxCacheBytes = 32 * 1024 * 1024;
@@ -109,7 +112,10 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
     }
 
     Uint8List? bytes;
-    if (track.isLocal) {
+    if (track.isLocal && !track.isVideo) {
+      bytes = await _readOriginalArtwork(track.uri);
+    }
+    if (bytes == null && track.isLocal) {
       final id = int.tryParse(track.id);
       if (id != null) {
         bytes = await _audioQuery.queryArtwork(
@@ -135,6 +141,24 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
       _writeCache(key, bytes);
     }
     return bytes;
+  }
+
+  Future<Uint8List?> _readOriginalArtwork(Uri? sourceUri) async {
+    if (sourceUri == null) return null;
+    try {
+      final bytes = await _localMediaChannel.invokeMethod<Uint8List>(
+        'readOriginalArtwork',
+        <String, Object?>{'uri': sourceUri.toString()},
+      );
+      if (bytes != null && bytes.isNotEmpty && bytes.length <= _maxCacheBytes) {
+        return bytes;
+      }
+    } on MissingPluginException {
+      // Non-Android platforms use the fallback source below.
+    } on PlatformException {
+      // Missing file permission or embedded art falls back to MediaStore.
+    }
+    return null;
   }
 
   @override

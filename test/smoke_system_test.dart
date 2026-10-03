@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yazen/services/smoke_system.dart';
 
@@ -108,6 +110,42 @@ void main() {
       expect(system.paletteLightnessDrift.abs(), lessThanOrEqualTo(0.025));
     },
   );
+
+  test('beat flashes rise and fade smoothly like a short visualizer pulse', () {
+    final system = makeSystem(seed: 29);
+
+    void update(double beat) {
+      system.update(
+        dt: 0.05,
+        width: 400,
+        height: 800,
+        level: 0.7,
+        bass: 0.2,
+        beat: beat,
+        available: true,
+        playing: true,
+      );
+    }
+
+    int brightestAlpha() {
+      var maximum = 0;
+      for (var index = 0; index < system.activeCount; index++) {
+        maximum = math.max(maximum, (system.colors[index] >> 24) & 0xFF);
+      }
+      return maximum;
+    }
+
+    update(0);
+    final idleAlpha = brightestAlpha();
+    update(1);
+    final peakAlpha = brightestAlpha();
+    expect(peakAlpha, greaterThan(idleAlpha));
+
+    for (var frame = 0; frame < 12; frame++) {
+      update(0);
+    }
+    expect(brightestAlpha(), lessThan(peakAlpha));
+  });
 
   test('raw-atlas buffer identities remain stable during updates', () {
     final system = makeSystem();

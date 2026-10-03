@@ -74,6 +74,7 @@ class SmokeSystem {
   double _elapsed = 0;
   double _smokeIntensity = 0.14;
   double _lastBeat = 0;
+  double _beatEnvelope = 0;
   double _burstRemaining = 0;
   double _paletteBlend = 1;
   double _lastSpawnX = 0;
@@ -140,6 +141,10 @@ class SmokeSystem {
     _level = level.clamp(0.0, 1.0);
     final safeBeat = beat.clamp(0.0, 1.0);
     final signalActive = available && playing;
+    final beatTarget = signalActive ? safeBeat : 0.0;
+    final beatTimeConstant = beatTarget > _beatEnvelope ? 0.035 : 0.28;
+    final beatResponse = 1 - math.exp(-step / beatTimeConstant);
+    _beatEnvelope += (beatTarget - _beatEnvelope) * beatResponse;
     final targetIntensity =
         !playing ? 0.12 : (available ? 0.22 + _level * 0.78 : 0.18);
     final intensityRate = playing ? 0.08 : 0.28;
@@ -206,18 +211,21 @@ class SmokeSystem {
       final fadeIn = (ageProgress / 0.15).clamp(0.0, 1.0);
       final fadeOut = ((1 - ageProgress) / 0.25).clamp(0.0, 1.0);
       final lifeAlpha = math.min(fadeIn, fadeOut);
-      final flashDecay = math.exp(-step / 0.19);
+      final flashDecay = math.exp(-step / 0.34);
       _flash[index] *= flashDecay;
+      final phaseResponse =
+          0.68 + 0.32 * ((math.sin(_phase[index] * 2.3) + 1) / 2);
+      if (signalActive) {
+        _flash[index] = math.max(_flash[index], _beatEnvelope * phaseResponse);
+      }
       if (signalActive && beatRise > 0.22) {
-        final phaseResponse =
-            0.68 + 0.32 * ((math.sin(_phase[index] * 2.3) + 1) / 2);
         _flash[index] = math.max(_flash[index], safeBeat * phaseResponse);
       }
       final flash = _flash[index];
       final alpha = (maximumAlpha *
               lifeAlpha *
               _smokeIntensity *
-              (1 + flash * 1.15))
+              (1 + flash * 1.9))
           .clamp(0.0, 0.35);
       final growth = (0.6 + 1.2 * ageProgress) * _size[index];
       final pixelSize =
@@ -237,8 +245,8 @@ class SmokeSystem {
       colors[index] = _jitterColor(
         _mixColor(_paletteFrom[index % 5], _palette[index % 5], _paletteBlend),
         _hueJitter[index] + globalHue,
-        _lightJitter[index] + globalLightness + flash * 0.18,
-        _saturationJitter[index] + flash * 0.08,
+        _lightJitter[index] + globalLightness + flash * 0.24,
+        _saturationJitter[index] + flash * 0.12,
         alpha,
       );
     }
