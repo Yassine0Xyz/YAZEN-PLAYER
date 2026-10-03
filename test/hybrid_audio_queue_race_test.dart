@@ -179,14 +179,12 @@ void main() {
       expect(
         state.controls.any(
           (control) =>
-              control.action == MediaAction.custom &&
-              control.customAction?.name == 'yazen.stop',
+              control.action == MediaAction.stop &&
+              control.androidIcon == 'drawable/yazen_notification_close',
         ),
         isTrue,
       );
-      await handler
-          .customAction('yazen.stop')
-          .timeout(const Duration(seconds: 1));
+      await handler.stop().timeout(const Duration(seconds: 1));
       expect(handler.queueTracks, isEmpty);
       expect(handler.activeTrack, isNull);
       expect(player.sequence, isEmpty);

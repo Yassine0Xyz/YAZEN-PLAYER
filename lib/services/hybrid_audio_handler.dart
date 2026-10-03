@@ -1092,17 +1092,13 @@ class HybridAudioHandler extends BaseAudioHandler
           MediaControl.skipToPrevious,
           if (_player.playing) MediaControl.pause else MediaControl.play,
           MediaControl.skipToNext,
-          MediaControl.custom(
+          const MediaControl(
             androidIcon: 'drawable/yazen_notification_close',
-            label: 'Stop playback',
-            name: _notificationStopAction,
+            label: 'Stop and close player',
+            action: MediaAction.stop,
           ),
         ],
-        systemActions: const <MediaAction>{
-          MediaAction.seek,
-          MediaAction.seekForward,
-          MediaAction.seekBackward,
-        },
+        systemActions: const <MediaAction>{MediaAction.seek},
         androidCompactActionIndices: const <int>[0, 1, 2],
         processingState: processingState,
         playing: _player.playing,
