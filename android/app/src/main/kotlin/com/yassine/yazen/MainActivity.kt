@@ -41,6 +41,9 @@ class MainActivity : AudioServiceActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pcmExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val artworkExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val audioQueryExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val audioPermissionRequestCode = 9002
+    private var pendingAudioPermissionResult: MethodChannel.Result? = null
     private var pcmGeneration = 0
     private var pcmState = "idle"
     private var pcmResult: PcmSpectrumAnalyzer.Result? = null
@@ -61,6 +64,9 @@ class MainActivity : AudioServiceActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "audioPermissionStatus" -> result.success(hasAudioPermission())
+                    "requestAudioPermission" -> requestAudioPermission(result)
+                    "queryAudioTracks" -> queryAudioTracks(result)
                     "requestVideoPermission" -> result.success(requestVideoPermission())
                     "videoPermissionStatus" -> result.success(hasVideoPermission())
                     "openAppSettings" -> {
@@ -402,7 +408,146 @@ class MainActivity : AudioServiceActivity() {
         stopPcmAnalyzer()
         pcmExecutor.shutdownNow()
         artworkExecutor.shutdownNow()
+        audioQueryExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == audioPermissionRequestCode) {
+            val result = pendingAudioPermissionResult
+            pendingAudioPermissionResult = null
+            result?.success(hasAudioPermission())
+        }
+    }
+
+    private fun audioPermission(): String = if (Build.VERSION.SDK_INT >= 33) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        val permission = audioPermission()
+        val status = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            checkSelfPermission(permission)
+        } else {
+            packageManager.checkPermission(permission, packageName)
+        }
+        return status == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestAudioPermission(result: MethodChannel.Result) {
+        if (hasAudioPermission()) {
+            result.success(true)
+            return
+        }
+        if (pendingAudioPermissionResult != null) {
+            result.error("permission_in_progress", "Audio permission request is already active.", null)
+            return
+        }
+        pendingAudioPermissionResult = result
+        try {
+            requestPermissions(arrayOf(audioPermission()), audioPermissionRequestCode)
+        } catch (error: Exception) {
+            pendingAudioPermissionResult = null
+            result.error("permission_request_failed", error.message, null)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun queryAudioTracks(result: MethodChannel.Result) {
+        if (!hasAudioPermission()) {
+            result.error("missing_audio_permission", "Music and audio permission is required.", null)
+            return
+        }
+        audioQueryExecutor.execute {
+            try {
+                val projection = mutableListOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.ALBUM,
+                    MediaStore.Audio.Media.ALBUM_ID,
+                    MediaStore.Audio.Media.DURATION,
+                    MediaStore.Audio.Media.DATA,
+                    MediaStore.Audio.Media.SIZE,
+                    MediaStore.Audio.Media.DATE_MODIFIED,
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    projection.add(MediaStore.Audio.Media.RELATIVE_PATH)
+                }
+                val cursor = contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection.toTypedArray(),
+                    null,
+                    null,
+                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
+                ) ?: throw IllegalStateException("MediaStore returned no audio cursor.")
+
+                val rows = ArrayList<HashMap<String, Any?>>(cursor.count.coerceAtLeast(0))
+                cursor.use { audioCursor ->
+                    val idColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val titleColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val displayNameColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val artistColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                    val albumColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                    val albumIdColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                    val durationColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                    val dataColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                    val sizeColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                    val modifiedColumn = audioCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+                    val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        audioCursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
+                    } else {
+                        -1
+                    }
+
+                    while (audioCursor.moveToNext()) {
+                        val id = audioCursor.getLong(idColumn)
+                        val dataPath = audioCursor.getString(dataColumn).orEmpty()
+                        val relativePath = if (
+                            relativePathColumn >= 0 && !audioCursor.isNull(relativePathColumn)
+                        ) audioCursor.getString(relativePathColumn) else null
+                        val folder = when {
+                            dataPath.isNotBlank() -> dataPath.substringBeforeLast('/', "")
+                            !relativePath.isNullOrBlank() -> "/storage/emulated/0/${relativePath.trimEnd('/')}"
+                            else -> null
+                        }
+                        val title = audioCursor.getString(titleColumn)
+                            ?.takeIf { it.isNotBlank() }
+                            ?: audioCursor.getString(displayNameColumn).orEmpty()
+                        val mediaUri = ContentUris.withAppendedId(
+                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                            id,
+                        )
+                        rows.add(hashMapOf(
+                            "id" to id.toString(),
+                            "title" to title,
+                            "artist" to audioCursor.getString(artistColumn),
+                            "album" to audioCursor.getString(albumColumn),
+                            "albumId" to audioCursor.getLong(albumIdColumn),
+                            "durationMs" to audioCursor.getLong(durationColumn),
+                            "dataPath" to dataPath,
+                            "folder" to folder,
+                            "sizeBytes" to audioCursor.getLong(sizeColumn),
+                            "dateModifiedSeconds" to audioCursor.getLong(modifiedColumn),
+                            "uri" to mediaUri.toString(),
+                        ))
+                    }
+                }
+                mainHandler.post { result.success(rows) }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    result.error("audio_query_failed", error.message ?: error.javaClass.simpleName, null)
+                }
+            }
+        }
     }
 
     private fun videoPermission(): String = if (Build.VERSION.SDK_INT >= 33) {

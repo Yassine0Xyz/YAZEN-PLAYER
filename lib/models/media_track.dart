@@ -100,6 +100,53 @@ class MediaTrack {
     );
   }
 
+  factory MediaTrack.fromMediaStore(Map<dynamic, dynamic> row) {
+    final id = row['id']?.toString() ?? '';
+    final dataPath = row['dataPath']?.toString() ?? '';
+    final contentUri = Uri.tryParse(row['uri']?.toString() ?? '');
+    final durationMs = (row['durationMs'] as num?)?.toInt();
+    final sizeBytes = (row['sizeBytes'] as num?)?.toInt();
+    final modifiedSeconds = (row['dateModifiedSeconds'] as num?)?.toInt();
+    final folder = row['folder']?.toString();
+    final title = row['title']?.toString().trim() ?? '';
+    final artist = row['artist']?.toString().trim() ?? '';
+    final album = row['album']?.toString().trim() ?? '';
+
+    return MediaTrack(
+      id: id,
+      title: title.isEmpty ? 'Unknown title' : title,
+      artist:
+          artist.isEmpty || artist == '<unknown>' ? 'Unknown artist' : artist,
+      album: album.isEmpty || album == '<unknown>' ? 'Unknown album' : album,
+      source: TrackSource.local,
+      uri: dataPath.isNotEmpty ? Uri.file(dataPath) : contentUri,
+      artworkUri:
+          id.isEmpty
+              ? null
+              : Uri.parse('content://media/external/audio/media/$id/albumart'),
+      duration:
+          durationMs == null || durationMs <= 0
+              ? null
+              : Duration(milliseconds: durationMs),
+      folder:
+          folder?.isNotEmpty == true
+              ? folder
+              : dataPath.isEmpty
+              ? null
+              : _folderFromPath(dataPath),
+      sizeBytes: sizeBytes,
+      modifiedAt:
+          modifiedSeconds == null || modifiedSeconds <= 0
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(modifiedSeconds * 1000),
+    );
+  }
+
+  static String? _folderFromPath(String path) {
+    final folder = p.posix.dirname(path.replaceAll(r'\', '/'));
+    return folder == '.' ? null : folder;
+  }
+
   factory MediaTrack.fromLocalVideo({
     required String path,
     required String title,

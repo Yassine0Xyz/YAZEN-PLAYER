@@ -1,10 +1,53 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yazen/models/media_track.dart';
 import 'package:yazen/services/media_library_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('Android MediaStore channel returns mapped local songs', () async {
+    const channel = MethodChannel('yazen/local_media');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return switch (call.method) {
+        'audioPermissionStatus' => true,
+        'queryAudioTracks' => <Map<String, Object?>>[
+          <String, Object?>{
+            'id': '42',
+            'title': 'Test track',
+            'artist': 'Test artist',
+            'album': 'Test album',
+            'albumId': 7,
+            'durationMs': 123000,
+            'dataPath': '/storage/emulated/0/Music/test.mp3',
+            'folder': '/storage/emulated/0/Music',
+            'sizeBytes': 2048,
+            'dateModifiedSeconds': 1700000000,
+            'uri': 'content://media/external/audio/media/42',
+          },
+        ],
+        _ => throw StateError('Unexpected method: ${call.method}'),
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final tracks = await MediaLibraryService().querySongs();
+
+    expect(calls, <String>['audioPermissionStatus', 'queryAudioTracks']);
+    expect(tracks, hasLength(1));
+    expect(tracks.single.id, '42');
+    expect(tracks.single.title, 'Test track');
+    expect(tracks.single.uri, Uri.file('/storage/emulated/0/Music/test.mp3'));
+    expect(tracks.single.folder, '/storage/emulated/0/Music');
+    expect(tracks.single.duration, const Duration(minutes: 2, seconds: 3));
+  });
+
   test(
     'a denial is not cached and a later settings grant is observed',
     () async {
