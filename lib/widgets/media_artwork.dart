@@ -115,16 +115,18 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
     if (track.isLocal && !track.isVideo) {
       bytes = await _readOriginalArtwork(track.uri);
     }
-    if (bytes == null && track.isLocal) {
-      final id = int.tryParse(track.id);
-      if (id != null) {
-        bytes = await _audioQuery.queryArtwork(
-          id,
-          ArtworkType.AUDIO,
-          format: ArtworkFormat.JPEG,
-          size: pixels,
-          quality: 100,
-        );
+    if (track.isLocal) {
+      if (bytes == null) {
+        final id = int.tryParse(track.id);
+        if (id != null) {
+          bytes = await _audioQuery.queryArtwork(
+            id,
+            ArtworkType.AUDIO,
+            format: ArtworkFormat.JPEG,
+            size: pixels,
+            quality: 100,
+          );
+        }
       }
     } else {
       final uri = track.artworkUri;
@@ -177,14 +179,30 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
           if (loaded != null && loaded.isNotEmpty) _lastBytes = loaded;
           final bytes = loaded ?? _lastBytes;
           if (bytes != null && bytes.isNotEmpty) {
-            return Image.memory(
-              bytes,
-              width: widget.size,
-              height: widget.size,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              cacheWidth: _requestedPixels,
-              cacheHeight: _requestedPixels,
+            return Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                // Use a dim crop only as edge bleed; the crisp foreground
+                // keeps its original aspect ratio and is never stretched.
+                Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  color: Colors.black.withValues(alpha: 0.54),
+                  colorBlendMode: BlendMode.darken,
+                  gaplessPlayback: true,
+                  cacheWidth: _requestedPixels,
+                  cacheHeight: _requestedPixels,
+                  filterQuality: FilterQuality.medium,
+                ),
+                Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  cacheWidth: _requestedPixels,
+                  cacheHeight: _requestedPixels,
+                  filterQuality: FilterQuality.medium,
+                ),
+              ],
             );
           }
           return Container(

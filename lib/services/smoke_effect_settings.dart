@@ -6,9 +6,9 @@ class SmokeEffectSettings extends ChangeNotifier {
 
   static final SmokeEffectSettings instance = SmokeEffectSettings._();
   static const String preferenceKey = 'yazen.settings.smoke_effect_enabled';
-  static const String title = 'Smoke effect';
+  static const String title = 'Artwork ambience';
   static const String subtitle =
-      'Living smoke in the full player that reacts to the music';
+      'Album-colored background glows that pulse with the beat';
 
   bool _enabled = true;
   bool _loaded = false;

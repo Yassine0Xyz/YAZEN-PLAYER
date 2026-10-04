@@ -86,9 +86,17 @@ void main() {
       }
       expect(player.waitingForSource, isTrue);
 
+      final stopsBeforeTaps = player.stopCalls;
+      final delayedStop = Completer<void>();
+      player.nextStopGate = delayedStop;
+      final intermediate = handler.playTrackQueue(<MediaTrack>[_track(2)]);
       final newest = handler.playTrackQueue(<MediaTrack>[_track(1)]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(player.stopCalls, stopsBeforeTaps + 1);
+      delayedStop.complete();
       await Future.wait(<Future<void>>[
         first,
+        intermediate,
         newest,
       ]).timeout(const Duration(seconds: 1));
 
@@ -98,9 +106,58 @@ void main() {
       ]);
       expect(player.sequence, hasLength(1));
       expect((player.sequence.single.tag as MediaItem).title, _track(1).title);
+      expect(player.playing, isTrue);
 
       await handler.dispose();
       await player.close();
+    },
+  );
+
+  test(
+    'failed or missing replacement keeps the previous song playing',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('yazen-select-');
+      final previousFile = File('${directory.path}/previous.mp3');
+      final replacementFile = File('${directory.path}/replacement.mp3');
+      final missingFile = File('${directory.path}/missing.mp3');
+      await previousFile.writeAsBytes(<int>[1]);
+      await replacementFile.writeAsBytes(<int>[2]);
+
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      await handler.playTrackQueue(<MediaTrack>[
+        _fileTrack('previous', previousFile),
+      ]);
+      final stopsBeforeMissing = player.stopCalls;
+
+      await expectLater(
+        handler.playTrack(_fileTrack('missing', missingFile)),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(player.stopCalls, stopsBeforeMissing);
+      expect(player.playing, isTrue);
+      expect(handler.activeTrack?.id, 'previous');
+
+      player.failNextSetAudioSourcesAfterMutation = true;
+      await expectLater(
+        handler.playTrackQueue(<MediaTrack>[
+          _fileTrack('replacement', replacementFile),
+        ]),
+        throwsA(isA<StateError>()),
+      );
+      expect(handler.activeTrack?.id, 'previous');
+      expect(handler.queueTracks.map((track) => track.id), <String>[
+        'previous',
+      ]);
+      expect((player.sequence.single.tag as MediaItem).title, 'previous');
+      expect(player.playing, isTrue);
+
+      await handler.dispose();
+      await player.close();
+      await directory.delete(recursive: true);
     },
   );
 
@@ -372,7 +429,7 @@ MediaTrack _track(int index) => MediaTrack(
   artist: 'Test artist',
   album: 'Test album',
   source: TrackSource.local,
-  uri: Uri.parse('file:///tmp/queue-$index.mp3'),
+  uri: Uri.parse('content://media/external/audio/media/queue-$index'),
 );
 
 MediaTrack _fileTrack(String id, File file) => MediaTrack(
@@ -394,6 +451,7 @@ class _FakeAudioPlayer implements AudioPlayer {
   final List<AudioSource> _sources = <AudioSource>[];
   int? _currentIndex;
   bool _playing = false;
+  bool failNextSetAudioSourcesAfterMutation = false;
   double _volume = 1.0;
   double _speed = 1.0;
   Duration _position = Duration.zero;
@@ -402,9 +460,11 @@ class _FakeAudioPlayer implements AudioPlayer {
   bool failNextAddAfterMutation = false;
   Completer<void>? nextPlayGate;
   Completer<void>? _activePlayGate;
+  Completer<void>? nextStopGate;
   Completer<void>? nextSetAudioSourcesGate;
   Completer<void>? _activeSetAudioSourcesGate;
   bool _activeSetAudioSourcesInterrupted = false;
+  int stopCalls = 0;
   bool get waitingForSource => _activeSetAudioSourcesGate != null;
 
   @override
@@ -515,6 +575,10 @@ class _FakeAudioPlayer implements AudioPlayer {
       ..addAll(audioSources);
     _currentIndex = _sources.isEmpty ? null : (initialIndex ?? 0);
     _position = initialPosition ?? Duration.zero;
+    if (failNextSetAudioSourcesAfterMutation) {
+      failNextSetAudioSourcesAfterMutation = false;
+      throw StateError('Simulated native source-load failure');
+    }
     return null;
   }
 
@@ -583,6 +647,10 @@ class _FakeAudioPlayer implements AudioPlayer {
 
   @override
   Future<void> stop() async {
+    stopCalls++;
+    final stopGate = nextStopGate;
+    nextStopGate = null;
+    if (stopGate != null) await stopGate.future;
     _playing = false;
     _position = Duration.zero;
     final sourceGate = _activeSetAudioSourcesGate;
