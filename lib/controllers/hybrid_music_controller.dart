@@ -48,7 +48,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool _isLoading = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
-  String? _libraryErrorMessage;
   String _searchQuery = '';
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
@@ -75,7 +74,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool get repeatOne => repeatMode == AudioServiceRepeatMode.one;
   LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
-  String? get libraryErrorMessage => _libraryErrorMessage;
   String get searchQuery => _searchQuery;
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
   HybridAudioHandler get audioHandler => _audioHandler;
@@ -155,7 +153,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> loadLibrary({bool requestPermission = true}) async {
-    _libraryErrorMessage = null;
     _setLoading(true);
     _errorMessage = null;
 
@@ -167,28 +164,23 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
       _permissionRequired = false;
-      final songs = await _library.querySongs().timeout(
-        const Duration(seconds: 30),
-      );
-      _baseLocalSongs = List<MediaTrack>.unmodifiable(songs);
-      _rebuildLibraryDerivedLists();
-      // The Songs tab can render as soon as its own query finishes; it must not
-      // wait for optional artist, album, playlist, or video metadata queries.
-      notifyListeners();
-
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
+        _library.querySongs(),
         _library.queryVideos(requestPermission: false),
         _library.queryArtists(),
         _library.queryAlbums(),
         _library.queryPlaylists(),
-      ]).timeout(const Duration(seconds: 30));
-      _localVideos = results[0] as List<MediaTrack>;
-      _artists = results[1] as List<ArtistModel>;
-      _albums = results[2] as List<AlbumModel>;
-      _playlists = results[3] as List<PlaylistModel>;
+      ]);
+      _baseLocalSongs = List<MediaTrack>.unmodifiable(
+        results[0] as List<MediaTrack>,
+      );
+      _localVideos = results[1] as List<MediaTrack>;
+      _artists = results[2] as List<ArtistModel>;
+      _albums = results[3] as List<AlbumModel>;
+      _playlists = results[4] as List<PlaylistModel>;
+      _rebuildLibraryDerivedLists();
     } catch (error) {
-      _libraryErrorMessage = 'Unable to read the device music library: $error';
-      _errorMessage = _libraryErrorMessage;
+      _errorMessage = 'Unable to read the device music library: $error';
     } finally {
       _setLoading(false);
       notifyListeners();
@@ -236,7 +228,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   void _markPermissionRequired() {
     _permissionRequired = true;
     _errorMessage = null;
-    _libraryErrorMessage = null;
     _baseLocalSongs = const <MediaTrack>[];
     _allLocalSongs = const <MediaTrack>[];
     _localSongs = const <MediaTrack>[];

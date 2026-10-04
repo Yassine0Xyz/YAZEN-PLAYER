@@ -64,7 +64,7 @@ class MediaLibraryService {
     try {
       final granted =
           await (_permissionStatusReader?.call() ??
-              _readPlatformAudioPermissionStatus());
+              _audioQuery.permissionsStatus());
       _permissionGranted = granted ? true : null;
       return granted;
     } catch (_) {
@@ -77,7 +77,7 @@ class MediaLibraryService {
     try {
       final granted =
           await (_permissionRequester?.call() ??
-              _requestPlatformAudioPermission());
+              _audioQuery.permissionsRequest());
       _permissionGranted = granted ? true : null;
       return granted;
     } catch (_) {
@@ -99,47 +99,12 @@ class MediaLibraryService {
 
   Future<List<MediaTrack>> querySongs() async {
     if (!await ensurePermission()) return const <MediaTrack>[];
-    try {
-      final rows = await _localMediaChannel.invokeMethod<List<dynamic>>(
-        'queryAudioTracks',
-      );
-      return List<MediaTrack>.unmodifiable(
-        (rows ?? const <dynamic>[]).whereType<Map<dynamic, dynamic>>().map(
-          MediaTrack.fromMediaStore,
-        ),
-      );
-    } on MissingPluginException {
-      final songs = await _audioQuery.querySongs(
-        sortType: SongSortType.TITLE,
-        orderType: OrderType.ASC_OR_SMALLER,
-        ignoreCase: true,
-      );
-      return _toMediaTracks(songs);
-    }
-  }
-
-  Future<bool> _readPlatformAudioPermissionStatus() async {
-    try {
-      final granted = await _localMediaChannel.invokeMethod<bool>(
-        'audioPermissionStatus',
-      );
-      if (granted != null) return granted;
-    } on MissingPluginException {
-      // Non-Android platforms continue to use the package permission API.
-    }
-    return _audioQuery.permissionsStatus();
-  }
-
-  Future<bool> _requestPlatformAudioPermission() async {
-    try {
-      final granted = await _localMediaChannel.invokeMethod<bool>(
-        'requestAudioPermission',
-      );
-      if (granted != null) return granted;
-    } on MissingPluginException {
-      // Non-Android platforms continue to use the package permission API.
-    }
-    return _audioQuery.permissionsRequest();
+    final songs = await _audioQuery.querySongs(
+      sortType: SongSortType.TITLE,
+      orderType: OrderType.ASC_OR_SMALLER,
+      ignoreCase: true,
+    );
+    return _toMediaTracks(songs);
   }
 
   Future<List<MediaTrack>> querySongsFrom(

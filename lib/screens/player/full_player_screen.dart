@@ -18,7 +18,7 @@ import '../../services/dynamic_color_settings.dart';
 import '../../services/smoke_effect_settings.dart';
 import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
-import '../../widgets/playback_ambience_layer.dart';
+import '../../widgets/smoke_layer.dart';
 import '../../widgets/audio_visualizer.dart';
 import '../../widgets/media_artwork.dart';
 import '../../widgets/play_pause_morph.dart';
@@ -301,7 +301,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                             if (!SmokeEffectSettings.instance.enabled) {
                               return const SizedBox.shrink();
                             }
-                            return PlaybackAmbienceLayer(
+                            return SmokeLayer(
                               sourceUri:
                                   item.extras?['source']?.toString() == 'local'
                                       ? item.id
@@ -309,7 +309,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                               positionStream: handler.player.positionStream,
                               playing: isPlaying,
                               themeAccent: tokens.accent,
-                              dynamicColors: dynamicColors,
+                              lightTheme: tokens.isLight,
                             );
                           },
                         ),
