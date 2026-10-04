@@ -421,6 +421,41 @@ void main() {
       await player.close();
     },
   );
+
+  test('library query errors are visible and cleared after retry', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final library = _FakeMediaLibrary(
+      songs: <MediaTrack>[_track(0)],
+      queryError: StateError('Simulated MediaStore failure'),
+    );
+    final controller = HybridMusicController(
+      library: library,
+      audioHandler: handler,
+      playlistManager: manager,
+    );
+
+    await controller.loadLibrary(requestPermission: false);
+    expect(controller.localSongs, isEmpty);
+    expect(
+      controller.libraryErrorMessage,
+      contains('Simulated MediaStore failure'),
+    );
+
+    library.queryError = null;
+    await controller.loadLibrary(requestPermission: false);
+    expect(controller.libraryErrorMessage, isNull);
+    expect(controller.localSongs, hasLength(1));
+
+    await handler.dispose();
+    controller.dispose();
+    await player.close();
+  });
 }
 
 MediaTrack _track(int index) => MediaTrack(
@@ -712,10 +747,15 @@ class _FakeAudioPlayer implements AudioPlayer {
 }
 
 class _FakeMediaLibrary extends MediaLibraryService {
-  _FakeMediaLibrary({required this.songs, this.granted = true});
+  _FakeMediaLibrary({
+    required this.songs,
+    this.granted = true,
+    this.queryError,
+  });
 
   final List<MediaTrack> songs;
   bool granted;
+  Object? queryError;
   int settingsOpens = 0;
   int permissionRequests = 0;
 
@@ -738,7 +778,11 @@ class _FakeMediaLibrary extends MediaLibraryService {
   }
 
   @override
-  Future<List<MediaTrack>> querySongs() async => songs;
+  Future<List<MediaTrack>> querySongs() async {
+    final error = queryError;
+    if (error != null) throw error;
+    return songs;
+  }
 
   @override
   Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async =>

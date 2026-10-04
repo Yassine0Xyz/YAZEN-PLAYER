@@ -48,6 +48,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool _isLoading = false;
   LibrarySort _librarySort = LibrarySort.newestFirst;
   String? _errorMessage;
+  String? _libraryErrorMessage;
   String _searchQuery = '';
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
@@ -74,6 +75,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool get repeatOne => repeatMode == AudioServiceRepeatMode.one;
   LibrarySort get librarySort => _librarySort;
   String? get errorMessage => _errorMessage;
+  String? get libraryErrorMessage => _libraryErrorMessage;
   String get searchQuery => _searchQuery;
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
   HybridAudioHandler get audioHandler => _audioHandler;
@@ -153,6 +155,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> loadLibrary({bool requestPermission = true}) async {
+    _libraryErrorMessage = null;
     _setLoading(true);
     _errorMessage = null;
 
@@ -180,7 +183,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       _playlists = results[4] as List<PlaylistModel>;
       _rebuildLibraryDerivedLists();
     } catch (error) {
-      _errorMessage = 'Unable to read the device music library: $error';
+      _libraryErrorMessage = 'Unable to read the device music library: $error';
+      _errorMessage = _libraryErrorMessage;
     } finally {
       _setLoading(false);
       notifyListeners();
@@ -228,6 +232,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   void _markPermissionRequired() {
     _permissionRequired = true;
     _errorMessage = null;
+    _libraryErrorMessage = null;
     _baseLocalSongs = const <MediaTrack>[];
     _allLocalSongs = const <MediaTrack>[];
     _localSongs = const <MediaTrack>[];

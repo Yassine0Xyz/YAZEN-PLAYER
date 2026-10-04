@@ -107,6 +107,14 @@ class LocalMediaScreen extends StatelessWidget {
         },
       );
     }
+    if (snapshot.libraryErrorMessage != null &&
+        snapshot.visibleTracks.isEmpty &&
+        selectedTab != LibraryTab.videos) {
+      return _LibraryErrorView(
+        message: snapshot.libraryErrorMessage!,
+        onRetry: controller.refreshLibrary,
+      );
+    }
 
     return switch (selectedTab) {
       LibraryTab.songs => _SongsView(tracks: snapshot.visibleTracks),
@@ -131,6 +139,7 @@ class _LocalMediaSnapshot {
   const _LocalMediaSnapshot({
     required this.isLoading,
     required this.permissionRequired,
+    required this.libraryErrorMessage,
     required this.visibleTracks,
     required this.localSongs,
     required this.hiddenTracks,
@@ -146,6 +155,7 @@ class _LocalMediaSnapshot {
     return _LocalMediaSnapshot(
       isLoading: controller.isLoading,
       permissionRequired: controller.permissionRequired,
+      libraryErrorMessage: controller.libraryErrorMessage,
       visibleTracks: controller.visibleTracks,
       localSongs: controller.localSongs,
       hiddenTracks: controller.hiddenTracks,
@@ -160,6 +170,7 @@ class _LocalMediaSnapshot {
 
   final bool isLoading;
   final bool permissionRequired;
+  final String? libraryErrorMessage;
   final List<MediaTrack> visibleTracks;
   final List<MediaTrack> localSongs;
   final List<MediaTrack> hiddenTracks;
@@ -175,6 +186,7 @@ class _LocalMediaSnapshot {
       other is _LocalMediaSnapshot &&
       other.isLoading == isLoading &&
       other.permissionRequired == permissionRequired &&
+      other.libraryErrorMessage == libraryErrorMessage &&
       identical(other.visibleTracks, visibleTracks) &&
       identical(other.localSongs, localSongs) &&
       identical(other.hiddenTracks, hiddenTracks) &&
@@ -189,6 +201,7 @@ class _LocalMediaSnapshot {
   int get hashCode => Object.hash(
     isLoading,
     permissionRequired,
+    libraryErrorMessage,
     identityHashCode(visibleTracks),
     identityHashCode(localSongs),
     identityHashCode(hiddenTracks),
@@ -1207,6 +1220,49 @@ class _CategoryEmptyState extends StatelessWidget {
               subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(color: tokens.textSecondary, height: 1.45),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryErrorView extends StatelessWidget {
+  const _LibraryErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.library_music_outlined, size: 50, color: tokens.accent),
+            const SizedBox(height: 16),
+            const Text(
+              'Unable to load your music',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
             ),
           ],
         ),
