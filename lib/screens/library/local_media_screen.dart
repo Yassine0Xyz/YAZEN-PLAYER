@@ -93,7 +93,10 @@ class LocalMediaScreen extends StatelessWidget {
     HybridMusicController controller,
     _LocalMediaSnapshot snapshot,
   ) {
-    if (snapshot.isLoading) return const LibraryLoadingState();
+    if (snapshot.isLoading &&
+        (selectedTab != LibraryTab.songs || snapshot.localSongs.isEmpty)) {
+      return const LibraryLoadingState();
+    }
     if (snapshot.permissionRequired && selectedTab != LibraryTab.videos) {
       return _MediaPermissionView(
         onGrant: controller.requestMediaPermission,

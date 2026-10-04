@@ -456,6 +456,45 @@ void main() {
     controller.dispose();
     await player.close();
   });
+
+  test('songs load before delayed secondary library queries', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final secondaryQueries = Completer<void>();
+    final library = _FakeMediaLibrary(
+      songs: <MediaTrack>[_track(0)],
+      auxiliaryQueryGate: secondaryQueries.future,
+    );
+    final controller = HybridMusicController(
+      library: library,
+      audioHandler: handler,
+      playlistManager: manager,
+    );
+
+    final load = controller.loadLibrary(requestPermission: false);
+    for (
+      var attempt = 0;
+      attempt < 20 && controller.localSongs.isEmpty;
+      attempt++
+    ) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(controller.localSongs, hasLength(1));
+    expect(controller.isLoading, isTrue);
+
+    secondaryQueries.complete();
+    await load;
+    expect(controller.isLoading, isFalse);
+
+    await handler.dispose();
+    controller.dispose();
+    await player.close();
+  });
 }
 
 MediaTrack _track(int index) => MediaTrack(
@@ -751,11 +790,13 @@ class _FakeMediaLibrary extends MediaLibraryService {
     required this.songs,
     this.granted = true,
     this.queryError,
+    this.auxiliaryQueryGate,
   });
 
   final List<MediaTrack> songs;
   bool granted;
   Object? queryError;
+  final Future<void>? auxiliaryQueryGate;
   int settingsOpens = 0;
   int permissionRequests = 0;
 
@@ -784,16 +825,32 @@ class _FakeMediaLibrary extends MediaLibraryService {
     return songs;
   }
 
-  @override
-  Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async =>
-      const <MediaTrack>[];
+  Future<void> _waitForAuxiliaryQuery() async {
+    final gate = auxiliaryQueryGate;
+    if (gate != null) await gate;
+  }
 
   @override
-  Future<List<ArtistModel>> queryArtists() async => const <ArtistModel>[];
+  Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) async {
+    await _waitForAuxiliaryQuery();
+    return const <MediaTrack>[];
+  }
 
   @override
-  Future<List<AlbumModel>> queryAlbums() async => const <AlbumModel>[];
+  Future<List<ArtistModel>> queryArtists() async {
+    await _waitForAuxiliaryQuery();
+    return const <ArtistModel>[];
+  }
 
   @override
-  Future<List<PlaylistModel>> queryPlaylists() async => const <PlaylistModel>[];
+  Future<List<AlbumModel>> queryAlbums() async {
+    await _waitForAuxiliaryQuery();
+    return const <AlbumModel>[];
+  }
+
+  @override
+  Future<List<PlaylistModel>> queryPlaylists() async {
+    await _waitForAuxiliaryQuery();
+    return const <PlaylistModel>[];
+  }
 }

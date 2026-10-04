@@ -1,7 +1,7 @@
 name: yazen
 description: A high-performance local-first media player for audio and video.
 publish_to: "none"
-version: 0.1.3+4
+version: 0.1.4+5
 
 environment:
   sdk: ">=3.7.0 <4.0.0"
