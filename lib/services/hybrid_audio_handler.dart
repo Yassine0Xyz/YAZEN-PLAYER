@@ -682,6 +682,18 @@ class HybridAudioHandler extends BaseAudioHandler
     bool stillCurrent() =>
         generation == _queueGeneration && isCurrent() && !_isDisposed;
     if (!stillCurrent()) return;
+    if (_hasSameLoadedQueue(tracks)) {
+      await _player.seek(Duration.zero, index: initialIndex);
+      if (!stillCurrent()) return;
+      final selectedTrack = _queueTracks[initialIndex];
+      _activeTrack = selectedTrack;
+      mediaItem.add(selectedTrack.toMediaItem());
+      _broadcastPlaybackState();
+      _persistPlayback();
+      _startPlaybackWithoutHoldingQueue();
+      return;
+    }
+
     final items = tracks.map((track) => track.toMediaItem()).toList();
     final sources = <AudioSource>[];
     for (var index = 0; index < tracks.length; index++) {
@@ -717,6 +729,30 @@ class HybridAudioHandler extends BaseAudioHandler
     _publishQueueState(items, initialIndex);
     _persistQueueAndProgress();
     _startPlaybackWithoutHoldingQueue();
+  }
+
+  bool _hasSameLoadedQueue(List<MediaTrack> tracks) {
+    if (_player.processingState == ProcessingState.loading ||
+        _queueTracks.length != tracks.length ||
+        _player.sequence.length != tracks.length) {
+      return false;
+    }
+    for (var index = 0; index < tracks.length; index++) {
+      final current = _queueTracks[index];
+      final requested = tracks[index];
+      if (current.id != requested.id ||
+          current.uri != requested.uri ||
+          current.artworkUri != requested.artworkUri ||
+          current.title != requested.title ||
+          current.artist != requested.artist ||
+          current.album != requested.album ||
+          current.duration != requested.duration ||
+          current.source != requested.source ||
+          current.kind != requested.kind) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> addToQueue(MediaTrack track) => _runQueueMutation(() async {

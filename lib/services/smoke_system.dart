@@ -28,8 +28,16 @@ class SmokeSystem {
     }
   }
 
-  static const int plumeCount = 4;
-  static const int maxLobes = 10;
+  static const int plumeCount = 6;
+  static const int maxLobes = 14;
+  static const List<double> _windAngles = <double>[
+    -2.62,
+    -2.08,
+    -1.73,
+    -1.30,
+    -0.85,
+    -0.43,
+  ];
 
   final Float32List centerX;
   final Float32List centerY;
@@ -56,7 +64,7 @@ class SmokeSystem {
   int get qualityLimit => _qualityLimit;
   int get lobeCount => (_qualityLimit ~/ 8).clamp(3, maxLobes);
   int get activeLobeCount =>
-      (lobeCount + (_densityPulse * 2).round()).clamp(3, maxLobes).toInt();
+      (lobeCount + (_densityPulse * 4).round()).clamp(3, maxLobes).toInt();
   double get intensity => _smokeIntensity;
   double get beatEnvelope => _beatEnvelope;
   double get densityPulse => _densityPulse;
@@ -127,11 +135,10 @@ class SmokeSystem {
 
     final targetBeat = signalActive ? beat.clamp(0.0, 1.0) : 0.0;
     if (signalActive && targetBeat - _lastBeatTarget >= 0.14) {
-      // Give each detected onset a gently varied puff rather than a uniform
-      // particle burst; the seeded RNG keeps tests and visual motion stable.
+      // Add several softly varied wisps per onset, not a hard particle flash.
       _densityPulse = math.max(
         _densityPulse,
-        0.62 + _beatRandom.nextDouble() * 0.38,
+        0.78 + _beatRandom.nextDouble() * 0.22,
       );
     }
     _lastBeatTarget = targetBeat;
@@ -147,8 +154,8 @@ class SmokeSystem {
         !playing
             ? 0.12
             : !available
-            ? 0.30
-            : 0.48 + _energy * 0.28;
+            ? 0.34
+            : 0.52 + _energy * 0.30;
     _smokeIntensity = _approach(
       _smokeIntensity,
       targetIntensity,
@@ -156,10 +163,20 @@ class SmokeSystem {
       playing ? 0.25 : 0.52,
     );
 
-    final flowSpeed = 0.045 + _energy * 0.028 + _bass * 0.018;
+    final flowSpeed =
+        0.14 + _energy * 0.065 + _bass * 0.035 + _beatEnvelope * 0.035;
     final baseLobes = lobeCount;
     final activeLobes = activeLobeCount;
+    final diagonal = math.sqrt(width * width + height * height);
+    final travelDistance = diagonal * 1.55;
+    final minDimension = math.min(width, height);
     for (var plume = 0; plume < plumeCount; plume++) {
+      final angle = _windAngles[plume];
+      final directionX = math.cos(angle);
+      final directionY = math.sin(angle);
+      final perpendicularX = -directionY;
+      final perpendicularY = directionX;
+      final laneOffset = (plume / (plumeCount - 1) - 0.5) * minDimension * 0.55;
       for (var lobe = 0; lobe < maxLobes; lobe++) {
         final index = plume * maxLobes + lobe;
         if (lobe >= activeLobes) {
@@ -167,52 +184,71 @@ class SmokeSystem {
           continue;
         }
 
-        final spread = activeLobes == 1 ? 0.0 : lobe / (activeLobes - 1);
+        final seed = plume * maxLobes + lobe;
+        final speedVariation = 0.78 + (seed % 7) * 0.06;
+        final phaseOffset = (plume * 0.19 + lobe * 0.17) % 1.22;
         final progress =
-            ((_elapsed * flowSpeed + plume * 0.29 + spread * 0.78) % 1.24) /
-            1.24;
+            ((_elapsed * flowSpeed * speedVariation + phaseOffset) % 1.22) /
+            1.22;
+        final lateralSeed = ((seed * 37) % 29) / 28;
+        final lateralOffset =
+            laneOffset + (lateralSeed - 0.5) * minDimension * 0.55;
         final turbulence =
-            math.sin(_elapsed * 0.43 + plume * 1.73 + spread * 5.1) +
-            0.34 * math.sin(_elapsed * 0.79 + plume * 2.4 - spread * 6.0);
-        final curl = math.cos(_elapsed * 0.51 + plume * 1.91 + spread * 4.5);
+            math.sin(_elapsed * 0.61 + seed * 1.73) +
+            0.30 * math.sin(_elapsed * 1.07 + seed * 2.4);
+        final curl = math.cos(_elapsed * 0.48 + seed * 1.91);
+        final bend = math.sin(progress * math.pi * 2 + seed * 0.83);
+        final along = (progress - 0.5) * travelDistance;
 
-        centerX[index] = width * (-0.14 + progress * 1.28 + turbulence * 0.064);
-        centerY[index] = height * (0.91 - progress * 0.77 + curl * 0.032);
+        centerX[index] =
+            width * 0.5 +
+            directionX * along +
+            perpendicularX * lateralOffset +
+            turbulence * width * 0.045 +
+            bend * width * 0.023;
+        centerY[index] =
+            height * 0.5 +
+            directionY * along +
+            perpendicularY * lateralOffset +
+            curl * height * 0.046 +
+            bend * height * 0.015;
         radiusX[index] =
             width *
-            (0.105 +
-                0.027 * (1 + math.sin(_elapsed * 0.37 + plume + spread * 3)) +
-                _beatEnvelope * 0.018);
+            (0.13 +
+                0.026 * (1 + math.sin(_elapsed * 0.37 + seed * 0.31)) +
+                _beatEnvelope * 0.04 +
+                _densityPulse * 0.016);
         radiusY[index] =
             height *
-            (0.055 +
-                0.018 *
-                    (1 + math.cos(_elapsed * 0.48 + plume * 1.4 + spread * 4)) +
-                _beatEnvelope * 0.012);
+            (0.07 +
+                0.017 * (1 + math.cos(_elapsed * 0.48 + seed * 0.43)) +
+                _beatEnvelope * 0.024 +
+                _densityPulse * 0.01);
         rotation[index] =
-            math.sin(_elapsed * 0.27 + plume * 1.6 + spread * 3.3) * 0.52 +
-            turbulence * 0.09;
+            angle +
+            math.sin(_elapsed * 0.31 + seed * 1.6) * 0.42 +
+            turbulence * 0.10;
 
-        final fadeIn = _smoothstep(progress / 0.12);
-        final fadeOut = _smoothstep((1 - progress) / 0.22);
+        final fadeIn = _smoothstep(progress / 0.10);
+        final fadeOut = _smoothstep((1 - progress) / 0.16);
         final contrast = _lightTheme ? 0.76 : 1.0;
         final audioLift =
-            (0.72 + _energy * 0.42 + _beatEnvelope * 0.82) *
-            (0.94 + _densityPulse * 0.12);
+            (0.78 + _energy * 0.40 + _beatEnvelope * 0.76) *
+            (0.94 + _densityPulse * 0.16);
         final densityVisibility =
             lobe < baseLobes
                 ? 1.0
                 : _smoothstep(
-                  (_densityPulse - (lobe - baseLobes) * 0.30) / 0.58,
+                  (_densityPulse - (lobe - baseLobes) * 0.16) / 0.44,
                 );
-        opacity[index] = (0.108 *
+        opacity[index] = (0.132 *
                 _smokeIntensity *
                 contrast *
                 audioLift *
                 densityVisibility *
                 fadeIn *
                 fadeOut)
-            .clamp(0.0, 0.18);
+            .clamp(0.0, 0.22);
 
         final palettePosition =
             (plume * 1.11 +

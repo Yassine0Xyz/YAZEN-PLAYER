@@ -24,8 +24,7 @@ class PermissionController : PermissionManagerInterface,
     private var permissions: Array<String> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(
-                Manifest.permission.READ_MEDIA_AUDIO,
-                Manifest.permission.READ_MEDIA_IMAGES
+                Manifest.permission.READ_MEDIA_AUDIO
             )
         } else {
             arrayOf(
@@ -53,8 +52,9 @@ class PermissionController : PermissionManagerInterface,
     // Second requestPermission, this one with the option "Never Ask Again".
     override fun retryRequestPermission() {
         val activity = PluginProvider.activity()
-        if (ActivityCompat.shouldShowRequestPermissionRationale(activity, permissions[0])
-            || ActivityCompat.shouldShowRequestPermissionRationale(activity, permissions[1])
+        if (permissions.any {
+                ActivityCompat.shouldShowRequestPermissionRationale(activity, it)
+            }
         ) {
             Log.d(TAG, "Retrying permission request")
             retryRequest = false

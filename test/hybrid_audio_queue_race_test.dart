@@ -123,6 +123,73 @@ void main() {
   );
 
   test(
+    'rapid taps on the same large queue seek in place and keep only newest history',
+    () async {
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final libraryTracks = List<MediaTrack>.generate(500, _track);
+      await handler.playTrackQueue(libraryTracks, initialIndex: 0);
+      expect(player.sourceSetCount, 1);
+
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final controller = HybridMusicController(
+        library: _FakeMediaLibrary(songs: libraryTracks),
+        audioHandler: handler,
+        playlistManager: manager,
+      );
+      final taps = <Future<void>>[];
+      for (var index = 0; index < 100; index++) {
+        taps.add(controller.playTrackQueue(libraryTracks, initialIndex: index));
+      }
+      await Future.wait(taps).timeout(const Duration(seconds: 2));
+
+      expect(player.sourceSetCount, 1);
+      expect(player.stopCount, 0);
+      expect(player.currentIndex, 99);
+      expect(handler.activeTrack?.id, libraryTracks[99].id);
+      expect(manager.playCount(libraryTracks[99].id), 1);
+      expect(
+        libraryTracks
+            .take(99)
+            .every((track) => manager.playCount(track.id) == 0),
+        isTrue,
+      );
+
+      await handler.dispose();
+      controller.dispose();
+      await player.close();
+    },
+  );
+
+  test('successive track selections reuse a loaded 500-song queue', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final tracks = List<MediaTrack>.generate(500, _track);
+    await handler.playTrackQueue(tracks, initialIndex: 0);
+
+    for (var index = 1; index < 100; index++) {
+      await handler.playTrackQueue(tracks, initialIndex: index);
+    }
+
+    expect(player.sourceSetCount, 1);
+    expect(player.stopCount, 0);
+    expect(player.sequence, hasLength(500));
+    expect(player.currentIndex, 99);
+    expect(handler.activeTrack?.id, tracks[99].id);
+    expect(player.playing, isTrue);
+
+    await handler.dispose();
+    await player.close();
+  });
+
+  test(
     'repairs the mirrored queue after a partial player mutation failure',
     () async {
       final player = _FakeAudioPlayer();
@@ -425,6 +492,7 @@ class _FakeAudioPlayer implements AudioPlayer {
   Completer<void>? nextStopGate;
   Completer<void>? _activeSetAudioSourcesGate;
   bool _activeSetAudioSourcesInterrupted = false;
+  int sourceSetCount = 0;
   final List<bool> sourcePreloadHistory = <bool>[];
   bool get waitingForSource => _activeSetAudioSourcesGate != null;
 
@@ -518,6 +586,7 @@ class _FakeAudioPlayer implements AudioPlayer {
     Duration? initialPosition,
     ShuffleOrder? shuffleOrder,
   }) async {
+    sourceSetCount++;
     sourcePreloadHistory.add(preload);
     await Future<void>.delayed(const Duration(milliseconds: 1));
     final gate = nextSetAudioSourcesGate;

@@ -30,7 +30,7 @@ void main() {
   double totalOpacity(SmokeSystem system) =>
       system.opacity.fold<double>(0, (sum, value) => sum + value);
 
-  test('smoke wisps continuously flow diagonally across the player', () {
+  test('independent smoke currents sweep across the full player viewport', () {
     final system = SmokeSystem();
     system.update(
       dt: 1 / 60,
@@ -51,8 +51,35 @@ void main() {
     expect((system.centerX[0] - initialX).abs(), greaterThan(4));
     expect((system.centerY[0] - initialY).abs(), greaterThan(4));
     expect(system.lobeCount, 6);
+    var minX = double.infinity;
+    var maxX = double.negativeInfinity;
+    var minY = double.infinity;
+    var maxY = double.negativeInfinity;
+    for (var frame = 0; frame < 120; frame++) {
+      system.update(
+        dt: 0.05,
+        width: 400,
+        height: 800,
+        level: 0.35,
+        bass: 0.2,
+        beat: 0,
+        available: true,
+        playing: true,
+      );
+      for (var index = 0; index < system.centerX.length; index++) {
+        if (system.opacity[index] <= 0.015) continue;
+        minX = math.min(minX, system.centerX[index]);
+        maxX = math.max(maxX, system.centerX[index]);
+        minY = math.min(minY, system.centerY[index]);
+        maxY = math.max(maxY, system.centerY[index]);
+      }
+    }
+    expect(minX, lessThan(50));
+    expect(maxX, greaterThan(350));
+    expect(minY, lessThan(100));
+    expect(maxY, greaterThan(700));
     expect(
-      system.opacity.every((value) => value >= 0 && value <= 0.18),
+      system.opacity.every((value) => value >= 0 && value <= 0.22),
       isTrue,
     );
   });
@@ -81,7 +108,7 @@ void main() {
 
       expect(loud.intensity, greaterThan(quiet.intensity));
       expect(totalOpacity(loud), greaterThan(totalOpacity(quiet)));
-      expect(loud.opacity.reduce(math.max), lessThanOrEqualTo(0.18));
+      expect(loud.opacity.reduce(math.max), lessThanOrEqualTo(0.22));
     },
   );
 

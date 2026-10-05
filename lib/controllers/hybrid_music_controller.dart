@@ -56,6 +56,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<MediaTrack>? _visibleTracksCache;
   Iterable<MediaTrack>? _visibleTracksSource;
   LibrarySort? _visibleTracksCacheSort;
+  int _playbackSelectionRequest = 0;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
@@ -286,13 +287,19 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       _playlistManager.addToPlaylist(playlistId, track);
 
   Future<void> playTrack(MediaTrack track) async {
-    try {
+    final request = ++_playbackSelectionRequest;
+    if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
+    }
+    try {
       await _audioHandler.playTrack(track);
+      if (request != _playbackSelectionRequest) return;
       await _playlistManager.recordPlayed(track);
+      if (request != _playbackSelectionRequest) return;
       notifyListeners();
     } catch (error) {
+      if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
       notifyListeners();
     }
@@ -302,17 +309,25 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     List<MediaTrack> tracks, {
     int initialIndex = 0,
   }) async {
-    try {
+    final request = ++_playbackSelectionRequest;
+    final selectedTrack =
+        tracks.isEmpty
+            ? null
+            : tracks[initialIndex.clamp(0, tracks.length - 1)];
+    if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
+    }
+    try {
       await _audioHandler.playTrackQueue(tracks, initialIndex: initialIndex);
-      if (tracks.isNotEmpty) {
-        await _playlistManager.recordPlayed(
-          tracks[initialIndex.clamp(0, tracks.length - 1)],
-        );
+      if (request != _playbackSelectionRequest) return;
+      if (selectedTrack != null) {
+        await _playlistManager.recordPlayed(selectedTrack);
+        if (request != _playbackSelectionRequest) return;
       }
       notifyListeners();
     } catch (error) {
+      if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
       notifyListeners();
     }
