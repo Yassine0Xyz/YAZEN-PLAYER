@@ -4,13 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yazen/services/smoke_system.dart';
 
 void main() {
-  SmokeSystem makeSystem({int seed = 17}) => SmokeSystem(seed: seed);
-
   void step(
     SmokeSystem system, {
     required int frames,
     required double level,
-    required double bass,
+    double bass = 0.2,
     double beat = 0,
     required bool available,
     required bool playing,
@@ -29,191 +27,173 @@ void main() {
     }
   }
 
-  test('particles continually leave the right and get recycled', () {
-    final system = makeSystem();
-    step(
-      system,
-      frames: 320,
-      level: 0.6,
-      bass: 0.1,
-      available: true,
-      playing: true,
-    );
-    expect(system.recycledCount, greaterThan(0));
-    expect(system.lastSpawnX, inInclusiveRange(-0.15, 0.10));
-    expect(system.activeCount, lessThanOrEqualTo(80));
-  });
+  double totalOpacity(SmokeSystem system) =>
+      system.opacity.fold<double>(0, (sum, value) => sum + value);
 
-  test('higher real energy targets a denser particle pool', () {
-    final quiet = makeSystem();
-    final loud = makeSystem();
-    step(
-      quiet,
-      frames: 220,
-      level: 0.05,
-      bass: 0.05,
+  test('smoke wisps continuously flow diagonally across the player', () {
+    final system = SmokeSystem();
+    system.update(
+      dt: 1 / 60,
+      width: 400,
+      height: 800,
+      level: 0.35,
+      bass: 0.2,
       available: true,
       playing: true,
+      beat: 0,
     );
-    step(
-      loud,
-      frames: 220,
-      level: 0.95,
-      bass: 0.05,
-      available: true,
-      playing: true,
-    );
-    expect(loud.activeCount, greaterThan(quiet.activeCount));
-  });
+    final initialX = system.centerX[0];
+    final initialY = system.centerY[0];
 
-  test('paused smoke decays to a faint moving state', () {
-    final system = makeSystem();
-    step(system, frames: 40, level: 1, bass: 0, available: true, playing: true);
-    step(
-      system,
-      frames: 60,
-      level: 0,
-      bass: 0,
-      available: false,
-      playing: false,
+    step(system, frames: 100, level: 0.35, available: true, playing: true);
+
+    expect(system.flowPhase, greaterThan(4));
+    expect((system.centerX[0] - initialX).abs(), greaterThan(4));
+    expect((system.centerY[0] - initialY).abs(), greaterThan(4));
+    expect(system.lobeCount, 6);
+    expect(
+      system.opacity.every((value) => value >= 0 && value <= 0.16),
+      isTrue,
     );
-    expect(system.intensity, closeTo(0.12, 0.02));
-    expect(system.activeCount, greaterThan(0));
   });
 
   test(
-    'beat spike creates a bounded puff burst and palette drift stays bounded',
+    'stronger PCM energy gives the smoke more body without hard flashes',
     () {
-      final system = makeSystem();
-      system.update(
-        dt: 0.05,
-        width: 400,
-        height: 800,
-        level: 0.7,
-        bass: 0.1,
+      final quiet = SmokeSystem();
+      final loud = SmokeSystem();
+      step(
+        quiet,
+        frames: 100,
+        level: 0.05,
         beat: 0.1,
         available: true,
         playing: true,
       );
-      system.update(
-        dt: 0.05,
-        width: 400,
-        height: 800,
-        level: 0.7,
-        bass: 0.9,
-        beat: 0.9,
+      step(
+        loud,
+        frames: 100,
+        level: 0.9,
+        beat: 0.1,
         available: true,
         playing: true,
       );
-      expect(system.lastPuffCount, inInclusiveRange(2, 6));
-      expect(system.paletteHueDrift.abs(), lessThanOrEqualTo(7));
-      expect(system.paletteLightnessDrift.abs(), lessThanOrEqualTo(0.025));
+
+      expect(loud.intensity, greaterThan(quiet.intensity));
+      expect(totalOpacity(loud), greaterThan(totalOpacity(quiet)));
+      expect(loud.opacity.reduce(math.max), lessThanOrEqualTo(0.16));
     },
   );
 
-  test('beat flashes rise and fade smoothly like a short visualizer pulse', () {
-    final system = makeSystem(seed: 29);
-
-    void update(double beat) {
-      system.update(
-        dt: 0.05,
-        width: 400,
-        height: 800,
-        level: 0.7,
-        bass: 0.2,
-        beat: beat,
-        available: true,
-        playing: true,
-      );
-    }
-
-    int brightestAlpha() {
-      var maximum = 0;
-      for (var index = 0; index < system.activeCount; index++) {
-        maximum = math.max(maximum, (system.colors[index] >> 24) & 0xFF);
-      }
-      return maximum;
-    }
-
-    update(0);
-    final idleAlpha = brightestAlpha();
-    update(1);
-    final peakAlpha = brightestAlpha();
-    expect(peakAlpha, greaterThan(idleAlpha));
-
-    for (var frame = 0; frame < 12; frame++) {
-      update(0);
-    }
-    expect(brightestAlpha(), lessThan(peakAlpha));
-  });
-
-  test('raw-atlas buffer identities remain stable during updates', () {
-    final system = makeSystem();
-    final transforms = system.transforms;
-    final rects = system.sourceRects;
-    final colors = system.colors;
-    step(
-      system,
-      frames: 100,
-      level: 0.5,
-      bass: 0.2,
-      available: false,
+  test('beat response rises quickly and eases down instead of strobing', () {
+    final system = SmokeSystem();
+    system.update(
+      dt: 0.05,
+      width: 400,
+      height: 800,
+      level: 0.65,
+      bass: 0.35,
+      beat: 0,
+      available: true,
       playing: true,
     );
-    expect(identical(system.transforms, transforms), isTrue);
-    expect(identical(system.sourceRects, rects), isTrue);
-    expect(identical(system.colors, colors), isTrue);
+    final quietEnvelope = system.beatEnvelope;
+    system.update(
+      dt: 0.05,
+      width: 400,
+      height: 800,
+      level: 0.65,
+      bass: 0.35,
+      beat: 1,
+      available: true,
+      playing: true,
+    );
+    final peakEnvelope = system.beatEnvelope;
+    expect(peakEnvelope, greaterThan(quietEnvelope));
+    expect(peakEnvelope, lessThan(1));
+
+    step(
+      system,
+      frames: 10,
+      level: 0.4,
+      beat: 0,
+      available: true,
+      playing: true,
+    );
+    expect(system.beatEnvelope, lessThan(peakEnvelope));
+    expect(system.beatEnvelope, greaterThan(0));
   });
 
-  test('palette changes cross-fade over eight hundred milliseconds', () {
-    final system = makeSystem();
+  test('paused smoke settles to a subtle resting level', () {
+    final system = SmokeSystem();
+    step(
+      system,
+      frames: 60,
+      level: 0.9,
+      beat: 0.8,
+      available: true,
+      playing: true,
+    );
+    final activeIntensity = system.intensity;
+    step(
+      system,
+      frames: 80,
+      level: 0,
+      beat: 0,
+      available: false,
+      playing: false,
+    );
+
+    expect(system.intensity, lessThan(activeIntensity));
+    expect(system.intensity, closeTo(0.12, 0.02));
+    expect(system.beatEnvelope, lessThan(0.1));
+  });
+
+  test('album palette cross-fades and beat gently shifts mixed colors', () {
+    final system = SmokeSystem();
     system.setPalette(
       dominant: 0xFFFF0000,
-      vibrant: 0xFFFF0000,
-      lightVibrant: 0xFFFF0000,
+      vibrant: 0xFF0000FF,
+      lightVibrant: 0xFF0000FF,
       darkVibrant: 0xFFFF0000,
-      muted: 0xFFFF0000,
+      muted: 0xFF0000FF,
       fallback: 0xFFFF0000,
       lightTheme: false,
     );
+    step(system, frames: 16, level: 0.25, available: false, playing: true);
+    expect(system.paletteColorAt(0), 0xFFFF0000);
+    final beforeBeat = system.colors[0];
     step(
       system,
-      frames: 16,
-      level: 0.2,
-      bass: 0,
-      available: false,
+      frames: 3,
+      level: 0.4,
+      beat: 0.95,
+      available: true,
       playing: true,
     );
-    expect(system.paletteColorAt(0), 0xFFFF0000);
+    expect(system.colors[0], isNot(beforeBeat));
+
     system.setPalette(
-      dominant: 0xFF0000FF,
-      vibrant: 0xFF0000FF,
-      lightVibrant: 0xFF0000FF,
-      darkVibrant: 0xFF0000FF,
-      muted: 0xFF0000FF,
-      fallback: 0xFF0000FF,
+      dominant: 0xFF00FF00,
+      vibrant: 0xFF00FF00,
+      lightVibrant: 0xFF00FF00,
+      darkVibrant: 0xFF00FF00,
+      muted: 0xFF00FF00,
+      fallback: 0xFF00FF00,
       lightTheme: false,
     );
-    expect(system.paletteColorAt(0), 0xFFFF0000);
-    step(
-      system,
-      frames: 8,
-      level: 0.2,
-      bass: 0,
-      available: false,
-      playing: true,
-    );
-    final middle = system.paletteColorAt(0);
-    expect((middle >> 16) & 0xFF, inInclusiveRange(110, 145));
-    expect(middle & 0xFF, inInclusiveRange(110, 145));
-    step(
-      system,
-      frames: 8,
-      level: 0.2,
-      bass: 0,
-      available: false,
-      playing: true,
-    );
-    expect(system.paletteColorAt(0), 0xFF0000FF);
+    expect(system.paletteColorAt(0), isNot(0xFF00FF00));
+    step(system, frames: 16, level: 0.2, available: false, playing: true);
+    expect(system.paletteColorAt(0), 0xFF00FF00);
+  });
+
+  test('quality adaptation bounds the number of smoke wisps', () {
+    final system = SmokeSystem();
+    system.setQualityLimit(24);
+    expect(system.lobeCount, 3);
+    system.setQualityLimit(80);
+    expect(system.lobeCount, 10);
+    system.setQualityLimit(1000);
+    expect(system.qualityLimit, 80);
   });
 }

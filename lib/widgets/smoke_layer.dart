@@ -42,7 +42,6 @@ class _SmokeLayerState extends State<SmokeLayer>
   late final Ticker _ticker;
   PlaybackEnergyConsumer? _energyConsumer;
   StreamSubscription<Duration>? _positionSubscription;
-  ui.Image? _sprite;
   ModalRoute<dynamic>? _route;
   Duration? _lastElapsed;
   double _width = 0;
@@ -72,7 +71,6 @@ class _SmokeLayerState extends State<SmokeLayer>
     );
     _bindPositionStream();
     _setPalette(_paletteService.current.value);
-    _createSprite();
   }
 
   @override
@@ -140,34 +138,6 @@ class _SmokeLayerState extends State<SmokeLayer>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appResumed = state == AppLifecycleState.resumed;
     _syncActivity();
-  }
-
-  Future<void> _createSprite() async {
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    const size = 128.0;
-    final paint =
-        Paint()
-          ..shader = ui.Gradient.radial(
-            const Offset(size / 2, size / 2),
-            size / 2,
-            const <Color>[
-              Color(0x55FFFFFF),
-              Color(0x28FFFFFF),
-              Color(0x08FFFFFF),
-              Color(0x00FFFFFF),
-            ],
-            const <double>[0, 0.34, 0.72, 1],
-          );
-    canvas.drawRect(const Rect.fromLTWH(0, 0, size, size), paint);
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    picture.dispose();
-    if (!mounted) {
-      image.dispose();
-      return;
-    }
-    setState(() => _sprite = image);
   }
 
   void _setPalette(ArtworkPalette palette) {
@@ -288,11 +258,7 @@ class _SmokeLayerState extends State<SmokeLayer>
             _width = constraints.maxWidth;
             _height = constraints.maxHeight;
             return CustomPaint(
-              painter: _SmokePainter(
-                image: _sprite,
-                system: _system,
-                repaint: _repaint,
-              ),
+              painter: _SmokePainter(system: _system, repaint: _repaint),
               child: const SizedBox.expand(),
             );
           },
@@ -313,45 +279,52 @@ class _SmokeLayerState extends State<SmokeLayer>
     _energyService.energy.removeListener(_onEnergyChanged);
     _paletteService.current.removeListener(_onPaletteChanged);
     _positionSubscription?.cancel();
-    _sprite?.dispose();
     _repaint.dispose();
     super.dispose();
   }
 }
 
 class _SmokePainter extends CustomPainter {
-  _SmokePainter({
-    required this.image,
-    required this.system,
-    required Listenable repaint,
-  }) : super(repaint: repaint);
+  _SmokePainter({required this.system, required Listenable repaint})
+    : super(repaint: repaint);
 
-  static final Paint _paint = Paint()..filterQuality = FilterQuality.low;
-  final ui.Image? image;
+  static final Paint _paint = Paint()..blendMode = BlendMode.srcOver;
   final SmokeSystem system;
-  Size? _lastSize;
-  Rect? _cullRect;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final sprite = image;
-    if (sprite == null || size.isEmpty) return;
-    if (_lastSize != size) {
-      _lastSize = size;
-      _cullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    if (size.isEmpty) return;
+    for (var plume = 0; plume < SmokeSystem.plumeCount; plume++) {
+      for (var lobe = 0; lobe < system.lobeCount; lobe++) {
+        final index = plume * SmokeSystem.maxLobes + lobe;
+        final opacity = system.opacity[index];
+        if (opacity <= 0.002) continue;
+
+        canvas.save();
+        canvas
+          ..translate(system.centerX[index], system.centerY[index])
+          ..rotate(system.rotation[index])
+          ..scale(system.radiusX[index], system.radiusY[index]);
+        final color = Color(system.colors[index]);
+        _paint.shader = ui.Gradient.radial(
+          Offset.zero,
+          1,
+          <Color>[
+            color.withValues(alpha: opacity),
+            color.withValues(alpha: opacity * 0.74),
+            color.withValues(alpha: opacity * 0.28),
+            color.withValues(alpha: 0),
+          ],
+          const <double>[0, 0.35, 0.72, 1],
+          TileMode.clamp,
+        );
+        canvas.drawCircle(Offset.zero, 1, _paint);
+        canvas.restore();
+      }
     }
-    canvas.drawRawAtlas(
-      sprite,
-      system.transforms,
-      system.sourceRects,
-      system.colors,
-      BlendMode.plus,
-      _cullRect!,
-      _paint,
-    );
   }
 
   @override
   bool shouldRepaint(covariant _SmokePainter oldDelegate) =>
-      oldDelegate.image != image || oldDelegate.system != system;
+      oldDelegate.system != system;
 }
