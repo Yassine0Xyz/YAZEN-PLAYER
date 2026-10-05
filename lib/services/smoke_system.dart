@@ -40,6 +40,7 @@ class SmokeSystem {
   final Int32List colors;
   final Uint32List _palette = Uint32List(5);
   final Uint32List _paletteFrom = Uint32List(5);
+  final math.Random _beatRandom = math.Random(0x5A0C);
 
   int _qualityLimit = 48;
   double _elapsed = 0;
@@ -47,13 +48,18 @@ class SmokeSystem {
   double _energy = 0;
   double _bass = 0;
   double _beatEnvelope = 0;
+  double _densityPulse = 0;
+  double _lastBeatTarget = 0;
   double _smokeIntensity = 0.14;
   bool _lightTheme = false;
 
   int get qualityLimit => _qualityLimit;
   int get lobeCount => (_qualityLimit ~/ 8).clamp(3, maxLobes);
+  int get activeLobeCount =>
+      (lobeCount + (_densityPulse * 2).round()).clamp(3, maxLobes).toInt();
   double get intensity => _smokeIntensity;
   double get beatEnvelope => _beatEnvelope;
+  double get densityPulse => _densityPulse;
   double get flowPhase => _elapsed;
   double get paletteHueDrift => math.sin(_elapsed * 0.075) * 4;
   double get paletteLightnessDrift => math.sin(_elapsed * 0.11) * 0.018;
@@ -120,6 +126,16 @@ class SmokeSystem {
     );
 
     final targetBeat = signalActive ? beat.clamp(0.0, 1.0) : 0.0;
+    if (signalActive && targetBeat - _lastBeatTarget >= 0.14) {
+      // Give each detected onset a gently varied puff rather than a uniform
+      // particle burst; the seeded RNG keeps tests and visual motion stable.
+      _densityPulse = math.max(
+        _densityPulse,
+        0.62 + _beatRandom.nextDouble() * 0.38,
+      );
+    }
+    _lastBeatTarget = targetBeat;
+    _densityPulse = _approach(_densityPulse, 0, step, 0.32);
     _beatEnvelope = _approach(
       _beatEnvelope,
       targetBeat,
@@ -141,7 +157,8 @@ class SmokeSystem {
     );
 
     final flowSpeed = 0.045 + _energy * 0.028 + _bass * 0.018;
-    final activeLobes = lobeCount;
+    final baseLobes = lobeCount;
+    final activeLobes = activeLobeCount;
     for (var plume = 0; plume < plumeCount; plume++) {
       for (var lobe = 0; lobe < maxLobes; lobe++) {
         final index = plume * maxLobes + lobe;
@@ -178,15 +195,24 @@ class SmokeSystem {
 
         final fadeIn = _smoothstep(progress / 0.12);
         final fadeOut = _smoothstep((1 - progress) / 0.22);
-        final contrast = _lightTheme ? 0.72 : 1.0;
-        final audioLift = 0.72 + _energy * 0.42 + _beatEnvelope * 0.72;
-        opacity[index] = (0.095 *
+        final contrast = _lightTheme ? 0.76 : 1.0;
+        final audioLift =
+            (0.72 + _energy * 0.42 + _beatEnvelope * 0.82) *
+            (0.94 + _densityPulse * 0.12);
+        final densityVisibility =
+            lobe < baseLobes
+                ? 1.0
+                : _smoothstep(
+                  (_densityPulse - (lobe - baseLobes) * 0.30) / 0.58,
+                );
+        opacity[index] = (0.108 *
                 _smokeIntensity *
                 contrast *
                 audioLift *
+                densityVisibility *
                 fadeIn *
                 fadeOut)
-            .clamp(0.0, 0.16);
+            .clamp(0.0, 0.18);
 
         final palettePosition =
             (plume * 1.11 +

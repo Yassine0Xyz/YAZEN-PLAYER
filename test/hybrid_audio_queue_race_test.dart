@@ -67,16 +67,21 @@ void main() {
   );
 
   test(
-    'newest rapid track selection interrupts a blocked source load',
+    'rapid taps on a large queue interrupt once and play the newest selection',
     () async {
       final player = _FakeAudioPlayer();
       final handler = HybridAudioHandler(
         player: player,
         playbackStore: const PlaybackStateStore(),
       );
-      player.nextSetAudioSourcesGate = Completer<void>();
+      await handler.playTrackQueue(<MediaTrack>[_track(-1)]);
 
-      final first = handler.playTrackQueue(<MediaTrack>[_track(0)]);
+      final libraryTracks = List<MediaTrack>.generate(500, _track);
+      player.nextSetAudioSourcesGate = Completer<void>();
+      final delayedStop = Completer<void>();
+      player.nextStopGate = delayedStop;
+
+      final first = handler.playTrackQueue(libraryTracks, initialIndex: 0);
       for (
         var attempt = 0;
         attempt < 100 && !player.waitingForSource;
@@ -86,18 +91,31 @@ void main() {
       }
       expect(player.waitingForSource, isTrue);
 
-      final newest = handler.playTrackQueue(<MediaTrack>[_track(1)]);
+      final taps = <Future<void>>[];
+      for (var index = 1; index < 100; index++) {
+        taps.add(handler.playTrackQueue(libraryTracks, initialIndex: index));
+      }
+      expect(player.stopCount, 1);
+      expect(delayedStop.isCompleted, isFalse);
+
+      delayedStop.complete();
       await Future.wait(<Future<void>>[
         first,
-        newest,
-      ]).timeout(const Duration(seconds: 1));
+        ...taps,
+      ]).timeout(const Duration(seconds: 2));
 
-      expect(handler.activeTrack?.id, _track(1).id);
-      expect(handler.queueTracks.map((track) => track.id), <String>[
-        _track(1).id,
-      ]);
-      expect(player.sequence, hasLength(1));
-      expect((player.sequence.single.tag as MediaItem).title, _track(1).title);
+      expect(handler.activeTrack?.id, libraryTracks[99].id);
+      expect(handler.queueTracks, hasLength(libraryTracks.length));
+      expect(player.sequence, hasLength(libraryTracks.length));
+      expect(player.currentIndex, 99);
+      expect(
+        (player.sequence[99].tag as MediaItem).title,
+        libraryTracks[99].title,
+      );
+      expect(player.sourcePreloadHistory, isNotEmpty);
+      expect(player.sourcePreloadHistory.every((preload) => !preload), isTrue);
+      expect(player.stopCount, 1);
+      expect(player.playing, isTrue);
 
       await handler.dispose();
       await player.close();
@@ -400,11 +418,14 @@ class _FakeAudioPlayer implements AudioPlayer {
   Duration? _duration;
   LoopMode _loopMode = LoopMode.off;
   bool failNextAddAfterMutation = false;
+  int stopCount = 0;
   Completer<void>? nextPlayGate;
   Completer<void>? _activePlayGate;
   Completer<void>? nextSetAudioSourcesGate;
+  Completer<void>? nextStopGate;
   Completer<void>? _activeSetAudioSourcesGate;
   bool _activeSetAudioSourcesInterrupted = false;
+  final List<bool> sourcePreloadHistory = <bool>[];
   bool get waitingForSource => _activeSetAudioSourcesGate != null;
 
   @override
@@ -484,6 +505,7 @@ class _FakeAudioPlayer implements AudioPlayer {
     Duration? initialPosition,
   }) => setAudioSources(
     <AudioSource>[audioSource],
+    preload: preload,
     initialIndex: initialIndex,
     initialPosition: initialPosition,
   );
@@ -496,6 +518,7 @@ class _FakeAudioPlayer implements AudioPlayer {
     Duration? initialPosition,
     ShuffleOrder? shuffleOrder,
   }) async {
+    sourcePreloadHistory.add(preload);
     await Future<void>.delayed(const Duration(milliseconds: 1));
     final gate = nextSetAudioSourcesGate;
     nextSetAudioSourcesGate = null;
@@ -583,6 +606,7 @@ class _FakeAudioPlayer implements AudioPlayer {
 
   @override
   Future<void> stop() async {
+    stopCount++;
     _playing = false;
     _position = Duration.zero;
     final sourceGate = _activeSetAudioSourcesGate;
@@ -592,6 +616,9 @@ class _FakeAudioPlayer implements AudioPlayer {
     }
     final gate = _activePlayGate;
     if (gate != null && !gate.isCompleted) gate.complete();
+    final stopGate = nextStopGate;
+    nextStopGate = null;
+    if (stopGate != null) await stopGate.future;
   }
 
   @override
