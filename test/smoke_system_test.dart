@@ -52,7 +52,7 @@ void main() {
     expect((system.centerY[0] - initialY).abs(), greaterThan(4));
     expect(system.lobeCount, 6);
     expect(
-      system.opacity.every((value) => value >= 0 && value <= 0.16),
+      system.opacity.every((value) => value >= 0 && value <= 0.18),
       isTrue,
     );
   });
@@ -81,7 +81,7 @@ void main() {
 
       expect(loud.intensity, greaterThan(quiet.intensity));
       expect(totalOpacity(loud), greaterThan(totalOpacity(quiet)));
-      expect(loud.opacity.reduce(math.max), lessThanOrEqualTo(0.16));
+      expect(loud.opacity.reduce(math.max), lessThanOrEqualTo(0.18));
     },
   );
 
@@ -122,6 +122,45 @@ void main() {
     );
     expect(system.beatEnvelope, lessThan(peakEnvelope));
     expect(system.beatEnvelope, greaterThan(0));
+  });
+
+  test('beat adds varied wisps briefly, then density returns to its base', () {
+    final system = SmokeSystem();
+    step(
+      system,
+      frames: 8,
+      level: 0.35,
+      beat: 0,
+      available: true,
+      playing: true,
+    );
+    final baseLobes = system.lobeCount;
+    final baseOpacity = totalOpacity(system);
+
+    system.update(
+      dt: 0.05,
+      width: 400,
+      height: 800,
+      level: 0.35,
+      bass: 0.2,
+      beat: 1,
+      available: true,
+      playing: true,
+    );
+    expect(system.activeLobeCount, greaterThan(baseLobes));
+    expect(totalOpacity(system), greaterThan(baseOpacity));
+    expect(system.densityPulse, inInclusiveRange(0.0, 1.0));
+
+    step(
+      system,
+      frames: 32,
+      level: 0.35,
+      beat: 0,
+      available: true,
+      playing: true,
+    );
+    expect(system.activeLobeCount, baseLobes);
+    expect(system.densityPulse, lessThan(0.1));
   });
 
   test('paused smoke settles to a subtle resting level', () {

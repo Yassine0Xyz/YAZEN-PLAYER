@@ -295,7 +295,7 @@ class _SmokePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
     for (var plume = 0; plume < SmokeSystem.plumeCount; plume++) {
-      for (var lobe = 0; lobe < system.lobeCount; lobe++) {
+      for (var lobe = 0; lobe < system.activeLobeCount; lobe++) {
         final index = plume * SmokeSystem.maxLobes + lobe;
         final opacity = system.opacity[index];
         if (opacity <= 0.002) continue;
