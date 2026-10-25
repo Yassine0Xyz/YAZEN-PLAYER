@@ -73,6 +73,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   final LyricsService _lyricsService;
   static const LibrarySearchService _searchService = LibrarySearchService();
 
+  bool get _usesLinuxImportedFileMode =>
+      Platform.isLinux && _library.runtimeType == MediaLibraryService;
+
   LibraryTab _selectedTab = LibraryTab.songs;
   List<MediaTrack> _baseLocalSongs = const <MediaTrack>[];
   List<MediaTrack> _localSongs = const <MediaTrack>[];
@@ -265,7 +268,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     _errorMessage = null;
 
     try {
-      if (Platform.isLinux) {
+      if (_usesLinuxImportedFileMode) {
         _permissionRequired = false;
         _baseLocalSongs = _mergeTracks(
           const <MediaTrack>[],
@@ -314,7 +317,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> refreshLibrary() async {
     if (_isLoading) return;
-    if (Platform.isLinux) {
+    if (_usesLinuxImportedFileMode) {
       await loadLibrary(requestPermission: false);
       return;
     }
@@ -382,7 +385,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> handleAppResumed() async {
     if (_isLoading) return;
-    if (Platform.isLinux) {
+    if (_usesLinuxImportedFileMode) {
       if (_selectedTab == LibraryTab.videos) {
         await loadVideos(requestPermission: false);
       }
@@ -506,10 +509,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
-    final selectedTrack =
-        tracks.isEmpty
-            ? null
-            : tracks[initialIndex.clamp(0, tracks.length - 1)];
+    final selectedTrack = tracks.isEmpty
+        ? null
+        : tracks[initialIndex.clamp(0, tracks.length - 1)];
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
