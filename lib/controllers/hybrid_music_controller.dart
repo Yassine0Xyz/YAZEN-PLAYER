@@ -86,11 +86,11 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<PlaylistModel> _playlists = const <PlaylistModel>[];
   List<String> _folders = const <String>[];
   bool _isLoading = false;
-  final Map<LibraryTab, LibrarySort> _librarySortByTab = <LibraryTab,
-      LibrarySort>{
-    LibraryTab.songs: LibrarySort.newestFirst,
-    LibraryTab.videos: LibrarySort.newestFirst,
-  };
+  final Map<LibraryTab, LibrarySort> _librarySortByTab =
+      <LibraryTab, LibrarySort>{
+        LibraryTab.songs: LibrarySort.newestFirst,
+        LibraryTab.videos: LibrarySort.newestFirst,
+      };
   final Map<LibraryTab, Set<LibraryFilter>> _libraryFiltersByTab =
       <LibraryTab, Set<LibraryFilter>>{
         LibraryTab.songs: <LibraryFilter>{},
@@ -129,10 +129,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool get repeatOne => repeatMode == AudioServiceRepeatMode.one;
   LibrarySort get librarySort =>
       _librarySortByTab[_selectedTab] ?? LibrarySort.newestFirst;
-  Set<LibraryFilter> get libraryFilters =>
-      Set<LibraryFilter>.unmodifiable(
-        _libraryFiltersByTab[_selectedTab] ?? const <LibraryFilter>{},
-      );
+  Set<LibraryFilter> get libraryFilters => Set<LibraryFilter>.unmodifiable(
+    _libraryFiltersByTab[_selectedTab] ?? const <LibraryFilter>{},
+  );
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQueryByTab[_selectedTab] ?? '';
   MediaTrack? get activeTrack => _audioHandler.activeTrack;
@@ -507,10 +506,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
-    final selectedTrack =
-        tracks.isEmpty
-            ? null
-            : tracks[initialIndex.clamp(0, tracks.length - 1)];
+    final selectedTrack = tracks.isEmpty
+        ? null
+        : tracks[initialIndex.clamp(0, tracks.length - 1)];
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();

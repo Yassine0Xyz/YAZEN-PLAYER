@@ -8,16 +8,15 @@ import 'package:flutter/widgets.dart';
 void schedulePlaybackRestoreAfterFirstFrame(Future<void> Function() restore) {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(
-      Future<void>.sync(
-        restore,
-      ).catchError((Object error, StackTrace stackTrace) {
-        developer.log(
-          'Startup playback restore failed',
-          name: 'yazen.startup',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }),
+      Future<void>.sync(restore)
+          .catchError((Object error, StackTrace stackTrace) {
+            developer.log(
+              'Startup playback restore failed',
+              name: 'yazen.startup',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
     );
   });
 }

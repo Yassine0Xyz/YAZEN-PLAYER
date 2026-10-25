@@ -306,24 +306,31 @@ void main() {
     },
   );
 
-  test('cover follows addition history rather than reordered track position', () async {
-    final manager = LocalPlaylistManager();
-    await manager.initialize();
-    final playlist = await manager.createPlaylist('History');
-    final first = track(id: 'first');
-    final second = track(id: 'second');
-    final latest = track(id: 'latest');
-    await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[first, second, latest]);
-    await manager.moveWithinPlaylist(playlist.id, 2, 0);
+  test(
+    'cover follows addition history rather than reordered track position',
+    () async {
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final playlist = await manager.createPlaylist('History');
+      final first = track(id: 'first');
+      final second = track(id: 'second');
+      final latest = track(id: 'latest');
+      await manager.addTracksToPlaylist(playlist.id, <MediaTrack>[
+        first,
+        second,
+        latest,
+      ]);
+      await manager.moveWithinPlaylist(playlist.id, 2, 0);
 
-    expect(manager.playlists.single.coverTrack?.id, latest.id);
-    await manager.removeFromPlaylist(playlist.id, latest.id);
-    expect(manager.playlists.single.coverTrack?.id, second.id);
+      expect(manager.playlists.single.coverTrack?.id, latest.id);
+      await manager.removeFromPlaylist(playlist.id, latest.id);
+      expect(manager.playlists.single.coverTrack?.id, second.id);
 
-    final restored = LocalPlaylistManager();
-    await restored.initialize();
-    expect(restored.playlists.single.coverTrack?.id, second.id);
-  });
+      final restored = LocalPlaylistManager();
+      await restored.initialize();
+      expect(restored.playlists.single.coverTrack?.id, second.id);
+    },
+  );
 
   test('play history does not invalidate library track overlays', () async {
     final manager = LocalPlaylistManager();

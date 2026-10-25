@@ -326,8 +326,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final loadGeneration = _artworkStyleChangeGeneration;
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getString(_artworkStyleKey);
-    if (!mounted || saved == null ||
-        loadGeneration != _artworkStyleChangeGeneration) return;
+    if (!mounted ||
+        saved == null ||
+        loadGeneration != _artworkStyleChangeGeneration)
+      return;
     final style = AudioArtworkStyle.values.where(
       (value) => value.name == saved,
     );
@@ -385,12 +387,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-          builder:
-          (_) => _AudioControlsSheet(
-            handler: handler,
-            artworkStyle: _artworkStyle,
-            onArtworkStyleChanged: _setArtworkStyle,
-          ),
+      builder: (_) => _AudioControlsSheet(
+        handler: handler,
+        artworkStyle: _artworkStyle,
+        onArtworkStyleChanged: _setArtworkStyle,
+      ),
     );
   }
 
@@ -402,15 +403,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   ) {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder:
-            (_) => LyricsPage(
-              title: item.title,
-              artist: item.artist ?? 'Unknown artist',
-              lyricsLoader: () => _loadLyrics(controller, item),
-              onRetry: _retryLyrics,
-              positionStream: handler.player.positionStream,
-              onLineTap: handler.seek,
-            ),
+        builder: (_) => LyricsPage(
+          title: item.title,
+          artist: item.artist ?? 'Unknown artist',
+          lyricsLoader: () => _loadLyrics(controller, item),
+          onRetry: _retryLyrics,
+          positionStream: handler.player.positionStream,
+          onLineTap: handler.seek,
+        ),
       ),
     );
   }
@@ -455,8 +455,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             if (queueIndex != null &&
                 _previousQueueIndex != null &&
                 queueIndex != _previousQueueIndex) {
-              _trackChangeDirection =
-                  queueIndex > _previousQueueIndex! ? 1 : -1;
+              _trackChangeDirection = queueIndex > _previousQueueIndex!
+                  ? 1
+                  : -1;
             }
             if (queueIndex != null) _previousQueueIndex = queueIndex;
 
@@ -501,16 +502,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         Expanded(
                           child: LayoutBuilder(
                             builder: (context, constraints) {
-                              final recordSize =
-                                  math
-                                      .min(
-                                        constraints.maxWidth - 48,
-                                        math.max(
-                                          196,
-                                          constraints.maxHeight * 0.34,
-                                        ),
-                                      )
-                                      .toDouble();
+                              final recordSize = math
+                                  .min(
+                                    constraints.maxWidth - 48,
+                                    math.max(196, constraints.maxHeight * 0.34),
+                                  )
+                                  .toDouble();
                               return GestureDetector(
                                 behavior: HitTestBehavior.translucent,
                                 onHorizontalDragStart: (_) {
@@ -524,16 +521,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                 onHorizontalDragUpdate: (details) {
                                   if (_swipeSettling) return;
                                   _swipeTravel += details.delta.dx;
-                                  _swipeVerticalTravel +=
-                                      details.delta.dy.abs();
+                                  _swipeVerticalTravel += details.delta.dy
+                                      .abs();
                                   if (_swipeTravel.abs() >=
                                       _swipeVerticalTravel) {
                                     setState(() {
                                       _swipeOffsetDuration = Duration.zero;
-                                      _swipeOffset =
-                                          _swipeTravel
-                                              .clamp(-140.0, 140.0)
-                                              .toDouble();
+                                      _swipeOffset = _swipeTravel
+                                          .clamp(-140.0, 140.0)
+                                          .toDouble();
                                     });
                                   }
                                 },
@@ -547,7 +543,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   final verticalTravel = _swipeVerticalTravel;
                                   final hasIntentionalTravel =
                                       horizontalTravel.abs() >=
-                                          _minimumSwipeTravel;
+                                      _minimumSwipeTravel;
                                   final isFastShortFlick =
                                       horizontalTravel.abs() >=
                                           _minimumFlickTravel &&
@@ -600,44 +596,43 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         ),
                                         offset: const Offset(0, 0.05),
                                         child: GestureDetector(
-                                          onDoubleTap:
-                                              () => _seekBy(
-                                                handler,
-                                                const Duration(seconds: 10),
-                                              ),
+                                          onDoubleTap: () => _seekBy(
+                                            handler,
+                                            const Duration(seconds: 10),
+                                          ),
                                           child: _trackContentTransition(
                                             incoming: _trackTransitionIncoming,
                                             child: AnimatedSwitcher(
-                                              duration:
-                                                  _swipeSettling
-                                                      ? Duration.zero
-                                                      : Motion.of(context).base,
-                                              transitionBuilder: (
-                                                child,
-                                                animation,
-                                              ) {
-                                                final begin = Offset(
-                                                  _trackChangeDirection * 0.08,
-                                                  0,
-                                                );
-                                                return FadeTransition(
-                                                  opacity: animation,
-                                                  child: SlideTransition(
-                                                    position: Tween<Offset>(
-                                                      begin: begin,
-                                                      end: Offset.zero,
-                                                    ).animate(
-                                                      CurvedAnimation(
-                                                        parent: animation,
-                                                        curve:
-                                                            MotionTokens
-                                                                .standard,
+                                              duration: _swipeSettling
+                                                  ? Duration.zero
+                                                  : Motion.of(context).base,
+                                              transitionBuilder:
+                                                  (child, animation) {
+                                                    final begin = Offset(
+                                                      _trackChangeDirection *
+                                                          0.08,
+                                                      0,
+                                                    );
+                                                    return FadeTransition(
+                                                      opacity: animation,
+                                                      child: SlideTransition(
+                                                        position:
+                                                            Tween<Offset>(
+                                                              begin: begin,
+                                                              end: Offset.zero,
+                                                            ).animate(
+                                                              CurvedAnimation(
+                                                                parent:
+                                                                    animation,
+                                                                curve:
+                                                                    MotionTokens
+                                                                        .standard,
+                                                              ),
+                                                            ),
+                                                        child: child,
                                                       ),
-                                                    ),
-                                                    child: child,
-                                                  ),
-                                                );
-                                              },
+                                                    );
+                                                  },
                                               child: Hero(
                                                 key: ValueKey(
                                                   'hero-art-${item.id}',
@@ -645,30 +640,29 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                 tag: 'track-art-${item.id}',
                                                 child:
                                                     _artworkStyle ==
-                                                            AudioArtworkStyle
-                                                                .lark
-                                                        ? _LarkArtwork(
-                                                          key: ValueKey(
-                                                            'lark-${item.id}',
-                                                          ),
-                                                          artUri: item.artUri,
-                                                          track: activeTrack,
-                                                          isPlaying: isPlaying,
-                                                          accentColor:
-                                                              accentColor,
-                                                          size: recordSize,
-                                                        )
-                                                        : _AnimatedVinyl(
-                                                          key: ValueKey(
-                                                            'vinyl-${item.id}',
-                                                          ),
-                                                          artUri: item.artUri,
-                                                          track: activeTrack,
-                                                          isPlaying: isPlaying,
-                                                          accentColor:
-                                                              accentColor,
-                                                          size: recordSize,
+                                                        AudioArtworkStyle.lark
+                                                    ? _LarkArtwork(
+                                                        key: ValueKey(
+                                                          'lark-${item.id}',
                                                         ),
+                                                        artUri: item.artUri,
+                                                        track: activeTrack,
+                                                        isPlaying: isPlaying,
+                                                        accentColor:
+                                                            accentColor,
+                                                        size: recordSize,
+                                                      )
+                                                    : _AnimatedVinyl(
+                                                        key: ValueKey(
+                                                          'vinyl-${item.id}',
+                                                        ),
+                                                        artUri: item.artUri,
+                                                        track: activeTrack,
+                                                        isPlaying: isPlaying,
+                                                        accentColor:
+                                                            accentColor,
+                                                        size: recordSize,
+                                                      ),
                                               ),
                                             ),
                                           ),
@@ -679,14 +673,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         playing: isPlaying,
                                         sourceUri:
                                             item.extras?['source']
-                                                        ?.toString() ==
-                                                    'local'
-                                                ? item.id
-                                                : null,
-                                        audioSessionId:
-                                            handler
-                                                .player
-                                                .androidAudioSessionId,
+                                                    ?.toString() ==
+                                                'local'
+                                            ? item.id
+                                            : null,
+                                        audioSessionId: handler
+                                            .player
+                                            .androidAudioSessionId,
                                         position: playbackState?.updatePosition,
                                         positionStream:
                                             handler.player.positionStream,
@@ -698,57 +691,53 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         barCount: 36,
                                         profile: AudioVisualizerProfile.full,
                                         seed: item.id,
-                                        color:
-                                            Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
                                       ),
                                       const SizedBox(height: 20),
                                       _trackContentTransition(
                                         incoming: _trackTransitionIncoming,
                                         child: AnimatedSwitcher(
-                                          duration:
-                                              _swipeSettling
-                                                  ? Duration.zero
-                                                  : Motion.of(context).base,
-                                          transitionBuilder: (
-                                            child,
-                                            animation,
-                                          ) {
-                                            final begin = Offset(
-                                              0,
-                                              _trackChangeDirection * 0.05,
-                                            );
-                                            return FadeTransition(
-                                              opacity: animation,
-                                              child: SlideTransition(
-                                                position: Tween<Offset>(
-                                                  begin: begin,
-                                                  end: Offset.zero,
-                                                ).animate(
-                                                  CurvedAnimation(
-                                                    parent: animation,
-                                                    curve:
-                                                        MotionTokens.standard,
+                                          duration: _swipeSettling
+                                              ? Duration.zero
+                                              : Motion.of(context).base,
+                                          transitionBuilder:
+                                              (child, animation) {
+                                                final begin = Offset(
+                                                  0,
+                                                  _trackChangeDirection * 0.05,
+                                                );
+                                                return FadeTransition(
+                                                  opacity: animation,
+                                                  child: SlideTransition(
+                                                    position:
+                                                        Tween<Offset>(
+                                                          begin: begin,
+                                                          end: Offset.zero,
+                                                        ).animate(
+                                                          CurvedAnimation(
+                                                            parent: animation,
+                                                            curve: MotionTokens
+                                                                .standard,
+                                                          ),
+                                                        ),
+                                                    child: child,
                                                   ),
-                                                ),
-                                                child: child,
-                                              ),
-                                            );
-                                          },
+                                                );
+                                              },
                                           child: _TrackMeta(
                                             key: ValueKey(item.id),
                                             trackId: item.id,
                                             title: item.title,
                                             artist:
                                                 item.artist ?? 'Unknown artist',
-                                            onLyrics:
-                                                () => _showFullLyrics(
-                                                  context,
-                                                  controller,
-                                                  item,
-                                                  handler,
-                                                ),
+                                            onLyrics: () => _showFullLyrics(
+                                              context,
+                                              controller,
+                                              item,
+                                              handler,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -758,10 +747,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         draggedPosition: _draggedPosition,
                                         accentColor: accentColor,
                                         buffering: isBuffering,
-                                        onDragStart:
-                                            (value) => setState(
-                                              () => _draggedPosition = value,
-                                            ),
+                                        onDragStart: (value) => setState(
+                                          () => _draggedPosition = value,
+                                        ),
                                         onDragEnd: (value) async {
                                           setState(
                                             () => _draggedPosition = null,
@@ -780,43 +768,35 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         isPlaying: isPlaying,
                                         isBuffering: isBuffering,
                                         onPlayPause: controller.togglePlayback,
-                                        onSeekBack:
-                                            () => _seekBy(
-                                              handler,
-                                              const Duration(seconds: -10),
-                                            ),
-                                        onSeekForward:
-                                            () => _seekBy(
-                                              handler,
-                                              const Duration(seconds: 10),
-                                            ),
+                                        onSeekBack: () => _seekBy(
+                                          handler,
+                                          const Duration(seconds: -10),
+                                        ),
+                                        onSeekForward: () => _seekBy(
+                                          handler,
+                                          const Duration(seconds: 10),
+                                        ),
                                       ),
                                       const SizedBox(height: 8),
                                       _PlayerActionDock(
                                         favorite: isFavorite,
                                         favoritePulse: _favoritePulse,
-                                        onFavorite:
-                                            () => _toggleFavorite(
-                                              controller,
-                                              activeTrack,
-                                            ),
-                                        onLyrics:
-                                            () => _showFullLyrics(
-                                              context,
-                                              controller,
-                                              item,
-                                              handler,
-                                            ),
-                                        onQueue:
-                                            () => _showQueuePeek(
-                                              context,
-                                              handler,
-                                            ),
-                                        onControls:
-                                            () => _showAudioControls(
-                                              context,
-                                              handler,
-                                            ),
+                                        onFavorite: () => _toggleFavorite(
+                                          controller,
+                                          activeTrack,
+                                        ),
+                                        onLyrics: () => _showFullLyrics(
+                                          context,
+                                          controller,
+                                          item,
+                                          handler,
+                                        ),
+                                        onQueue: () =>
+                                            _showQueuePeek(context, handler),
+                                        onControls: () => _showAudioControls(
+                                          context,
+                                          handler,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -912,14 +892,13 @@ class _LarkArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final artwork =
-        track == null
-            ? _Artwork(uri: artUri, size: size)
-            : YazenMediaArtwork(
-              track: track,
-              size: size,
-              borderRadius: BorderRadius.circular(size * 0.16),
-            );
+    final artwork = track == null
+        ? _Artwork(uri: artUri, size: size)
+        : YazenMediaArtwork(
+            track: track,
+            size: size,
+            borderRadius: BorderRadius.circular(size * 0.16),
+          );
     return AnimatedContainer(
       duration: const Duration(milliseconds: 420),
       width: size,
@@ -1016,14 +995,13 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
           ),
           child: ClipOval(
             child: SizedBox.expand(
-              child:
-                  widget.track == null
-                      ? _Artwork(uri: widget.artUri, size: size)
-                      : YazenMediaArtwork(
-                        track: widget.track,
-                        size: size,
-                        circular: true,
-                      ),
+              child: widget.track == null
+                  ? _Artwork(uri: widget.artUri, size: size)
+                  : YazenMediaArtwork(
+                      track: widget.track,
+                      size: size,
+                      circular: true,
+                    ),
             ),
           ),
         ),
@@ -1075,11 +1053,10 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
                   child: disc,
                 ),
               ),
-              builder:
-                  (context, child) => Transform.rotate(
-                    angle: _rotationController.value * math.pi * 2,
-                    child: child,
-                  ),
+              builder: (context, child) => Transform.rotate(
+                angle: _rotationController.value * math.pi * 2,
+                child: child,
+              ),
             ),
           ],
         ),
@@ -1203,8 +1180,9 @@ class _SeekSection extends StatelessWidget {
           stream: handler.player.positionStream,
           builder: (context, positionSnapshot) {
             final position = positionSnapshot.data ?? Duration.zero;
-            final liveMs =
-                position.inMilliseconds.clamp(0, totalMs.toInt()).toDouble();
+            final liveMs = position.inMilliseconds
+                .clamp(0, totalMs.toInt())
+                .toDouble();
             final value = draggedPosition ?? liveMs;
             return Column(
               children: <Widget>[
@@ -1217,10 +1195,9 @@ class _SeekSection extends StatelessWidget {
                     overlayShape: RoundSliderOverlayShape(
                       overlayRadius: draggedPosition == null ? 15 : 20,
                     ),
-                    showValueIndicator:
-                        draggedPosition == null
-                            ? ShowValueIndicator.never
-                            : ShowValueIndicator.onDrag,
+                    showValueIndicator: draggedPosition == null
+                        ? ShowValueIndicator.never
+                        : ShowValueIndicator.onDrag,
                     activeTrackColor: accentColor,
                     inactiveTrackColor: tokens.surfaceMuted,
                     thumbColor: tokens.textPrimary,
@@ -1230,12 +1207,11 @@ class _SeekSection extends StatelessWidget {
                     min: 0,
                     max: totalMs,
                     value: value.clamp(0, totalMs).toDouble(),
-                    label:
-                        draggedPosition == null
-                            ? null
-                            : _formatDuration(
-                              Duration(milliseconds: value.round()),
-                            ),
+                    label: draggedPosition == null
+                        ? null
+                        : _formatDuration(
+                            Duration(milliseconds: value.round()),
+                          ),
                     onChanged: hasKnownDuration ? onDragStart : null,
                     onChangeEnd: hasKnownDuration ? onDragEnd : null,
                   ),
@@ -1330,12 +1306,11 @@ class _TransportControls extends StatelessWidget {
                   tooltip: 'Shuffle',
                   icon: Icons.shuffle_rounded,
                   selected: shuffleEnabled,
-                  onPressed:
-                      () => handler.setShuffleMode(
-                        shuffleEnabled
-                            ? AudioServiceShuffleMode.none
-                            : AudioServiceShuffleMode.all,
-                      ),
+                  onPressed: () => handler.setShuffleMode(
+                    shuffleEnabled
+                        ? AudioServiceShuffleMode.none
+                        : AudioServiceShuffleMode.all,
+                  ),
                   color: tokens.textSecondary,
                   selectedColor: tokens.accent,
                   size: 48,
@@ -1357,8 +1332,9 @@ class _TransportControls extends StatelessWidget {
                     minimumSize: const Size(68, 68),
                     iconSize: 36,
                     backgroundColor: accentColor,
-                    foregroundColor:
-                        tokens.isLight ? Colors.white : Colors.black,
+                    foregroundColor: tokens.isLight
+                        ? Colors.white
+                        : Colors.black,
                     buffering: isBuffering,
                   ),
                 ),
@@ -1371,13 +1347,12 @@ class _TransportControls extends StatelessWidget {
                 ),
                 EchoIconButton(
                   tooltip: 'Repeat: ${_repeatLabel(repeatMode)}',
-                  icon:
-                      repeatMode == AudioServiceRepeatMode.one
-                          ? Icons.repeat_one_rounded
-                          : Icons.repeat_rounded,
+                  icon: repeatMode == AudioServiceRepeatMode.one
+                      ? Icons.repeat_one_rounded
+                      : Icons.repeat_rounded,
                   selected: repeatMode != AudioServiceRepeatMode.none,
-                  onPressed:
-                      () => handler.setRepeatMode(nextRepeatMode(repeatMode)),
+                  onPressed: () =>
+                      handler.setRepeatMode(nextRepeatMode(repeatMode)),
                   color: tokens.textSecondary,
                   selectedColor: tokens.accent,
                   size: 48,
@@ -1591,10 +1566,9 @@ class _PlayerActionDock extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: <Widget>[
           _DockAction(
-            icon:
-                favorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
+            icon: favorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
             label: 'Favorite',
             active: favorite,
             pulse: favoritePulse,
@@ -1688,70 +1662,67 @@ class _QueuePeekSheet extends StatelessWidget {
     return _SheetSurface(
       title: 'Up next',
       icon: Icons.queue_music_rounded,
-      child:
-          tracks.isEmpty
-              ? const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Your queue is empty'),
-              )
-              : SizedBox(
-                height: math.min(MediaQuery.sizeOf(context).height * 0.52, 420),
-                child: ListView.builder(
-                  itemCount: tracks.length,
-                  itemBuilder: (context, index) {
-                    final track = tracks[index];
-                    final isCurrent = index == current;
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                      leading: CircleAvatar(
-                        radius: 20,
-                        backgroundColor: (isCurrent
-                                ? tokens.accent
-                                : tokens.surfaceMuted)
-                            .withValues(alpha: 0.32),
-                        child: Icon(
-                          isCurrent
-                              ? Icons.equalizer_rounded
-                              : Icons.music_note_rounded,
-                          color:
-                              isCurrent ? tokens.accent : tokens.textSecondary,
-                          size: 19,
-                        ),
+      child: tracks.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Your queue is empty'),
+            )
+          : SizedBox(
+              height: math.min(MediaQuery.sizeOf(context).height * 0.52, 420),
+              child: ListView.builder(
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  final isCurrent = index == current;
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    leading: CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          (isCurrent ? tokens.accent : tokens.surfaceMuted)
+                              .withValues(alpha: 0.32),
+                      child: Icon(
+                        isCurrent
+                            ? Icons.equalizer_rounded
+                            : Icons.music_note_rounded,
+                        color: isCurrent ? tokens.accent : tokens.textSecondary,
+                        size: 19,
                       ),
-                      title: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight:
-                              isCurrent ? FontWeight.w800 : FontWeight.w600,
-                        ),
+                    ),
+                    title: Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: isCurrent
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                       ),
-                      subtitle: Text(
-                        track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing:
-                          isCurrent
-                              ? Text(
-                                'PLAYING',
-                                style: TextStyle(
-                                  color: tokens.accent,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.7,
-                                ),
-                              )
-                              : null,
-                      onTap: () async {
-                        await handler.playQueueIndex(index);
-                        if (context.mounted) Navigator.pop(context);
-                      },
-                    );
-                  },
-                ),
+                    ),
+                    subtitle: Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: isCurrent
+                        ? Text(
+                            'PLAYING',
+                            style: TextStyle(
+                              color: tokens.accent,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.7,
+                            ),
+                          )
+                        : null,
+                    onTap: () async {
+                      await handler.playQueueIndex(index);
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                  );
+                },
               ),
+            ),
     );
   }
 }
@@ -1856,26 +1827,24 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
               final enabled = snapshot.data ?? _equalizer;
               return _SheetSwitch(
                 icon: Icons.equalizer_rounded,
-                title:
-                    widget.handler.equalizerAvailable
-                        ? 'Equalizer'
-                        : 'Equalizer unavailable',
+                title: widget.handler.equalizerAvailable
+                    ? 'Equalizer'
+                    : 'Equalizer unavailable',
                 value: widget.handler.equalizerAvailable && enabled,
-                onChanged:
-                    widget.handler.equalizerAvailable
-                        ? (value) async {
-                          setState(() => _equalizer = value);
-                          final applied = await widget.handler
-                              .setEqualizerEnabled(value);
-                          if (!mounted || applied) return;
-                          setState(() => _equalizer = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Equalizer could not be applied.'),
-                            ),
-                          );
-                        }
-                        : null,
+                onChanged: widget.handler.equalizerAvailable
+                    ? (value) async {
+                        setState(() => _equalizer = value);
+                        final applied = await widget.handler
+                            .setEqualizerEnabled(value);
+                        if (!mounted || applied) return;
+                        setState(() => _equalizer = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Equalizer could not be applied.'),
+                          ),
+                        );
+                      }
+                    : null,
               );
             },
           ),
@@ -1920,8 +1889,8 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
           Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
-              onPressed:
-                  () => Navigator.of(context).push(EqualizerScreen.route()),
+              onPressed: () =>
+                  Navigator.of(context).push(EqualizerScreen.route()),
               icon: const Icon(Icons.equalizer_rounded),
               label: const Text('Open full equalizer'),
             ),
@@ -1975,7 +1944,8 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
             builder: (context, snapshot) {
               final remaining = snapshot.data;
               final mode = widget.handler.sleepTimerMode;
-              if (remaining == null && mode != SleepTimerMode.endOfCurrentTrack) {
+              if (remaining == null &&
+                  mode != SleepTimerMode.endOfCurrentTrack) {
                 return const SizedBox.shrink();
               }
               return Align(
@@ -2032,13 +2002,14 @@ class _TimerChip extends StatelessWidget {
       stream: handler.sleepTimerRemainingStream,
       initialData: handler.sleepTimerRemaining,
       builder: (context, snapshot) {
-        final active = snapshot.data != null ||
+        final active =
+            snapshot.data != null ||
             handler.sleepTimerMode == SleepTimerMode.endOfCurrentTrack;
         final selected = label == 'Off'
             ? !active
             : mode == SleepTimerMode.endOfCurrentTrack
-                ? handler.sleepTimerMode == mode
-                : active && handler.sleepTimerMode == SleepTimerMode.duration;
+            ? handler.sleepTimerMode == mode
+            : active && handler.sleepTimerMode == SleepTimerMode.duration;
         return ActionChip(
           label: Text(label),
           backgroundColor: selected
@@ -2134,9 +2105,8 @@ class _SheetSurface extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(
                   title,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const Spacer(),
                 IconButton(

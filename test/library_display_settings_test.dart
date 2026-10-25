@@ -27,13 +27,7 @@ void main() {
     expect(preferences.getString('yazen.library.density'), 'comfortable');
     expect(settings.videosLayoutMode, LibraryLayoutMode.grid);
     expect(settings.videosDensity, LibraryDensity.compact);
-    expect(
-      preferences.getString('yazen.library.videos.layout'),
-      'grid',
-    );
-    expect(
-      preferences.getString('yazen.library.videos.density'),
-      'compact',
-    );
+    expect(preferences.getString('yazen.library.videos.layout'), 'grid');
+    expect(preferences.getString('yazen.library.videos.density'), 'compact');
   });
 }

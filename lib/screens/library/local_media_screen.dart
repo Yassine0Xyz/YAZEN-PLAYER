@@ -206,8 +206,8 @@ class _HiddenFilesView extends StatelessWidget {
           onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
           trailing: IconButton(
             tooltip: 'Restore to library',
-            onPressed:
-                () => manager.setHidden(<String>[track.id], hidden: false),
+            onPressed: () =>
+                manager.setHidden(<String>[track.id], hidden: false),
             icon: const Icon(Icons.visibility_rounded),
           ),
         );
@@ -259,50 +259,41 @@ class _SongsViewState extends State<_SongsView> {
     final action = await showModalBottomSheet<_SelectionMoreAction>(
       context: context,
       showDragHandle: true,
-      builder:
-          (context) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                ListTile(
-                  leading: const Icon(Icons.share_rounded),
-                  title: const Text('Share selected songs'),
-                  onTap:
-                      () => Navigator.pop(context, _SelectionMoreAction.share),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.info_outline_rounded),
-                  title: const Text('File information'),
-                  onTap:
-                      () => Navigator.pop(
-                        context,
-                        _SelectionMoreAction.information,
-                      ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.visibility_off_rounded),
-                  title: const Text('Remove from YAZEN library'),
-                  onTap:
-                      () => Navigator.pop(context, _SelectionMoreAction.hide),
-                ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.delete_forever_outlined,
-                    color: Colors.redAccent,
-                  ),
-                  title: const Text('Delete original files'),
-                  subtitle: const Text(
-                    'Permanently removes the selected files from this device.',
-                  ),
-                  onTap:
-                      () => Navigator.pop(
-                        context,
-                        _SelectionMoreAction.deleteFiles,
-                      ),
-                ),
-              ],
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.share_rounded),
+              title: const Text('Share selected songs'),
+              onTap: () => Navigator.pop(context, _SelectionMoreAction.share),
             ),
-          ),
+            ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('File information'),
+              onTap: () =>
+                  Navigator.pop(context, _SelectionMoreAction.information),
+            ),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_rounded),
+              title: const Text('Remove from YAZEN library'),
+              onTap: () => Navigator.pop(context, _SelectionMoreAction.hide),
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.delete_forever_outlined,
+                color: Colors.redAccent,
+              ),
+              title: const Text('Delete original files'),
+              subtitle: const Text(
+                'Permanently removes the selected files from this device.',
+              ),
+              onTap: () =>
+                  Navigator.pop(context, _SelectionMoreAction.deleteFiles),
+            ),
+          ],
+        ),
+      ),
     );
     if (action == null || !mounted) return;
 
@@ -355,9 +346,8 @@ class _SongsViewState extends State<_SongsView> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       '${tracks.length} ${tracks.length == 1 ? 'song' : 'songs'} selected',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w900),
                     ),
                   ),
                 ),
@@ -438,28 +428,25 @@ class _SongsViewState extends State<_SongsView> {
   Future<void> _deleteSelectedFiles(List<MediaTrack> tracks) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Delete original files?'),
-            content: Text(
-              'This permanently deletes ${tracks.length} '
-              '${tracks.length == 1 ? 'audio file' : 'audio files'} from this device. '
-              'YAZEN will ask Android to confirm the deletion. This cannot be undone.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                ),
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Continue'),
-              ),
-            ],
+      builder: (context) => AlertDialog(
+        title: const Text('Delete original files?'),
+        content: Text(
+          'This permanently deletes ${tracks.length} '
+          '${tracks.length == 1 ? 'audio file' : 'audio files'} from this device. '
+          'YAZEN will ask Android to confirm the deletion. This cannot be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
     );
     if (confirmed != true || !mounted) return;
     final controller = context.read<HybridMusicController>();
@@ -565,52 +552,50 @@ class _SongsViewState extends State<_SongsView> {
                       subtitle: 'Try clearing the search or changing filters.',
                     )
                   : grid
-                      ? GridView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          ThemeSpacing.x3,
-                          0,
-                          ThemeSpacing.x3,
-                          MediaQuery.paddingOf(context).bottom + 112,
-                        ),
-                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          mainAxisExtent:
-                              displaySettings.density == LibraryDensity.compact
-                                  ? 270
-                                  : 294,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 8,
-                        ),
-                        itemCount: widget.tracks.length,
-                        itemBuilder:
-                            (_, index) => _buildGridTrack(
-                              context,
-                              controller,
-                              widget.tracks[index],
-                              index,
-                              displaySettings.density,
-                            ),
-                      )
-                      : ListView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          ThemeSpacing.x3,
-                          0,
-                          ThemeSpacing.x3,
-                          MediaQuery.paddingOf(context).bottom + 100,
-                        ),
-                        scrollCacheExtent: const ScrollCacheExtent.pixels(400),
-                        addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: true,
-                        itemCount: widget.tracks.length,
-                        itemBuilder:
-                            (_, index) => _buildListTrack(
-                              context,
-                              controller,
-                              widget.tracks[index],
-                              index,
-                              displaySettings.density,
-                            ),
+                  ? GridView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        ThemeSpacing.x3,
+                        0,
+                        ThemeSpacing.x3,
+                        MediaQuery.paddingOf(context).bottom + 112,
                       ),
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 220,
+                        mainAxisExtent:
+                            displaySettings.density == LibraryDensity.compact
+                            ? 270
+                            : 294,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: widget.tracks.length,
+                      itemBuilder: (_, index) => _buildGridTrack(
+                        context,
+                        controller,
+                        widget.tracks[index],
+                        index,
+                        displaySettings.density,
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        ThemeSpacing.x3,
+                        0,
+                        ThemeSpacing.x3,
+                        MediaQuery.paddingOf(context).bottom + 100,
+                      ),
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(400),
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: true,
+                      itemCount: widget.tracks.length,
+                      itemBuilder: (_, index) => _buildListTrack(
+                        context,
+                        controller,
+                        widget.tracks[index],
+                        index,
+                        displaySettings.density,
+                      ),
+                    ),
             ),
           ],
         );
@@ -641,12 +626,12 @@ class _SongsViewState extends State<_SongsView> {
           }
         },
         isFavorite: controller.isFavorite(track),
-        onFavorite:
-            _selectionMode ? null : () => controller.toggleFavorite(track),
-        onAddToPlaylist:
-            _selectionMode
-                ? null
-                : () => showAddToPlaylistSheet(context, track),
+        onFavorite: _selectionMode
+            ? null
+            : () => controller.toggleFavorite(track),
+        onAddToPlaylist: _selectionMode
+            ? null
+            : () => showAddToPlaylistSheet(context, track),
       ),
     );
   }
@@ -671,10 +656,12 @@ class _SongsViewState extends State<_SongsView> {
         }
       },
       onLongPress: () => _toggleSelection(track),
-      onFavorite:
-          _selectionMode ? null : () => controller.toggleFavorite(track),
-      onAddToPlaylist:
-          _selectionMode ? null : () => showAddToPlaylistSheet(context, track),
+      onFavorite: _selectionMode
+          ? null
+          : () => controller.toggleFavorite(track),
+      onAddToPlaylist: _selectionMode
+          ? null
+          : () => showAddToPlaylistSheet(context, track),
     );
   }
 }
@@ -766,8 +753,9 @@ class _TrackGridTile extends StatelessWidget {
                             ),
                             child: Icon(
                               Icons.check_rounded,
-                              color:
-                                  tokens.isLight ? Colors.white : Colors.black,
+                              color: tokens.isLight
+                                  ? Colors.white
+                                  : Colors.black,
                               size: 34,
                             ),
                           ),
@@ -807,16 +795,15 @@ class _TrackGridTile extends StatelessWidget {
                         ),
                       if (onFavorite != null)
                         _GridAction(
-                          tooltip:
-                              isFavorite
-                                  ? 'Remove from favorites'
-                                  : 'Add to favorites',
-                          icon:
-                              isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                          color:
-                              isFavorite ? tokens.accent : tokens.textSecondary,
+                          tooltip: isFavorite
+                              ? 'Remove from favorites'
+                              : 'Add to favorites',
+                          icon: isFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: isFavorite
+                              ? tokens.accent
+                              : tokens.textSecondary,
                           onPressed: onFavorite!,
                         ),
                       _GridAction(
@@ -989,17 +976,15 @@ class _ArtistsView extends StatelessWidget {
         final controller = context.read<HybridMusicController>();
         return _ArtistCard(
           artist: artist,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title:
-                      artist.artist.trim().isEmpty
-                          ? 'Unknown artist'
-                          : artist.artist,
-                  subtitle: 'Tracks by this artist will appear here.',
-                  loadTracks: () => controller.tracksForArtist(artist.id),
-                ),
-              ),
+          onTap: () => Navigator.of(context).push(
+            LocalEntityTracksScreen.route(
+              title: artist.artist.trim().isEmpty
+                  ? 'Unknown artist'
+                  : artist.artist,
+              subtitle: 'Tracks by this artist will appear here.',
+              loadTracks: () => controller.tracksForArtist(artist.id),
+            ),
+          ),
         );
       },
     );
@@ -1087,17 +1072,13 @@ class _AlbumsView extends StatelessWidget {
         final controller = context.read<HybridMusicController>();
         return _AlbumCard(
           album: album,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title:
-                      album.album.trim().isEmpty
-                          ? 'Unknown album'
-                          : album.album,
-                  subtitle: 'Tracks from this album will appear here.',
-                  loadTracks: () => controller.tracksForAlbum(album.id),
-                ),
-              ),
+          onTap: () => Navigator.of(context).push(
+            LocalEntityTracksScreen.route(
+              title: album.album.trim().isEmpty ? 'Unknown album' : album.album,
+              subtitle: 'Tracks from this album will appear here.',
+              loadTracks: () => controller.tracksForAlbum(album.id),
+            ),
+          ),
         );
       },
     );
@@ -1189,17 +1170,14 @@ class _FoldersView extends StatelessWidget {
           key: ValueKey<String>(folder),
           folder: folder,
           count: counts[folder] ?? 0,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title: folderDisplayName(folder),
-                  subtitle: 'Audio files in this folder will appear here.',
-                  loadTracks:
-                      () => context
-                          .read<HybridMusicController>()
-                          .tracksForFolder(folder),
-                ),
-              ),
+          onTap: () => Navigator.of(context).push(
+            LocalEntityTracksScreen.route(
+              title: folderDisplayName(folder),
+              subtitle: 'Audio files in this folder will appear here.',
+              loadTracks: () =>
+                  context.read<HybridMusicController>().tracksForFolder(folder),
+            ),
+          ),
         );
       },
     );
@@ -1300,35 +1278,30 @@ class _VideosView extends StatelessWidget {
                   ? const _CategoryEmptyState(
                       icon: Icons.ondemand_video_rounded,
                       title: 'No matching videos',
-                      subtitle:
-                          'Try clearing the search or changing the video library.',
+                      subtitle: 'Try clearing the search or changing the video library.',
                     )
                   : grid
                   ? GridView.builder(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                         maxCrossAxisExtent: 280,
-                        mainAxisExtent: settings.videosDensity ==
-                                LibraryDensity.compact
+                        mainAxisExtent:
+                            settings.videosDensity == LibraryDensity.compact
                             ? 190
                             : 220,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 12,
                       ),
                       itemCount: tracks.length,
-                      itemBuilder: (context, index) => _videoCard(
-                        context,
-                        tracks[index],
-                      ),
+                      itemBuilder: (context, index) =>
+                          _videoCard(context, tracks[index]),
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                       itemCount: tracks.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 24),
-                      itemBuilder: (context, index) => _videoCard(
-                        context,
-                        tracks[index],
-                      ),
+                      itemBuilder: (context, index) =>
+                          _videoCard(context, tracks[index]),
                     ),
             ),
           ],
@@ -1337,10 +1310,12 @@ class _VideosView extends StatelessWidget {
     );
   }
 
-  Widget _videoCard(BuildContext context, MediaTrack track) => _VideoPreviewCard(
-    track: track,
-    onPlay: () => Navigator.of(context).push(YazenVideoPlayerScreen.route(track)),
-  );
+  Widget _videoCard(BuildContext context, MediaTrack track) =>
+      _VideoPreviewCard(
+        track: track,
+        onPlay: () =>
+            Navigator.of(context).push(YazenVideoPlayerScreen.route(track)),
+      );
 }
 
 class _LibraryViewToolbar extends StatefulWidget {
@@ -1364,7 +1339,9 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
   @override
   void initState() {
     super.initState();
-    _searchController = TextEditingController(text: widget.controller.searchQuery);
+    _searchController = TextEditingController(
+      text: widget.controller.searchQuery,
+    );
   }
 
   @override
@@ -1502,10 +1479,9 @@ class _VideoPreviewCard extends StatelessWidget {
                   tag: 'track-art-${track.id}',
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child:
-                        track.isVideo
-                            ? VideoThumbnailWidget(track: track, size: 720)
-                            : YazenMediaArtwork(track: track, size: 720),
+                    child: track.isVideo
+                        ? VideoThumbnailWidget(track: track, size: 720)
+                        : YazenMediaArtwork(track: track, size: 720),
                   ),
                 ),
                 Positioned(
@@ -1641,9 +1617,8 @@ class _PlaylistsView extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Your collections',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w900),
                 ),
               ),
               FilledButton.tonalIcon(
@@ -1658,10 +1633,9 @@ class _PlaylistsView extends StatelessWidget {
           return _CollectionCard(
             icon: Icons.favorite_rounded,
             artworkTrack: favorites.isEmpty ? null : favorites.last,
-            artwork:
-                favorites.isEmpty
-                    ? null
-                    : YazenMediaArtwork(track: favorites.last, size: 82),
+            artwork: favorites.isEmpty
+                ? null
+                : YazenMediaArtwork(track: favorites.last, size: 82),
             title: 'Favorites',
             subtitle: 'Tracks you want to keep close',
             count: favorites.length,
@@ -1674,19 +1648,17 @@ class _PlaylistsView extends StatelessWidget {
           return _CollectionCard(
             icon: Icons.queue_music_rounded,
             artworkTrack: playlist.coverTrack,
-            artwork:
-                playlist.coverTrack == null
-                    ? null
-                    : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
+            artwork: playlist.coverTrack == null
+                ? null
+                : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
             title: playlist.name,
             subtitle: 'Custom playlist',
             count: playlist.tracks.length,
-            onTap:
-                () => Navigator.of(
-                  context,
-                ).push(PlaylistDetailsScreen.route(playlist.id)),
-            onDelete:
-                () => controller.playlistManager.deletePlaylist(playlist.id),
+            onTap: () =>
+                Navigator.of(context)
+                    .push(PlaylistDetailsScreen.route(playlist.id)),
+            onDelete: () =>
+                controller.playlistManager.deletePlaylist(playlist.id),
           );
         }
         final deviceIndex = customIndex - customPlaylists.length;
@@ -1696,16 +1668,13 @@ class _PlaylistsView extends StatelessWidget {
           title: playlist.playlist,
           subtitle: 'Device playlist',
           count: playlist.numOfSongs,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title: playlist.playlist,
-                  subtitle:
-                      'Tracks from this device playlist will appear here.',
-                  loadTracks:
-                      () => controller.tracksForDevicePlaylist(playlist.id),
-                ),
-              ),
+          onTap: () => Navigator.of(context).push(
+            LocalEntityTracksScreen.route(
+              title: playlist.playlist,
+              subtitle: 'Tracks from this device playlist will appear here.',
+              loadTracks: () => controller.tracksForDevicePlaylist(playlist.id),
+            ),
+          ),
         );
       },
     );
@@ -1872,7 +1841,11 @@ class _CollectionCardState extends State<_CollectionCard> {
 }
 
 class _EntityArtwork extends StatelessWidget {
-  const _EntityArtwork({required this.icon, this.circular = false, this.accent});
+  const _EntityArtwork({
+    required this.icon,
+    this.circular = false,
+    this.accent,
+  });
 
   final IconData icon;
   final bool circular;
@@ -1926,9 +1899,8 @@ class _CategoryEmptyState extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(

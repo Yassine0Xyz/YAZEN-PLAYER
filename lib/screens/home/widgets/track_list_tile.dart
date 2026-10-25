@@ -43,167 +43,166 @@ class TrackListTile extends StatelessWidget {
         final compact = constraints.maxWidth < 470;
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: ThemeSpacing.x1),
-            child: AnimatedContainer(
-              duration: MotionTokens.fast,
-              curve: MotionTokens.standard,
-              decoration: BoxDecoration(
-                color:
-                    isCurrentTrack
-                        ? tokens.accent.withValues(alpha: 0.045)
-                        : Colors.transparent,
-                borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
-                border: Border.all(
-                  color:
-                      isCurrentTrack
-                          ? tokens.accent.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                ),
+          child: AnimatedContainer(
+            duration: MotionTokens.fast,
+            curve: MotionTokens.standard,
+            decoration: BoxDecoration(
+              color: isCurrentTrack
+                  ? tokens.accent.withValues(alpha: 0.045)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
+              border: Border.all(
+                color: isCurrentTrack
+                    ? tokens.accent.withValues(alpha: 0.12)
+                    : Colors.transparent,
               ),
-              child: Material(
-                color: Colors.transparent,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
+              child: InkWell(
                 borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
-                  onTap: onTap,
-                  onLongPress: onLongPress,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(2, 3, 2, 3),
-                child: Row(
-                  children: <Widget>[
-                    Stack(
-                      children: <Widget>[
-                        YazenMediaArtwork(
-                          track: track,
-                          size: compact && artworkSize > 58 ? 58 : artworkSize,
-                        ),
-                        if (isCurrentTrack)
-                          Positioned(
-                            right: 3,
-                            bottom: 3,
-                            child: Container(
-                              width: 22,
-                              height: 22,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: tokens.surface.withValues(alpha: 0.92),
-                                borderRadius: BorderRadius.circular(
-                                  ThemeRadii.small,
-                                ),
-                                border: Border.all(
-                                  color: tokens.accent.withValues(alpha: 0.5),
-                                ),
-                              ),
-                              child: NowPlayingIndicator(
-                                isCurrent: true,
-                                isPlaying: nowPlaying!.isPlaying,
-                                pulse: nowPlaying.pulse,
-                                color: tokens.accentStrong,
-                              ),
-                            ),
-                          ),
-                        if (selected)
-                          Positioned.fill(
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: tokens.accent.withValues(alpha: 0.55),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Icon(
-                                Icons.check_rounded,
-                                color:
-                                    tokens.isLight
-                                        ? Colors.white
-                                        : Colors.black,
-                                size: compact ? 28 : 32,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(width: ThemeSpacing.x3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                onTap: onTap,
+                onLongPress: onLongPress,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 3, 2, 3),
+                  child: Row(
+                    children: <Widget>[
+                      Stack(
                         children: <Widget>[
-                          Text(
-                            track.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(
-                              context,
-                            ).textTheme.titleSmall?.copyWith(
-                              color: isCurrentTrack ? tokens.accent : null,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.1,
-                            ),
+                          YazenMediaArtwork(
+                            track: track,
+                            size: compact && artworkSize > 58
+                                ? 58
+                                : artworkSize,
                           ),
-                          const SizedBox(height: ThemeSpacing.x1),
-                          Row(
-                            children: <Widget>[
-                              _SourceBadge(tokens: tokens),
-                              const SizedBox(width: ThemeSpacing.x2),
-                              Expanded(
-                                child: Text(
-                                  track.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: tokens.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
+                          if (isCurrentTrack)
+                            Positioned(
+                              right: 3,
+                              bottom: 3,
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: tokens.surface.withValues(alpha: 0.92),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeRadii.small,
+                                  ),
+                                  border: Border.all(
+                                    color: tokens.accent.withValues(alpha: 0.5),
                                   ),
                                 ),
+                                child: NowPlayingIndicator(
+                                  isCurrent: true,
+                                  isPlaying: nowPlaying!.isPlaying,
+                                  pulse: nowPlaying.pulse,
+                                  color: tokens.accentStrong,
+                                ),
                               ),
-                            ],
-                          ),
+                            ),
+                          if (selected)
+                            Positioned.fill(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: tokens.accent.withValues(alpha: 0.55),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.check_rounded,
+                                  color: tokens.isLight
+                                      ? Colors.white
+                                      : Colors.black,
+                                  size: compact ? 28 : 32,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                    ),
-                    if (!compact) ...<Widget>[
-                      const SizedBox(width: 8),
-                      Text(
-                        _formatDuration(track.duration),
-                        style: TextStyle(
+                      const SizedBox(width: ThemeSpacing.x3),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: isCurrentTrack
+                                        ? tokens.accent
+                                        : null,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.1,
+                                  ),
+                            ),
+                            const SizedBox(height: ThemeSpacing.x1),
+                            Row(
+                              children: <Widget>[
+                                _SourceBadge(tokens: tokens),
+                                const SizedBox(width: ThemeSpacing.x2),
+                                Expanded(
+                                  child: Text(
+                                    track.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: tokens.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (!compact) ...<Widget>[
+                        const SizedBox(width: 8),
+                        Text(
+                          _formatDuration(track.duration),
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      if (onAddToPlaylist != null && !compact)
+                        _SmallAction(
+                          tooltip: 'Add to playlist',
+                          icon: Icons.playlist_add_rounded,
                           color: tokens.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                          onPressed: onAddToPlaylist!,
                         ),
+                      if (onFavorite != null)
+                        _SmallAction(
+                          tooltip: isFavorite
+                              ? 'Remove from favorites'
+                              : 'Add to favorites',
+                          icon: isFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: isFavorite
+                              ? tokens.accent
+                              : tokens.textSecondary,
+                          selected: isFavorite,
+                          selectedBackgroundColor: tokens.accent.withValues(
+                            alpha: 0.10,
+                          ),
+                          onPressed: onFavorite!,
+                        ),
+                      _SmallAction(
+                        tooltip: 'Play ${track.title}',
+                        icon: Icons.play_arrow_rounded,
+                        color: tokens.accent.withValues(alpha: 0.86),
+                        backgroundColor: tokens.surface.withValues(alpha: 0.55),
+                        onPressed: onTap,
                       ),
+                      if (trailing != null) trailing!,
                     ],
-                    if (onAddToPlaylist != null && !compact)
-                      _SmallAction(
-                        tooltip: 'Add to playlist',
-                        icon: Icons.playlist_add_rounded,
-                        color: tokens.textSecondary,
-                        onPressed: onAddToPlaylist!,
-                      ),
-                    if (onFavorite != null)
-                      _SmallAction(
-                        tooltip:
-                            isFavorite
-                                ? 'Remove from favorites'
-                                : 'Add to favorites',
-                        icon:
-                            isFavorite
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                        color:
-                            isFavorite ? tokens.accent : tokens.textSecondary,
-                        selected: isFavorite,
-                        selectedBackgroundColor: tokens.accent.withValues(
-                          alpha: 0.10,
-                        ),
-                        onPressed: onFavorite!,
-                      ),
-                    _SmallAction(
-                      tooltip: 'Play ${track.title}',
-                      icon: Icons.play_arrow_rounded,
-                      color: tokens.accent.withValues(alpha: 0.86),
-                      backgroundColor: tokens.surface.withValues(alpha: 0.55),
-                      onPressed: onTap,
-                    ),
-                    if (trailing != null) trailing!,
-                  ],
                   ),
                 ),
               ),
