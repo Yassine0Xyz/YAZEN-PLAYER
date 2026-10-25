@@ -1,5 +1,30 @@
 # YAZEN PLAYER — Final Audit Report
 
+## Repository replacement and remote CI validation — 2026-10-25
+
+The connected `Yassine0Xyz/YAZEN-PLAYER` repository was replaced on `main` with
+the verified audited source package. The prior `main` commit was
+`a5a4dfebc07bbb3f00ca0063195e00b5fc182a48`; it remains recoverable on the
+remote branch `backup/pre-yazen-player-replacement-20261025`. The final
+repository `main` commit is
+`bfe0cb7e64d2f49696db48d0d653ef3f35be7f56`.
+
+The final GitHub Actions run,
+[40150115428](https://github.com/Yassine0Xyz/YAZEN-PLAYER/actions/runs/40150115428),
+passed on Ubuntu x64 with Flutter 3.47.8. All workflow stages passed:
+
+- `dart format --output=none --set-exit-if-changed .`
+- `flutter analyze --no-fatal-infos` (warnings/errors remain fatal; the source
+  reports informational lints only)
+- Focused regression tests: 44 passed
+- Full Flutter test suite: 122 passed, 1 skipped
+- Android debug validation: `flutter build apk --debug --target-platform android-arm64`
+
+The runner produced `build/app/outputs/flutter-apk/app-debug.apk`. This remote
+CI result supersedes the earlier local ARM64 environment blocker for source,
+test, and debug-build validation. It does not replace manual device testing,
+release signing, visual verification, or production APK/AAB release validation.
+
 **Audit date:** 2026-10-24  
 **Source reviewed:** current working tree at `/home/ubuntu/work/yazen-player`, based on the Steps 2–4 source package and including the earlier Step 1 changes.  
 **Scope:** final source audit only; no APK/AAB generation or delivery.
@@ -48,7 +73,12 @@ The audit traced the real implementations for playlist artwork history and palet
 
 Several evidence-backed, narrowly scoped defects were found and corrected. The corrections cover artwork cache identity, palette refresh triggers, persisted playing-state restore, stale now-playing state after removing the last queue item, queue reorder-to-end handling, stale videos after permission loss, unsupported native video-control channels, paused Full Player queue selection, reduced-motion route behavior, the vendored `video_thumbnail` SDK constraint, and the stale foundation validator. A focused palette cache regression test was added.
 
-The project is **not release-ready based on this audit**. Flutter and Dart executables were unavailable, so dependency resolution, Dart formatting, Flutter analysis, Flutter tests, Android/Linux builds, and device/runtime checks could not be run. Native behavior, real `just_audio` repeat/shuffle completion, video URI compatibility, visual fidelity, and several persistence failure paths therefore remain unverified.
+The source now has a successful remote CI validation for dependency resolution,
+formatting, analysis, focused/full tests, and an Android debug build. It is not
+yet a release-signing or device-validation result: native behavior, real
+`just_audio` repeat/shuffle completion, video URI compatibility, visual
+fidelity, and several persistence failure paths still require manual/device
+verification.
 
 ## Step 1 presence
 

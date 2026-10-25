@@ -30,6 +30,24 @@ interface.
 
 ## Recent Activity
 
+### Recent Activity: 2026-10-25 — Repository replacement and remote CI validation
+
+The connected `Yassine0Xyz/YAZEN-PLAYER` repository was replaced on `main` with
+the verified audited source package. The previous `main` commit was
+`a5a4dfebc07bbb3f00ca0063195e00b5fc182a48`; it remains recoverable on the
+remote backup branch
+`backup/pre-yazen-player-replacement-20261025`. The final `main` commit is
+`bfe0cb7e64d2f49696db48d0d653ef3f35be7f56`.
+
+GitHub Actions run
+[40150115428](https://github.com/Yassine0Xyz/YAZEN-PLAYER/actions/runs/40150115428)
+passed on Ubuntu x64 using Flutter 3.47.8. Formatting, analysis, 44 focused
+regression tests, the full suite (122 passed, 1 skipped), and
+`flutter build apk --debug --target-platform android-arm64` all passed. The CI
+analyzer uses `--no-fatal-infos` because the audited source has informational
+lints; warnings and errors remain fatal. The Android build emitted the expected
+debug APK at `build/app/outputs/flutter-apk/app-debug.apk` on the runner.
+
 ### Recent Activity: 2026-10-25 — Flutter validation environment check
 
 The requested Flutter/Dart validation was attempted without modifying the
