@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +32,25 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
   String _selectedPreset = 'Flat';
   bool _enabled = false;
   bool _surroundEnabled = false;
+  bool _settingsLoaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_settingsLoaded) return;
+    _settingsLoaded = true;
+    final handler = context.read<HybridMusicController>().audioHandler;
+    unawaited(
+      handler.equalizerSettingsReady.then((_) {
+        if (!mounted) return;
+        setState(() {
+          _enabled = handler.equalizerEnabled;
+          _surroundEnabled = handler.threeDSurroundEnabled;
+          _selectedPreset = handler.equalizerPreset;
+        });
+      }),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,60 +70,92 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
         ),
       ),
       body: SafeArea(
-        child: FutureBuilder<AndroidEqualizerParameters>(
-          future: handler.equalizer.parameters,
-          builder: (context, snapshot) {
-            final parameters = snapshot.data;
-            if (parameters == null) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return StreamBuilder<bool>(
-              stream: handler.equalizer.enabledStream,
-              initialData: handler.equalizer.enabled,
-              builder:
-                  (context, enabledSnapshot) => ListView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                    children: <Widget>[
-                      _HeroHeader(
-                        enabled: enabledSnapshot.data ?? _enabled,
-                        onToggle: (value) async {
-                          setState(() => _enabled = value);
-                          await handler.setEqualizerEnabled(value);
-                        },
-                      ),
-                      const SizedBox(height: 18),
-                      _PresetPicker(
-                        value: _selectedPreset,
-                        presets: _presets.keys.toList(growable: false),
-                        onChanged: (value) async {
-                          if (value == null) return;
-                          setState(() => _selectedPreset = value);
-                          await _applyPreset(
-                            handler,
-                            parameters,
-                            _presets[value]!,
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 18),
-                      _EqualizerBands(
-                        parameters: parameters,
-                        enabled: enabledSnapshot.data ?? _enabled,
-                      ),
-                      const SizedBox(height: 18),
-                      _SurroundCard(
-                        enabled: _surroundEnabled,
-                        onToggle: (value) async {
-                          setState(() => _surroundEnabled = value);
-                          await handler.setThreeDSurroundEnabled(value);
-                        },
-                      ),
-                    ],
-                  ),
-            );
-          },
-        ),
+        child:
+            !handler.equalizerAvailable
+                ? const _EffectUnavailable()
+                : FutureBuilder<AndroidEqualizerParameters>(
+                  future: handler.equalizer.parameters,
+                  builder: (context, snapshot) {
+                    final parameters = snapshot.data;
+                    if (snapshot.hasError) {
+                      return const _EffectUnavailable();
+                    }
+                    if (parameters == null) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    return StreamBuilder<bool>(
+                      stream: handler.equalizerEnabledStream,
+                      initialData: handler.equalizerEnabled,
+                      builder:
+                          (context, enabledSnapshot) => ListView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                            children: <Widget>[
+                              _HeroHeader(
+                                enabled: enabledSnapshot.data ?? _enabled,
+                                onToggle: (value) async {
+                                  setState(() => _enabled = value);
+                                  final applied = await handler
+                                      .setEqualizerEnabled(value);
+                                  if (!applied && mounted) {
+                                    _showEffectsSoftError();
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: 18),
+                              _PresetPicker(
+                                value: _selectedPreset,
+                                presets: _presets.keys.toList(growable: false),
+                                onChanged: (value) async {
+                                  if (value == null) return;
+                                  setState(() => _selectedPreset = value);
+                                  await handler.setEqualizerPreset(value);
+                                  await _applyPreset(
+                                    handler,
+                                    parameters,
+                                    _presets[value]!,
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 18),
+                              _EqualizerBands(
+                                parameters: parameters,
+                                enabled: enabledSnapshot.data ?? _enabled,
+                                onGainChanged:
+                                    (index, gain) => handler
+                                        .setEqualizerBandGain(index, gain),
+                              ),
+                              const SizedBox(height: 18),
+                              StreamBuilder<bool>(
+                                stream: handler.threeDSurroundEnabledStream,
+                                initialData: handler.threeDSurroundEnabled,
+                                builder:
+                                    (
+                                      context,
+                                      surroundSnapshot,
+                                    ) => _SurroundCard(
+                                      enabled:
+                                          surroundSnapshot.data ??
+                                          _surroundEnabled,
+                                      onToggle: (value) async {
+                                        setState(
+                                          () => _surroundEnabled = value,
+                                        );
+                                        await handler.setThreeDSurroundEnabled(
+                                          value,
+                                        );
+                                        if (handler.equalizerError != null &&
+                                            mounted) {
+                                          _showEffectsSoftError();
+                                        }
+                                      },
+                                    ),
+                              ),
+                            ],
+                          ),
+                    );
+                  },
+                ),
       ),
     );
   }
@@ -117,8 +170,48 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
         parameters.minDecibels,
         parameters.maxDecibels,
       );
-      await parameters.bands[index].setGain(gain.toDouble());
+      await handler.setEqualizerBandGain(index, gain.toDouble());
     }
+  }
+
+  void _showEffectsSoftError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Playback will continue without audio effects.'),
+      ),
+    );
+  }
+}
+
+class _EffectUnavailable extends StatelessWidget {
+  const _EffectUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.tune_rounded, size: 52, color: tokens.textSecondary),
+            const SizedBox(height: 14),
+            const Text(
+              'Equalizer unavailable on this device',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Playback will continue without audio effects.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -177,7 +270,7 @@ class _HeroHeader extends StatelessWidget {
           Switch.adaptive(
             value: enabled,
             onChanged: onToggle,
-            activeColor: tokens.accent,
+            activeThumbColor: tokens.accent,
           ),
         ],
       ),
@@ -232,10 +325,15 @@ class _PresetPicker extends StatelessWidget {
 }
 
 class _EqualizerBands extends StatelessWidget {
-  const _EqualizerBands({required this.parameters, required this.enabled});
+  const _EqualizerBands({
+    required this.parameters,
+    required this.enabled,
+    required this.onGainChanged,
+  });
 
   final AndroidEqualizerParameters parameters;
   final bool enabled;
+  final Future<bool> Function(int index, double gain) onGainChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -257,6 +355,9 @@ class _EqualizerBands extends StatelessWidget {
                   band: band,
                   parameters: parameters,
                   enabled: enabled,
+                  onChanged:
+                      (gain) =>
+                          onGainChanged(parameters.bands.indexOf(band), gain),
                 ),
               );
             }).toList(),
@@ -270,11 +371,13 @@ class _BandControl extends StatelessWidget {
     required this.band,
     required this.parameters,
     required this.enabled,
+    required this.onChanged,
   });
 
   final AndroidEqualizerBand band;
   final AndroidEqualizerParameters parameters;
   final bool enabled;
+  final Future<bool> Function(double gain) onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +409,7 @@ class _BandControl extends StatelessWidget {
                                 parameters.maxDecibels,
                               )
                               .toDouble(),
-                      onChanged: enabled ? band.setGain : null,
+                      onChanged: enabled ? (value) => onChanged(value) : null,
                     ),
               ),
             ),
@@ -382,7 +485,7 @@ class _SurroundCard extends StatelessWidget {
           Switch.adaptive(
             value: enabled,
             onChanged: onToggle,
-            activeColor: tokens.accent,
+            activeThumbColor: tokens.accent,
           ),
         ],
       ),

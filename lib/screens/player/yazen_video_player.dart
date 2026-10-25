@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,7 +33,7 @@ class YazenVideoPlayer extends StatefulWidget {
 }
 
 class _YazenVideoPlayerState extends State<YazenVideoPlayer>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _platform = MethodChannel('yazen/player_controls');
 
   late final AnimationController _hudAnimation;
@@ -48,6 +48,8 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   double _volume = 0.75;
   String? _gestureLabel;
   Timer? _gestureTimer;
+  bool _appVisible = true;
+  bool? _lastKeepScreenOn;
 
   @override
   void initState() {
@@ -57,12 +59,48 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
       duration: const Duration(milliseconds: 240),
       value: 1,
     );
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.addListener(_onVideoChanged);
+    _syncKeepScreenOn();
     _scheduleHudHide();
   }
 
   @override
+  void didUpdateWidget(covariant YazenVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onVideoChanged);
+      widget.controller.addListener(_onVideoChanged);
+    }
+    _syncKeepScreenOn();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Android may report inactive while transitioning into picture-in-picture.
+    // Keep the display flag for active video during that visible transition.
+    _appVisible =
+        state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+    _syncKeepScreenOn();
+  }
+
+  @override
   void dispose() {
+    if (_isFullscreen) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+          DeviceOrientation.portraitUp,
+        ]).catchError((_) {}),
+      );
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.edgeToEdge,
+        ).catchError((_) {}),
+      );
+    }
+    _syncKeepScreenOn(force: false);
+    WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     _lockRevealTimer?.cancel();
     _gestureTimer?.cancel();
@@ -72,7 +110,24 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   }
 
   void _onVideoChanged() {
+    _syncKeepScreenOn();
     if (mounted) setState(() {});
+  }
+
+  void _syncKeepScreenOn({bool? force}) {
+    if (!Platform.isAndroid) return;
+    final value = widget.controller.value;
+    final keepScreenOn =
+        force ?? (_appVisible && value.isInitialized && value.isPlaying);
+    if (_lastKeepScreenOn == keepScreenOn) return;
+    _lastKeepScreenOn = keepScreenOn;
+    unawaited(
+      _platform
+          .invokeMethod<void>('setKeepScreenOn', <String, bool>{
+            'enabled': keepScreenOn,
+          })
+          .catchError((_) {}),
+    );
   }
 
   void _scheduleHudHide() {
@@ -131,15 +186,31 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     if (_locked) return;
     if (right) {
       _volume = (_volume - delta / 420).clamp(0.0, 1.0).toDouble();
-      await _platform.invokeMethod<void>('setVolume', <String, dynamic>{
-        'value': _volume,
-      });
+      try {
+        await _platform.invokeMethod<void>('setVolume', <String, dynamic>{
+          'value': _volume,
+        });
+      } on MissingPluginException catch (_) {
+        _showGesture('Volume control unavailable');
+        return;
+      } on PlatformException catch (_) {
+        _showGesture('Volume control unavailable');
+        return;
+      }
       _showGesture('Volume ${(100 * _volume).round()}%');
     } else {
       _brightness = (_brightness - delta / 420).clamp(0.05, 1.0).toDouble();
-      await _platform.invokeMethod<void>('setBrightness', <String, dynamic>{
-        'value': _brightness,
-      });
+      try {
+        await _platform.invokeMethod<void>('setBrightness', <String, dynamic>{
+          'value': _brightness,
+        });
+      } on MissingPluginException catch (_) {
+        _showGesture('Brightness control unavailable');
+        return;
+      } on PlatformException catch (_) {
+        _showGesture('Brightness control unavailable');
+        return;
+      }
       _showGesture('Brightness ${(100 * _brightness).round()}%');
     }
   }
@@ -165,6 +236,13 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     try {
       await _platform.invokeMethod<void>('enterPictureInPicture');
     } on PlatformException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Picture-in-picture is not available on this device.'),
+        ),
+      );
+    } on MissingPluginException {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -226,11 +304,11 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     if (widget.compact) return _buildCompact(context, tokens, value);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final playerSize = Size(constraints.maxWidth, constraints.maxHeight);
+        final bottomInset = MediaQuery.of(context).padding.bottom;
         return Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            _AmbientBackdrop(controller: widget.controller),
+            const _AmbientBackdrop(),
             Center(
               child: AspectRatio(
                 aspectRatio:
@@ -391,7 +469,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                         Positioned(
                           left: 12,
                           right: 12,
-                          bottom: 12,
+                          bottom: bottomInset + 8,
                           child: _GlassBar(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -487,6 +565,23 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
                   ),
                 ),
               ),
+            if (!_locked && !_hudVisible)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: bottomInset + 2,
+                child: IgnorePointer(
+                  child: VideoProgressIndicator(
+                    widget.controller,
+                    allowScrubbing: false,
+                    colors: VideoProgressColors(
+                      playedColor: tokens.accent,
+                      bufferedColor: Colors.white54,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                ),
+              ),
             if (_locked && _lockRevealVisible)
               Positioned(
                 left: 0,
@@ -520,8 +615,8 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
             color: Colors.black,
             child: VideoPlayer(widget.controller),
           ),
-          DecoratedBox(
-            decoration: const BoxDecoration(
+          const DecoratedBox(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -530,42 +625,111 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
             ),
           ),
           Positioned(
-            left: 10,
+            left: 8,
             right: 8,
-            bottom: 5,
-            child: Row(
+            bottom: 4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          shadows: <Shadow>[
+                            Shadow(color: Colors.black87, blurRadius: 6),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    PopupMenuButton<String>(
+                      tooltip: 'More video controls',
+                      padding: EdgeInsets.zero,
+                      iconSize: 20,
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'fit':
+                            setState(() => _aspectMode = (_aspectMode + 1) % 3);
+                          case 'speed':
+                            _showSpeedPicker(context);
+                          case 'pip':
+                            _enterPip();
+                          case 'lock':
+                            _toggleLock();
+                        }
+                      },
+                      itemBuilder:
+                          (_) => <PopupMenuEntry<String>>[
+                            PopupMenuItem<String>(
+                              value: 'fit',
+                              child: Text('Fit: $_aspectLabel'),
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'speed',
+                              child: Text('Playback speed'),
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'pip',
+                              child: Text('Picture in picture'),
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'lock',
+                              child: Text('Lock controls'),
+                            ),
+                          ],
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Expand player',
+                      onPressed: widget.onExpand,
+                      icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: value.isPlaying ? 'Pause' : 'Play',
-                  onPressed:
-                      () =>
-                          value.isPlaying
-                              ? widget.controller.pause()
-                              : widget.controller.play(),
-                  icon: Icon(
-                    value.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    size: 19,
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Expand player',
-                  onPressed: widget.onExpand,
-                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: <Widget>[
+                    _CompactVideoAction(
+                      tooltip: 'Back 10 seconds',
+                      icon: Icons.replay_10_rounded,
+                      onPressed: () => _seekBy(const Duration(seconds: -10)),
+                    ),
+                    _CompactVideoAction(
+                      tooltip: 'Previous',
+                      icon: Icons.skip_previous_rounded,
+                      onPressed: widget.onPrevious,
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: value.isPlaying ? 'Pause' : 'Play',
+                      onPressed:
+                          () =>
+                              value.isPlaying
+                                  ? widget.controller.pause()
+                                  : widget.controller.play(),
+                      icon: Icon(
+                        value.isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        size: 22,
+                      ),
+                    ),
+                    _CompactVideoAction(
+                      tooltip: 'Next',
+                      icon: Icons.skip_next_rounded,
+                      onPressed: widget.onNext,
+                    ),
+                    _CompactVideoAction(
+                      tooltip: 'Forward 10 seconds',
+                      icon: Icons.forward_10_rounded,
+                      onPressed: () => _seekBy(const Duration(seconds: 10)),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -593,37 +757,34 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   }
 }
 
-class _AmbientBackdrop extends StatelessWidget {
-  const _AmbientBackdrop({required this.controller});
+class _CompactVideoAction extends StatelessWidget {
+  const _CompactVideoAction({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
 
-  final VideoPlayerController controller;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        VideoPlayer(controller),
-        BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 34, sigmaY: 34),
-          child: ColoredBox(color: Colors.black.withValues(alpha: 0.66)),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment.topCenter,
-              radius: 1.3,
-              colors: <Color>[
-                tokens.accentStrong.withValues(alpha: 0.32),
-                Colors.transparent,
-              ],
-            ),
-          ),
-        ),
-      ],
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 19),
     );
   }
+}
+
+class _AmbientBackdrop extends StatelessWidget {
+  const _AmbientBackdrop();
+
+  @override
+  Widget build(BuildContext context) => const ColoredBox(color: Colors.black);
 }
 
 class _GlassBar extends StatelessWidget {
@@ -633,23 +794,11 @@ class _GlassBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.read<ThemeProvider>().tokens;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.32),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: tokens.accent.withValues(alpha: 0.28)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: child,
-          ),
-        ),
-      ),
+    // Controls intentionally sit directly over the video. The edge gradient
+    // behind the player provides legibility without large glass panels.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: child,
     );
   }
 }

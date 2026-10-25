@@ -51,18 +51,22 @@ class FavoritesScreen extends StatelessWidget {
               ? const _EmptyCollection(
                 icon: Icons.favorite_border_rounded,
                 title: 'No favorites yet',
-                subtitle:
-                    'Tap the heart on any local or YouTube track to keep it here.',
+                subtitle: 'Tap the heart on any local track to keep it here.',
               )
               : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
                 itemCount: tracks.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 2),
+                separatorBuilder: (_, _) => const SizedBox(height: 2),
                 itemBuilder: (context, index) {
                   final track = tracks[index];
                   return TrackListTile(
+                    key: ValueKey<String>('favorite-${track.id}'),
                     track: track,
-                    onTap: () => controller.playTrack(track),
+                    onTap:
+                        () => controller.playTrackQueue(
+                          tracks,
+                          initialIndex: index,
+                        ),
                     isFavorite: true,
                     onFavorite: () => manager.toggleFavorite(track),
                     onAddToPlaylist:
@@ -76,12 +80,7 @@ class FavoritesScreen extends StatelessWidget {
   Future<void> _playAll(
     HybridMusicController controller,
     List<MediaTrack> tracks,
-  ) async {
-    await controller.playTrack(tracks.first);
-    for (final track in tracks.skip(1)) {
-      await controller.addToQueue(track);
-    }
-  }
+  ) => controller.playTrackQueue(tracks);
 }
 
 class _EmptyCollection extends StatelessWidget {

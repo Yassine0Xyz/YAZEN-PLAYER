@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
@@ -10,31 +12,55 @@ import 'screens/home/home_screen.dart';
 import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
+import 'services/ambient_color_flow_settings.dart';
+import 'services/startup_restore.dart';
+import 'services/app_route_observer.dart';
+import 'widgets/now_playing_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  late final HybridAudioHandler audioHandler;
+  try {
+    audioHandler = await AudioService.init<HybridAudioHandler>(
+      builder: HybridAudioHandler.new,
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.yassine.yazen.channel.audio',
+        androidNotificationChannelName: 'Music playback',
+        androidNotificationIcon: 'drawable/yazen_notification_icon',
+        // Keep the media notification present while playback is active. The
+        // explicit Stop/X action is responsible for releasing the service.
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+  } catch (_) {
+    // Keep the first frame available even if the media-service plugin is not
+    // ready on a fresh install; the handler still supports foreground audio.
+    audioHandler = HybridAudioHandler();
+  }
 
-  final audioHandler = await AudioService.init<HybridAudioHandler>(
-    builder: HybridAudioHandler.new,
-    config: const AudioServiceConfig(
-      androidNotificationChannelId:
-          'com.yazen.player.channel.audio',
-      androidNotificationChannelName: 'Music playback',
-      androidNotificationOngoing: false,
-      androidStopForegroundOnPause: false,
-    ),
-  );
-
-  final session = await AudioSession.instance;
-  await session.configure(AudioSessionConfiguration.music());
-  await audioHandler.configureAudioSession(session);
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+    await audioHandler.configureAudioSession(session);
+  } catch (_) {
+    // Audio session configuration is optional for showing the first frame.
+    // Playback can configure itself later when the platform becomes ready.
+  }
 
   final themeProvider = ThemeProvider();
-  await themeProvider.load();
+  try {
+    await themeProvider.load();
+  } catch (_) {
+    // Use the default theme when first-run preferences are unavailable.
+  }
+  unawaited(AmbientColorFlowSettings.instance.load());
   final playlistManager = LocalPlaylistManager();
-  await playlistManager.initialize();
-  await audioHandler.restoreLastPlayback();
-
+  try {
+    await playlistManager.initialize();
+  } catch (_) {
+    // Start with empty local collections when persisted data is unreadable.
+  }
   runApp(
     HybridMusicApp(
       audioHandler: audioHandler,
@@ -42,6 +68,7 @@ Future<void> main() async {
       playlistManager: playlistManager,
     ),
   );
+  schedulePlaybackRestoreAfterFirstFrame(audioHandler.restoreLastPlayback);
 }
 
 class HybridMusicApp extends StatelessWidget {
@@ -78,10 +105,12 @@ class HybridMusicApp extends StatelessWidget {
           return MaterialApp(
             title: 'YAZEN',
             debugShowCheckedModeBanner: false,
+            navigatorObservers: <NavigatorObserver>[appRouteObserver],
             theme: themeState.theme,
             builder:
-                (context, child) =>
-                    ThemeBackdrop(child: child ?? const SizedBox.shrink()),
+                (context, child) => NowPlayingScope(
+                  child: ThemeBackdrop(child: child ?? const SizedBox.shrink()),
+                ),
             home: const HomeScreen(),
           );
         },

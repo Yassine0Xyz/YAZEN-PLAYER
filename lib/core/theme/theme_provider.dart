@@ -147,40 +147,85 @@ class _RgbRainbowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final t = animation.value * math.pi * 2;
-    final paint = Paint()..style = PaintingStyle.fill;
+    final pulse = 0.92 + math.sin(t * 1.4) * 0.08;
     final rect = Offset.zero & size;
-    final glows = <({Offset center, double radius, Color color})>[
+    final glows = <({Offset center, double radius, double hue, double alpha})>[
       (
         center: Offset(
-          size.width * (0.18 + math.sin(t) * 0.10),
-          size.height * 0.18,
+          size.width * (0.14 + math.sin(t * 0.83) * 0.18),
+          size.height * (0.16 + math.cos(t * 0.52) * 0.08),
         ),
-        radius: size.width * 0.62,
-        color: const Color(0xFF7C5CFC).withValues(alpha: 0.18),
+        radius: size.width * 0.58 * pulse,
+        hue: (265 + animation.value * 360) % 360,
+        alpha: 0.22,
       ),
       (
         center: Offset(
-          size.width * (0.80 + math.cos(t * 0.78) * 0.11),
-          size.height * 0.42,
+          size.width * (0.84 + math.cos(t * 0.71) * 0.14),
+          size.height * (0.34 + math.sin(t * 0.47) * 0.14),
         ),
-        radius: size.width * 0.66,
-        color: const Color(0xFF00CFFF).withValues(alpha: 0.11),
+        radius: size.width * 0.64 * pulse,
+        hue: (190 + animation.value * 360) % 360,
+        alpha: 0.16,
       ),
       (
         center: Offset(
-          size.width * 0.40,
-          size.height * (0.88 + math.sin(t * 0.62) * 0.08),
+          size.width * (0.36 + math.sin(t * 0.39) * 0.16),
+          size.height * (0.88 + math.cos(t * 0.64) * 0.08),
         ),
-        radius: size.width * 0.58,
-        color: const Color(0xFFFF3D81).withValues(alpha: 0.10),
+        radius: size.width * 0.60 * pulse,
+        hue: (325 + animation.value * 360) % 360,
+        alpha: 0.15,
+      ),
+      (
+        center: Offset(
+          size.width * (0.70 + math.sin(t * 0.58) * 0.12),
+          size.height * (0.78 + math.cos(t * 0.43) * 0.10),
+        ),
+        radius: size.width * 0.48 * pulse,
+        hue: (35 + animation.value * 360) % 360,
+        alpha: 0.10,
       ),
     ];
     for (final glow in glows) {
-      paint.shader = RadialGradient(
-        colors: <Color>[glow.color, glow.color.withValues(alpha: 0)],
-      ).createShader(Rect.fromCircle(center: glow.center, radius: glow.radius));
+      final color = HSVColor.fromAHSV(1, glow.hue, 0.78, 1).toColor();
+      final paint =
+          Paint()
+            ..style = PaintingStyle.fill
+            ..shader = RadialGradient(
+              colors: <Color>[
+                color.withValues(alpha: glow.alpha),
+                color.withValues(alpha: glow.alpha * 0.32),
+                color.withValues(alpha: 0),
+              ],
+              stops: const <double>[0, 0.34, 1],
+            ).createShader(
+              Rect.fromCircle(center: glow.center, radius: glow.radius),
+            );
       canvas.drawRect(rect, paint);
     }
+
+    final spectrumPaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.0, size.shortestSide * 0.012)
+          ..shader = SweepGradient(
+            transform: GradientRotation(animation.value * math.pi * 2),
+            colors: const <Color>[
+              Color(0x007C5CFC),
+              Color(0x667C5CFC),
+              Color(0x5500D9FF),
+              Color(0x55FF3D81),
+              Color(0x007C5CFC),
+            ],
+          ).createShader(rect);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect.deflate(size.shortestSide * 0.018),
+        Radius.circular(size.shortestSide * 0.07),
+      ),
+      spectrumPaint,
+    );
   }
 
   @override

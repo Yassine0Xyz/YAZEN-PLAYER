@@ -1,11 +1,56 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val keyPropertiesFile = rootProject.file("key.properties")
+val keyProperties = Properties()
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.inputStream().use { keyProperties.load(it) }
+}
+val productionBuild =
+    providers.gradleProperty("production").map { it.toBoolean() }.getOrElse(false)
+if (productionBuild) {
+    if (!keyPropertiesFile.exists()) {
+        throw GradleException(
+            "Production builds require android/key.properties and a private keystore."
+        )
+    }
+    val requiredSigningProperties =
+        listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+    val missingSigningProperties =
+        requiredSigningProperties.filter { keyProperties.getProperty(it).isNullOrBlank() }
+    if (missingSigningProperties.isNotEmpty()) {
+        throw GradleException(
+            "Production signing configuration is missing: ${missingSigningProperties.joinToString()}."
+        )
+    }
+    val keystore = file(keyProperties.getProperty("storeFile"))
+    if (!keystore.isFile) {
+        throw GradleException("Production keystore does not exist: ${keystore.absolutePath}")
+    }
+}
+
+val applicationProject = project
+gradle.taskGraph.whenReady {
+    val releaseTasks =
+        allTasks.filter {
+            it.project == applicationProject &&
+                it.name.contains("Release", ignoreCase = true)
+        }
+    if (releaseTasks.isNotEmpty() && !productionBuild) {
+        throw GradleException(
+            "Release builds require production signing. Configure android/key.properties " +
+                "and build with -Pproduction=true."
+        )
+    }
+}
+
 android {
-    namespace = "com.example.yazen"
+    namespace = "com.yassine.yazen"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,27 +60,38 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.yazen"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // Keep this ID stable once the first public release is shipped.
+        applicationId = "com.yassine.yazen"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
+        // Uses the version code from pubspec.yaml. With split APKs, Flutter
+        // adds the ABI suffix automatically.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters += setOf("arm64-v8a")
+        }
     }
 
     buildTypes {
+        if (productionBuild) {
+            signingConfigs.create("production") {
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+                storeFile = file(keyProperties.getProperty("storeFile"))
+                storePassword = keyProperties.getProperty("storePassword")
+            }
+        }
         release {
-            // Keep optional YouTube/plugin transitive classes reliable in this test APK.
-            isMinifyEnabled = false
-            isShrinkResources = false
-            // Debug signing is intentional for device testing only.
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.findByName("production")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            excludes += setOf("lib/armeabi-v7a/**", "lib/x86_64/**")
         }
     }
 }

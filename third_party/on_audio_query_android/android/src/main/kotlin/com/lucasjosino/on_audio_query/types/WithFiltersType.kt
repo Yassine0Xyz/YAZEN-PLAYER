@@ -70,4 +70,3 @@ fun checkGenresArgs(args: Int): String {
         else -> throw Exception("[checkGenresArgs] value don't exist!")
     }
 }
-

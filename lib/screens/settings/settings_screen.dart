@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
-import '../../core/theme/theme_tokens.dart';
+import '../../services/visualizer_settings.dart';
+import '../../services/haptic_settings.dart';
+import '../../services/playback_policies.dart';
+import '../../services/dynamic_color_settings.dart';
+import '../../services/ambient_color_flow_settings.dart';
+import '../../services/library_display_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,26 +24,28 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _appVersion = '0.1.0+1';
-  static const _wifiCacheKey = 'echo.settings.cache_wifi_only';
-  static const _gaplessKey = 'echo.settings.gapless_playback';
-  static const _notificationsKey = 'echo.settings.playback_notifications';
-  static const _equalizerKey = 'echo.settings.equalizer_enabled';
-  static const _surroundKey = 'echo.settings.surround_enabled';
-  static const _speedKey = 'echo.settings.playback_speed';
+  static const _speedKey = 'yazen.settings.playback_speed';
 
-  bool _cacheOnWifiOnly = true;
-  bool _gaplessPlayback = true;
-  bool _playbackNotifications = true;
   bool _equalizerEnabled = true;
   bool _surroundEnabled = false;
+  bool _hapticFeedbackEnabled = true;
+  bool _dynamicColorsEnabled = true;
+  bool _ambientColorFlowEnabled = true;
   double _playbackSpeed = 1.0;
   bool _preferencesLoaded = false;
+  String _appVersion = 'Loading…';
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() => _appVersion = '${info.version}+${info.buildNumber}');
   }
 
   @override
@@ -66,16 +74,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsCard(
             tokens: tokens,
             child: Column(
-              children: EchoThemePreset.values
-                  .map(
-                    (preset) => _ThemeOption(
-                      preset: preset,
-                      selected: theme.preset == preset,
-                      onSelected: () => theme.setPreset(preset),
-                    ),
-                  )
-                  .toList(growable: false),
+              children: <Widget>[
+                RadioGroup<EchoThemePreset>(
+                  groupValue: theme.preset,
+                  onChanged: (value) {
+                    if (value != null) theme.setPreset(value);
+                  },
+                  child: Column(
+                    children: EchoThemePreset.values
+                        .map((preset) => _ThemeOption(preset: preset))
+                        .toList(growable: false),
+                  ),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                _PreferenceSwitch(
+                  icon: Icons.color_lens_outlined,
+                  title: 'Dynamic colors from artwork',
+                  subtitle: 'Tint the player with colors from the album art',
+                  value: _dynamicColorsEnabled,
+                  enabled: _preferencesLoaded,
+                  onChanged: _setDynamicColors,
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 24),
+          _SectionLabel(label: 'Library', tokens: tokens),
+          AnimatedBuilder(
+            animation: LibraryDisplaySettings.instance,
+            builder: (context, _) {
+              final displaySettings = LibraryDisplaySettings.instance;
+              return _SettingsCard(
+                tokens: tokens,
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.view_agenda_outlined,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Layout',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        'Choose how songs are displayed',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      trailing: SegmentedButton<LibraryLayoutMode>(
+                        showSelectedIcon: false,
+                        segments: const <ButtonSegment<LibraryLayoutMode>>[
+                          ButtonSegment(
+                            value: LibraryLayoutMode.list,
+                            icon: Icon(Icons.view_agenda_outlined),
+                            label: Text('List'),
+                          ),
+                          ButtonSegment(
+                            value: LibraryLayoutMode.grid,
+                            icon: Icon(Icons.grid_view_rounded),
+                            label: Text('Grid'),
+                          ),
+                        ],
+                        selected: <LibraryLayoutMode>{
+                          displaySettings.layoutMode,
+                        },
+                        onSelectionChanged:
+                            _preferencesLoaded
+                                ? (selected) =>
+                                    _setLibraryLayout(selected.first)
+                                : null,
+                      ),
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.density_medium_rounded,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'List density',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        'Adjust artwork and spacing in List view',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      trailing: DropdownButton<LibraryDensity>(
+                        value: displaySettings.density,
+                        items: const <DropdownMenuItem<LibraryDensity>>[
+                          DropdownMenuItem(
+                            value: LibraryDensity.comfortable,
+                            child: Text('Comfortable'),
+                          ),
+                          DropdownMenuItem(
+                            value: LibraryDensity.compact,
+                            child: Text('Compact'),
+                          ),
+                        ],
+                        onChanged:
+                            _preferencesLoaded
+                                ? (value) {
+                                  if (value != null) _setLibraryDensity(value);
+                                }
+                                : null,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           const SizedBox(height: 24),
           _SectionLabel(label: 'Audio and playback', tokens: tokens),
@@ -86,9 +195,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _PreferenceSwitch(
                   icon: Icons.equalizer_rounded,
                   title: 'Equalizer',
-                  subtitle: 'Use the active Android audio effect profile',
+                  subtitle:
+                      controller.audioHandler.equalizerAvailable
+                          ? 'Use the active Android audio effect profile'
+                          : 'Unavailable on this device; playback remains stable',
                   value: _equalizerEnabled,
-                  enabled: _preferencesLoaded,
+                  enabled:
+                      _preferencesLoaded &&
+                      controller.audioHandler.equalizerAvailable,
                   onChanged: (value) => _setEqualizer(controller, value),
                 ),
                 Divider(color: tokens.divider, height: 1),
@@ -99,35 +213,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: _surroundEnabled,
                   enabled: _preferencesLoaded,
                   onChanged: (value) => _setSurround(controller, value),
-                ),
-                Divider(color: tokens.divider, height: 1),
-                _PreferenceSwitch(
-                  icon: Icons.all_inclusive_rounded,
-                  title: 'Gapless playback',
-                  subtitle: 'Reduce silence between queued tracks',
-                  value: _gaplessPlayback,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _gaplessKey,
-                        value,
-                        (next) => _gaplessPlayback = next,
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
-                _PreferenceSwitch(
-                  icon: Icons.notifications_none_rounded,
-                  title: 'Playback notifications',
-                  subtitle:
-                      'Keep lock-screen and notification controls visible',
-                  value: _playbackNotifications,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _notificationsKey,
-                        value,
-                        (next) => _playbackNotifications = next,
-                      ),
                 ),
                 Divider(color: tokens.divider, height: 1),
                 ListTile(
@@ -166,78 +251,156 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Sleep timer',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  subtitle: Text(
-                    _sleepTimerLabel(controller),
-                    style: TextStyle(color: tokens.textSecondary),
+                  subtitle: StreamBuilder<Duration?>(
+                    stream: controller.audioHandler.sleepTimerRemainingStream,
+                    initialData: controller.audioHandler.sleepTimerRemaining,
+                    builder:
+                        (context, snapshot) => Text(
+                          _sleepTimerLabel(controller, snapshot.data),
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
                   ),
                   trailing: TextButton(
                     onPressed: () => _chooseSleepTimer(controller),
                     child: const Text('Change'),
                   ),
                 ),
+                Divider(color: tokens.divider, height: 1),
+                _PreferenceSwitch(
+                  icon: Icons.vibration_rounded,
+                  title: 'Haptic feedback',
+                  subtitle: 'Subtle feedback for supported interactions',
+                  value: _hapticFeedbackEnabled,
+                  enabled: _preferencesLoaded,
+                  onChanged: _setHapticFeedback,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          _SectionLabel(label: 'Storage', tokens: tokens),
-          _SettingsCard(
-            tokens: tokens,
-            child: Column(
-              children: <Widget>[
-                _PreferenceSwitch(
-                  icon: Icons.wifi_rounded,
-                  title: 'Cache on Wi-Fi only',
-                  subtitle: 'Avoid mobile-data downloads for offline audio',
-                  value: _cacheOnWifiOnly,
-                  enabled: _preferencesLoaded,
-                  onChanged:
-                      (value) => _setPreference(
-                        _wifiCacheKey,
-                        value,
-                        (next) => _cacheOnWifiOnly = next,
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
-                FutureBuilder<int>(
-                  future: controller.audioHandler.cache.totalBytes(),
-                  builder: (context, snapshot) {
-                    final size =
-                        snapshot.data == null
-                            ? 'Calculating…'
-                            : _formatBytes(snapshot.data!);
-                    return ListTile(
+          _SectionLabel(label: 'Visualizer', tokens: tokens),
+          AnimatedBuilder(
+            animation: VisualizerSettings.instance,
+            builder: (context, _) {
+              final settings = VisualizerSettings.instance;
+              return _SettingsCard(
+                tokens: tokens,
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(
-                        Icons.sd_storage_outlined,
+                        Icons.graphic_eq_rounded,
                         color: tokens.accent,
                       ),
                       title: const Text(
-                        'YouTube audio cache',
+                        'Sensitivity',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       subtitle: Text(
-                        '$size used · 512 MB maximum',
+                        '${(settings.sensitivity * 100).round()}%',
                         style: TextStyle(color: tokens.textSecondary),
                       ),
-                      trailing: TextButton(
-                        onPressed: () => _clearCache(controller),
-                        child: const Text('Clear'),
+                    ),
+                    Slider(
+                      value: settings.sensitivity,
+                      min: 0.6,
+                      max: 1.8,
+                      divisions: 12,
+                      label: '${(settings.sensitivity * 100).round()}%',
+                      onChanged:
+                          settings.loaded
+                              ? (value) => settings.setSensitivity(value)
+                              : null,
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.speed_rounded, color: tokens.accent),
+                      title: const Text(
+                        'Response',
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    );
-                  },
+                      subtitle: Text(
+                        _responseLabel(settings.response),
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      trailing: DropdownButton<VisualizerResponse>(
+                        value: settings.response,
+                        items: const <DropdownMenuItem<VisualizerResponse>>[
+                          DropdownMenuItem(
+                            value: VisualizerResponse.smooth,
+                            child: Text('Smooth'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerResponse.balanced,
+                            child: Text('Balanced'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerResponse.fast,
+                            child: Text('Fast'),
+                          ),
+                        ],
+                        onChanged:
+                            settings.loaded
+                                ? (value) {
+                                  if (value != null) {
+                                    settings.setResponse(value);
+                                  }
+                                }
+                                : null,
+                      ),
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.noise_aware_rounded,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Minimum signal',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        'Ignore very quiet background noise',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                    ),
+                    Slider(
+                      value: settings.noiseGate,
+                      min: 0.0,
+                      max: 0.08,
+                      divisions: 16,
+                      label: settings.noiseGate.toStringAsFixed(3),
+                      onChanged:
+                          settings.loaded
+                              ? (value) => settings.setNoiseGate(value)
+                              : null,
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    _PreferenceSwitch(
+                      icon: Icons.color_lens_outlined,
+                      title: AmbientColorFlowSettings.title,
+                      subtitle: AmbientColorFlowSettings.subtitle,
+                      value: _ambientColorFlowEnabled,
+                      enabled: _preferencesLoaded,
+                      onChanged: _setAmbientColorFlow,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
           const SizedBox(height: 24),
-          _SectionLabel(label: 'About Echo', tokens: tokens),
+          _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.graphic_eq_rounded, color: tokens.accent),
               title: const Text(
-                'Echo',
+                'YAZEN',
                 style: TextStyle(fontWeight: FontWeight.w900),
               ),
               subtitle: Text(
@@ -253,21 +416,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadPreferences() async {
+    final controller = context.read<HybridMusicController>();
     final preferences = await SharedPreferences.getInstance();
+    await LibraryDisplaySettings.instance.load();
+    await VisualizerSettings.instance.load();
+    await HapticSettings.instance.load();
+    await DynamicColorSettings.instance.load();
+    await AmbientColorFlowSettings.instance.load();
+    await controller.audioHandler.equalizerSettingsReady;
     if (!mounted) return;
     setState(() {
-      _cacheOnWifiOnly = preferences.getBool(_wifiCacheKey) ?? true;
-      _gaplessPlayback = preferences.getBool(_gaplessKey) ?? true;
-      _playbackNotifications = preferences.getBool(_notificationsKey) ?? true;
-      _equalizerEnabled = preferences.getBool(_equalizerKey) ?? true;
-      _surroundEnabled = preferences.getBool(_surroundKey) ?? false;
+      _equalizerEnabled = controller.audioHandler.equalizerEnabled;
+      _surroundEnabled = controller.audioHandler.threeDSurroundEnabled;
+      _hapticFeedbackEnabled = HapticSettings.instance.enabled;
+      _dynamicColorsEnabled = DynamicColorSettings.instance.enabled;
+      _ambientColorFlowEnabled = AmbientColorFlowSettings.instance.enabled;
       _playbackSpeed = preferences.getDouble(_speedKey) ?? 1.0;
       _preferencesLoaded = true;
     });
-    final controller = context.read<HybridMusicController>();
     await controller.audioHandler.setSpeed(_playbackSpeed);
     await controller.audioHandler.setEqualizerEnabled(_equalizerEnabled);
     await controller.audioHandler.setThreeDSurroundEnabled(_surroundEnabled);
+  }
+
+  Future<void> _setHapticFeedback(bool value) async {
+    setState(() => _hapticFeedbackEnabled = value);
+    await HapticSettings.instance.setEnabled(value);
+  }
+
+  Future<void> _setLibraryLayout(LibraryLayoutMode value) async {
+    try {
+      await LibraryDisplaySettings.instance.setLayoutMode(value);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to save library layout: $error')),
+      );
+    }
+  }
+
+  Future<void> _setLibraryDensity(LibraryDensity value) async {
+    try {
+      await LibraryDisplaySettings.instance.setDensity(value);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to save library density: $error')),
+      );
+    }
+  }
+
+  Future<void> _setDynamicColors(bool value) async {
+    setState(() => _dynamicColorsEnabled = value);
+    await DynamicColorSettings.instance.setEnabled(value);
+  }
+
+  Future<void> _setAmbientColorFlow(bool value) async {
+    setState(() => _ambientColorFlowEnabled = value);
+    await AmbientColorFlowSettings.instance.setEnabled(value);
   }
 
   Future<void> _setSpeed(HybridMusicController controller, double value) async {
@@ -277,14 +483,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await preferences.setDouble(_speedKey, value);
   }
 
-  String _sleepTimerLabel(HybridMusicController controller) {
-    final remaining = controller.audioHandler.sleepTimerRemaining;
+  String _responseLabel(VisualizerResponse response) {
+    switch (response) {
+      case VisualizerResponse.smooth:
+        return 'Gentle and fluid';
+      case VisualizerResponse.balanced:
+        return 'Balanced movement';
+      case VisualizerResponse.fast:
+        return 'Quick beat response';
+    }
+  }
+
+  String _sleepTimerLabel(
+    HybridMusicController controller,
+    Duration? remaining,
+  ) {
+    final handler = controller.audioHandler;
+    if (handler.sleepTimerMode == SleepTimerMode.endOfCurrentTrack) {
+      return 'End of current track';
+    }
     if (remaining == null) return 'Off';
-    return '${remaining.inMinutes} min remaining';
+    return '${formatSleepTimerCountdown(remaining)} remaining';
   }
 
   Future<void> _chooseSleepTimer(HybridMusicController controller) async {
-    final minutes = await showModalBottomSheet<int?>(
+    final choice = await showModalBottomSheet<Object?>(
       context: context,
       builder:
           (context) => SafeArea(
@@ -295,6 +518,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Off'),
                   onTap: () => Navigator.pop(context, 0),
                 ),
+                ListTile(
+                  title: const Text('End of current track'),
+                  onTap:
+                      () => Navigator.pop(
+                        context,
+                        SleepTimerMode.endOfCurrentTrack,
+                      ),
+                ),
                 for (final value in <int>[15, 30, 60, 90])
                   ListTile(
                     title: Text('$value minutes'),
@@ -304,34 +535,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
     );
-    if (minutes == null) return;
-    controller.audioHandler.setSleepTimer(
-      minutes == 0 ? null : Duration(minutes: minutes),
-    );
+    if (choice == null) return;
+    if (choice is SleepTimerMode) {
+      controller.audioHandler.setSleepTimer(null, mode: choice);
+    } else {
+      final minutes = choice as int;
+      controller.audioHandler.setSleepTimer(
+        minutes == 0 ? null : Duration(minutes: minutes),
+      );
+    }
     if (mounted) setState(() {});
-  }
-
-  Future<void> _setPreference(
-    String key,
-    bool value,
-    void Function(bool value) apply,
-  ) async {
-    apply(value);
-    setState(() {});
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(key, value);
   }
 
   Future<void> _setEqualizer(
     HybridMusicController controller,
     bool value,
   ) async {
-    await controller.audioHandler.setEqualizerEnabled(value);
-    await _setPreference(
-      _equalizerKey,
-      value,
-      (next) => _equalizerEnabled = next,
-    );
+    final applied = await controller.audioHandler.setEqualizerEnabled(value);
+    setState(() => _equalizerEnabled = value);
+    if (!applied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unavailable on this device; playback remains stable'),
+        ),
+      );
+    }
   }
 
   Future<void> _setSurround(
@@ -339,46 +567,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool value,
   ) async {
     await controller.audioHandler.setThreeDSurroundEnabled(value);
-    await _setPreference(
-      _surroundKey,
-      value,
-      (next) => _surroundEnabled = next,
-    );
-  }
-
-  Future<void> _clearCache(HybridMusicController controller) async {
-    final shouldClear = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Clear YouTube cache?'),
-            content: const Text(
-              'Completed offline audio will be removed. Your playlists and favorites will remain untouched.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Clear cache'),
-              ),
-            ],
-          ),
-    );
-    if (shouldClear != true) return;
-    await controller.audioHandler.cache.clearAll();
-    if (!mounted) return;
-    setState(() {});
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('YouTube cache cleared')));
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (mounted) setState(() => _surroundEnabled = value);
+    if (controller.audioHandler.equalizerError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unavailable on this device; playback remains stable'),
+        ),
+      );
+    }
   }
 }
 
@@ -426,21 +622,16 @@ class _SettingsCard extends StatelessWidget {
 }
 
 class _ThemeOption extends StatelessWidget {
-  const _ThemeOption({
-    required this.preset,
-    required this.selected,
-    required this.onSelected,
-  });
+  const _ThemeOption({required this.preset});
 
   final EchoThemePreset preset;
-  final bool selected;
-  final VoidCallback onSelected;
 
   @override
   Widget build(BuildContext context) {
     final tokens = ThemeTokens.fromPreset(preset);
     return InkWell(
-      onTap: onSelected,
+      onTap:
+          () => RadioGroup.maybeOf<EchoThemePreset>(context)?.onChanged(preset),
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -468,11 +659,7 @@ class _ThemeOption extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            Radio<EchoThemePreset>(
-              value: preset,
-              groupValue: selected ? preset : null,
-              onChanged: (_) => onSelected(),
-            ),
+            Radio<EchoThemePreset>(value: preset),
           ],
         ),
       ),

@@ -1,9 +1,17 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 
+import '../core/theme/motion_tokens.dart';
 import '../core/theme/theme_provider.dart';
+import '../core/theme/theme_tokens.dart';
+import '../models/media_track.dart';
+import '../services/artwork_palette_service.dart';
+import '../services/dynamic_color_settings.dart';
+import '../services/playback_policies.dart';
+import 'media_artwork.dart';
+import 'mini_player_gesture_surface.dart';
+import 'play_pause_morph.dart';
 import 'echo_motion.dart';
 
 class MiniPlayer extends StatelessWidget {
@@ -14,13 +22,14 @@ class MiniPlayer extends StatelessWidget {
     required this.onStop,
     this.position,
     this.duration,
+    this.positionStream,
     this.onPrevious,
     this.onNext,
     this.onDismiss,
     this.onRepeat,
     this.onQueue,
     this.onTap,
-    this.repeatOne = false,
+    this.repeatMode = AudioServiceRepeatMode.none,
     super.key,
   });
 
@@ -28,6 +37,7 @@ class MiniPlayer extends StatelessWidget {
   final bool isPlaying;
   final Duration? position;
   final Duration? duration;
+  final Stream<Duration>? positionStream;
   final VoidCallback onPlayPause;
   final VoidCallback onStop;
   final VoidCallback? onPrevious;
@@ -36,180 +46,258 @@ class MiniPlayer extends StatelessWidget {
   final VoidCallback? onRepeat;
   final VoidCallback? onQueue;
   final VoidCallback? onTap;
-  final bool repeatOne;
+  final AudioServiceRepeatMode repeatMode;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.watch<ThemeProvider>().tokens;
-    final progress = _progress;
+    final progress = positionStream == null ? _progress : null;
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
-        return EchoBreathingGlow(
-          enabled: isPlaying,
-          color: tokens.accentStrong,
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(24),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  gradient: LinearGradient(
-                    colors: <Color>[tokens.surfaceElevated, tokens.surface],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(
-                    color:
-                        isPlaying
-                            ? tokens.accent.withValues(alpha: 0.42)
-                            : tokens.divider,
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: tokens.accentStrong.withValues(
-                        alpha: isPlaying ? 0.16 : 0.08,
-                      ),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 7),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          _MiniArtwork(item: item),
-                          const SizedBox(width: 11),
-                          Expanded(
+        return MiniPlayerGestureSurface(
+          onNext: onNext,
+          onPrevious: onPrevious,
+          onExpand: onTap,
+          child: AnimatedBuilder(
+            animation: DynamicColorSettings.instance,
+            builder:
+                (context, _) => ValueListenableBuilder<ArtworkPalette>(
+                  valueListenable: ArtworkPaletteService.instance.current,
+                  builder: (context, palette, _) {
+                    final dynamicAccent =
+                        DynamicColorSettings.instance.enabled
+                            ? palette.safeAccent
+                            : tokens.accentStrong;
+                    return Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
+                      child: InkWell(
+                        onTap: onTap,
+                        borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
+                        child: AnimatedContainer(
+                          duration: MotionTokens.fast,
+                          curve: MotionTokens.standard,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: <Color>[
+                                tokens.surfaceElevated,
+                                Color.lerp(
+                                      tokens.surfaceElevated,
+                                      tokens.surface,
+                                      0.18,
+                                    ) ??
+                                    tokens.surfaceElevated,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              ThemeRadii.xLarge,
+                            ),
+                            border: Border.all(
+                                color:
+                                      isPlaying
+                                          ? dynamicAccent.withValues(alpha: 0.38)
+                                          : tokens.divider,
+                            ),
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: Colors.black.withValues(
+                                  alpha: tokens.isLight ? 0.10 : 0.28,
+                                ),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
+                              if (isPlaying)
+                                BoxShadow(
+                                  color: dynamicAccent.withValues(alpha: 0.08),
+                                  blurRadius: 18,
+                                  spreadRadius: -4,
+                                ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              ThemeSpacing.x2,
+                              6,
+                              6,
+                              5,
+                            ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
-                                Text(
-                                  'NOW PLAYING',
-                                  style: TextStyle(
-                                    color: tokens.accent,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.9,
-                                  ),
+                                Row(
+                                  children: <Widget>[
+                                    RepaintBoundary(
+                                      child: AnimatedSwitcher(
+                                        duration: MotionTokens.fast,
+                                        transitionBuilder:
+                                            (child, animation) =>
+                                                FadeTransition(
+                                                  opacity: animation,
+                                                  child: SlideTransition(
+                                                    position: Tween<Offset>(
+                                                      begin: const Offset(
+                                                        0.12,
+                                                        0,
+                                                      ),
+                                                      end: Offset.zero,
+                                                    ).animate(animation),
+                                                    child: child,
+                                                  ),
+                                                ),
+                                        child: Hero(
+                                          key: ValueKey('mini-art-${item.id}'),
+                                          tag: 'track-art-${item.id}',
+                                          child: _MiniArtwork(item: item),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: ThemeSpacing.x2),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: <Widget>[
+                                          AnimatedSwitcher(
+                                            duration: MotionTokens.fast,
+                                            transitionBuilder:
+                                                (child, animation) =>
+                                                    FadeTransition(
+                                                      opacity: animation,
+                                                      child: SlideTransition(
+                                                        position: Tween<Offset>(
+                                                          begin: const Offset(
+                                                            0.08,
+                                                            0,
+                                                          ),
+                                                          end: Offset.zero,
+                                                        ).animate(animation),
+                                                        child: child,
+                                                      ),
+                                                    ),
+                                            child: Hero(
+                                              key: ValueKey(
+                                                'mini-title-${item.id}',
+                                              ),
+                                              tag: 'track-title-${item.id}',
+                                              child: Material(
+                                                color: Colors.transparent,
+                                                child: Text(
+                                                  item.title,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: tokens.textPrimary,
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            item.artist ?? 'Unknown artist',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: tokens.textSecondary,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (!compact && onQueue != null)
+                                      _DockAction(
+                                        tooltip: 'Queue',
+                                        icon: Icons.queue_music_rounded,
+                                        color: tokens.textSecondary,
+                                        onPressed: onQueue!,
+                                      ),
+                                    if (!compact && onRepeat != null)
+                                      _DockAction(
+                                        tooltip:
+                                            'Repeat: ${_repeatLabel(repeatMode)}',
+                                        icon:
+                                            repeatMode ==
+                                                    AudioServiceRepeatMode.one
+                                                ? Icons.repeat_one_rounded
+                                                : Icons.repeat_rounded,
+                                        color:
+                                            repeatModeIsEnabled(repeatMode)
+                                                ? tokens.accent
+                                                : tokens.textSecondary,
+                                        onPressed: onRepeat!,
+                                      ),
+                                    if (onPrevious != null)
+                                      _DockAction(
+                                        tooltip: 'Previous',
+                                        icon: Icons.skip_previous_rounded,
+                                        color: tokens.textSecondary,
+                                        onPressed: onPrevious!,
+                                      ),
+                                    PlayPauseMorph(
+                                      playing: isPlaying,
+                                      onPressed: onPlayPause,
+                                      tooltip: isPlaying ? 'Pause' : 'Play',
+                                      minimumSize: const Size(42, 42),
+                                      iconSize: 22,
+                                      backgroundColor: dynamicAccent,
+                                      foregroundColor:
+                                          tokens.isLight
+                                              ? Colors.white
+                                              : Colors.black,
+                                    ),
+                                    if (onNext != null)
+                                      _DockAction(
+                                        tooltip: 'Next',
+                                        icon: Icons.skip_next_rounded,
+                                        color: tokens.textSecondary,
+                                        onPressed: onNext!,
+                                      ),
+                                    _DockAction(
+                                      tooltip: 'Stop and close mini player',
+                                      icon: Icons.close_rounded,
+                                      color: tokens.textSecondary,
+                                      onPressed: onDismiss ?? onStop,
+                                      size: 38,
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: tokens.textPrimary,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  item.artist ?? 'Unknown artist',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: tokens.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                                if (positionStream != null)
+                                  _MiniProgress(
+                                    positionStream: positionStream!,
+                                    duration: duration,
+                                  )
+                                else if (progress != null)
+                                  _MiniProgressValue(value: progress),
                               ],
                             ),
                           ),
-                          if (!compact && onQueue != null)
-                            _DockAction(
-                              tooltip: 'Queue',
-                              icon: Icons.queue_music_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onQueue!,
-                            ),
-                          if (!compact && onRepeat != null)
-                            _DockAction(
-                              tooltip: 'Repeat once',
-                              icon: Icons.repeat_rounded,
-                              color:
-                                  repeatOne
-                                      ? tokens.accent
-                                      : tokens.textSecondary,
-                              onPressed: onRepeat!,
-                            ),
-                          if (onPrevious != null)
-                            _DockAction(
-                              tooltip: 'Previous',
-                              icon: Icons.skip_previous_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onPrevious!,
-                            ),
-                          IconButton.filled(
-                            tooltip: isPlaying ? 'Pause' : 'Play',
-                            onPressed: onPlayPause,
-                            style: IconButton.styleFrom(
-                              backgroundColor: tokens.accent,
-                              foregroundColor:
-                                  tokens.isLight ? Colors.white : Colors.black,
-                            ),
-                            icon: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              transitionBuilder:
-                                  (child, animation) => ScaleTransition(
-                                    scale: animation,
-                                    child: child,
-                                  ),
-                              child: Icon(
-                                isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
-                                key: ValueKey<bool>(isPlaying),
-                              ),
-                            ),
-                          ),
-                          if (onNext != null)
-                            _DockAction(
-                              tooltip: 'Next',
-                              icon: Icons.skip_next_rounded,
-                              color: tokens.textSecondary,
-                              onPressed: onNext!,
-                            ),
-                          _DockAction(
-                            tooltip: 'Hide mini player',
-                            icon: Icons.close_rounded,
-                            color: tokens.textSecondary,
-                            onPressed: onDismiss ?? onStop,
-                          ),
-                        ],
-                      ),
-                      if (progress != null) ...<Widget>[
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 3,
-                            backgroundColor: tokens.surfaceMuted,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              tokens.accent,
-                            ),
-                          ),
                         ),
-                      ],
-                    ],
-                  ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-            ),
           ),
         );
       },
     );
+  }
+
+  String _repeatLabel(AudioServiceRepeatMode mode) {
+    return switch (mode) {
+      AudioServiceRepeatMode.none => 'off',
+      AudioServiceRepeatMode.one => 'one',
+      AudioServiceRepeatMode.all => 'all',
+      AudioServiceRepeatMode.group => 'group',
+    };
   }
 
   double? get _progress {
@@ -219,18 +307,79 @@ class MiniPlayer extends StatelessWidget {
   }
 }
 
+class _MiniProgress extends StatelessWidget {
+  const _MiniProgress({required this.positionStream, required this.duration});
+
+  final Stream<Duration> positionStream;
+  final Duration? duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return RepaintBoundary(
+      child: StreamBuilder<Duration>(
+        stream: positionStream,
+        initialData: Duration.zero,
+        builder: (context, snapshot) {
+          final total = duration?.inMilliseconds ?? 0;
+          final value =
+              total <= 0 ? 0.0 : (snapshot.data?.inMilliseconds ?? 0) / total;
+          return _MiniProgressValue(
+            value: value.clamp(0.0, 1.0).toDouble(),
+            backgroundColor: tokens.surfaceMuted,
+            valueColor: tokens.accent,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MiniProgressValue extends StatelessWidget {
+  const _MiniProgressValue({
+    required this.value,
+    this.backgroundColor,
+    this.valueColor,
+  });
+
+  final double value;
+  final Color? backgroundColor;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: 2.5,
+          backgroundColor: backgroundColor ?? tokens.surfaceMuted,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            valueColor ?? tokens.accent,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DockAction extends StatelessWidget {
   const _DockAction({
     required this.tooltip,
     required this.icon,
     required this.color,
     required this.onPressed,
+    this.size = 40,
   });
 
   final String tooltip;
   final IconData icon;
   final Color color;
   final VoidCallback onPressed;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -239,7 +388,7 @@ class _DockAction extends StatelessWidget {
       onPressed: onPressed,
       icon: icon,
       color: color,
-      size: 34,
+      size: size,
     );
   }
 }
@@ -253,10 +402,10 @@ class _MiniArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
     final fallback = Container(
-      width: 50,
-      height: 50,
+      width: 46,
+      height: 46,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(ThemeRadii.large),
         gradient: LinearGradient(
           colors: <Color>[tokens.accentStrong, tokens.accent],
         ),
@@ -268,37 +417,31 @@ class _MiniArtwork extends StatelessWidget {
     );
 
     final source = item.extras?['source']?.toString();
-    final id = int.tryParse(item.extras?['trackId']?.toString() ?? '');
-    if (source == 'local' && id != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: QueryArtworkWidget(
+    final id = item.extras?['trackId']?.toString();
+    if (source == 'local' && id != null && id.isNotEmpty) {
+      return YazenMediaArtwork(
+        track: MediaTrack(
           id: id,
-          type: ArtworkType.AUDIO,
-          artworkWidth: 50,
-          artworkHeight: 50,
-          size: 180,
-          quality: 100,
-          artworkFit: BoxFit.cover,
-          nullArtworkWidget: fallback,
+          title: item.title,
+          artist: item.artist ?? 'Unknown artist',
+          album: item.album ?? 'Unknown album',
+          source: TrackSource.local,
+          uri: Uri.tryParse(item.id),
+          artworkUri: item.artUri,
+          duration: item.duration,
         ),
+        size: 46,
+        borderRadius: BorderRadius.circular(ThemeRadii.large),
       );
     }
 
     final artUri = item.artUri;
     if (artUri == null) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Image.network(
-        artUri.toString(),
-        width: 50,
-        height: 50,
-        fit: BoxFit.cover,
-        cacheWidth: 150,
-        cacheHeight: 150,
-        gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => fallback,
-      ),
+    return YazenMediaArtwork(
+      size: 46,
+      imageUri: artUri,
+      borderRadius: BorderRadius.circular(ThemeRadii.large),
+      placeholder: fallback,
     );
   }
 }

@@ -1,13 +1,13 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
-export "FLUTTER_ROOT=/home/ubuntu/flutter"
-export "FLUTTER_APPLICATION_PATH=/home/ubuntu/echo_redesign_workspace"
-export "FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=/home/ubuntu/echo_redesign_workspace/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework"
+export "FLUTTER_ROOT=/home/ubuntu/toolchains/flutter"
+export "FLUTTER_APPLICATION_PATH=/home/ubuntu/work/yazen-review/yazen-player"
+export "FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=/home/ubuntu/work/yazen-review/yazen-player/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework"
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_TARGET=lib/main.dart"
 export "FLUTTER_BUILD_DIR=build"
-export "FLUTTER_BUILD_NAME=0.1.0"
-export "FLUTTER_BUILD_NUMBER=1"
+export "FLUTTER_BUILD_NAME=0.1.3"
+export "FLUTTER_BUILD_NUMBER=12"
 export "DART_OBFUSCATION=false"
 export "TRACK_WIDGET_CREATION=true"
 export "TREE_SHAKE_ICONS=false"

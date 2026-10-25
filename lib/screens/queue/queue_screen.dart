@@ -52,9 +52,9 @@ class QueueScreen extends StatelessWidget {
           return ReorderableListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             itemCount: items.length,
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > oldIndex) newIndex -= 1;
-              await handler.moveInQueue(oldIndex, newIndex);
+            onReorderItem: (oldIndex, newIndex) async {
+              final targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+              await handler.moveInQueue(oldIndex, targetIndex);
             },
             itemBuilder: (context, index) {
               final item = items[index];
@@ -68,10 +68,7 @@ class QueueScreen extends StatelessWidget {
                   item: item,
                   index: index,
                   isCurrent: isCurrent,
-                  onPlay:
-                      () => handler.player
-                          .seek(Duration.zero, index: index)
-                          .then((_) => handler.play()),
+                  onPlay: () => handler.playQueueIndex(index),
                   onPlayNext:
                       index <= handler.currentQueueIndex
                           ? null
@@ -141,6 +138,7 @@ class _QueueTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       color: isCurrent ? tokens.surfaceElevated : tokens.surface,
       child: ListTile(
+        onTap: onPlay,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         leading: ReorderableDragStartListener(
           index: index,
@@ -225,7 +223,7 @@ class _EmptyQueue extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Play a track or add one from Discover to start building your next listening session.',
+              'Play a local track or add one to start building your next listening session.',
               textAlign: TextAlign.center,
               style: TextStyle(color: tokens.textSecondary, height: 1.45),
             ),

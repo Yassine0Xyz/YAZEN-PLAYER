@@ -1,42 +1,59 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../core/theme/motion_tokens.dart';
 import '../../services/hybrid_audio_handler.dart';
+import '../../services/playback_policies.dart';
 import '../../models/media_track.dart';
 import '../../services/lyrics_service.dart';
+import '../../services/artwork_palette_service.dart';
+import '../../services/dynamic_color_settings.dart';
+import '../../services/ambient_color_flow_settings.dart';
 import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
+import '../../widgets/ambient_color_flow.dart';
 import '../../widgets/audio_visualizer.dart';
 import '../../widgets/media_artwork.dart';
+import '../../widgets/play_pause_morph.dart';
 import '../effects/equalizer_screen.dart';
+
+enum AudioArtworkStyle { lark, vinyl }
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({super.key});
 
   static Route<void> route() {
     return PageRouteBuilder<void>(
-      pageBuilder: (_, animation, __) => const FullPlayerScreen(),
-      transitionsBuilder: (_, animation, __, child) {
+      pageBuilder: (_, animation, _) => const FullPlayerScreen(),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        if (MediaQuery.disableAnimationsOf(context)) return child;
         final curved = CurvedAnimation(
           parent: animation,
           curve: Curves.easeOutCubic,
         );
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).animate(curved),
-          child: FadeTransition(opacity: curved, child: child),
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.08),
+              end: Offset.zero,
+            ).animate(curved),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
+              child: child,
+            ),
+          ),
         );
       },
-      transitionDuration: const Duration(milliseconds: 420),
-      reverseTransitionDuration: const Duration(milliseconds: 260),
+      transitionDuration: const Duration(milliseconds: 360),
+      reverseTransitionDuration: const Duration(milliseconds: 240),
     );
   }
 
@@ -44,12 +61,290 @@ class FullPlayerScreen extends StatefulWidget {
   State<FullPlayerScreen> createState() => _FullPlayerScreenState();
 }
 
-class _FullPlayerScreenState extends State<FullPlayerScreen> {
-  bool _showLyrics = false;
+/// Applies the same swipe progress to each track-specific visual while leaving
+/// the live visualizer and transport controls outside this animation boundary.
+class TrackContentTransition extends StatelessWidget {
+  const TrackContentTransition({
+    super.key,
+    required this.animation,
+    required this.swipeDirection,
+    required this.incoming,
+    required this.dragOffset,
+    required this.dragOffsetDuration,
+    this.onDragOffsetAnimationEnd,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final double swipeDirection;
+  final bool incoming;
+  final double dragOffset;
+  final Duration dragOffsetDuration;
+  final VoidCallback? onDragOffsetAnimationEnd;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      key: const ValueKey<String>('track-content-drag-offset'),
+      duration: dragOffsetDuration,
+      curve: Curves.easeOutCubic,
+      transform: Matrix4.translationValues(dragOffset, 0, 0),
+      onEnd: onDragOffsetAnimationEnd,
+      child: AnimatedBuilder(
+        animation: animation,
+        child: child,
+        builder: (context, child) {
+          final progress = Curves.easeInOutCubic.transform(animation.value);
+          final direction = incoming ? -swipeDirection : swipeDirection;
+          return Opacity(
+            opacity: 1 - progress,
+            child: Transform.translate(
+              key: const ValueKey<String>('track-content-transition-slide'),
+              offset: Offset(direction * 56 * progress, 0),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FullPlayerScreenState extends State<FullPlayerScreen>
+    with SingleTickerProviderStateMixin {
+  static const _artworkStyleKey = 'yazen.audio_artwork_style';
+  static const _trackTransitionDuration = Duration(milliseconds: 190);
+  static const _minimumSwipeTravel = 72.0;
+  static const _minimumFlickTravel = 40.0;
+  static const _minimumFlickVelocity = 520.0;
+  static const _horizontalDominanceRatio = 1.15;
+
+  AudioArtworkStyle _artworkStyle = AudioArtworkStyle.lark;
+  int _artworkStyleChangeGeneration = 0;
+  Future<void> _artworkStyleWriteChain = Future<void>.value();
   bool _favoritePulse = false;
   double? _draggedPosition;
   String? _lyricsItemId;
   Future<SyncedLyrics?>? _lyricsFuture;
+  int? _previousQueueIndex;
+  int _trackChangeDirection = 1;
+  double _swipeOffset = 0;
+  double _swipeTravel = 0;
+  double _swipeVerticalTravel = 0;
+  bool _swipeSettling = false;
+  bool _trackTransitionIncoming = false;
+  bool _swipeRestoreInFlight = false;
+  double _trackSwipeDirection = -1;
+  Duration _swipeOffsetDuration = Duration.zero;
+  String? _paletteRequestKey;
+  late final AnimationController _trackTransitionController;
+  final ArtworkPaletteService _paletteService = ArtworkPaletteService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _trackTransitionController = AnimationController(
+      vsync: this,
+      duration: _trackTransitionDuration,
+      value: 0,
+    );
+    _paletteService.current.addListener(_onPaletteChanged);
+    DynamicColorSettings.instance.addListener(_onDynamicColorSettingsChanged);
+    _loadArtworkStyle();
+    unawaited(DynamicColorSettings.instance.load());
+    unawaited(AmbientColorFlowSettings.instance.load());
+  }
+
+  void _onPaletteChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onDynamicColorSettingsChanged() {
+    if (!mounted) return;
+    _paletteRequestKey = null;
+    final track = context.read<HybridMusicController>().activeTrack;
+    _syncArtworkPalette(track, context.read<ThemeProvider>().tokens);
+    setState(() {});
+  }
+
+  void _syncArtworkPalette(MediaTrack? track, ThemeTokens tokens) {
+    final requestKey =
+        '${track?.id ?? 'none'}:${tokens.accent.toARGB32()}:${tokens.background.toARGB32()}';
+    if (_paletteRequestKey == requestKey) return;
+    _paletteRequestKey = requestKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _paletteRequestKey != requestKey) return;
+      unawaited(
+        _paletteService.setCurrentTrack(
+          track,
+          themeAccent: tokens.accent,
+          surface: tokens.background,
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _trackTransitionController.dispose();
+    _paletteService.current.removeListener(_onPaletteChanged);
+    DynamicColorSettings.instance.removeListener(
+      _onDynamicColorSettingsChanged,
+    );
+    super.dispose();
+  }
+
+  Widget _trackContentTransition({
+    required Widget child,
+    required bool incoming,
+  }) {
+    return TrackContentTransition(
+      animation: _trackTransitionController,
+      swipeDirection: _trackSwipeDirection,
+      incoming: incoming,
+      dragOffset: _swipeOffset,
+      dragOffsetDuration: _swipeOffsetDuration,
+      onDragOffsetAnimationEnd: _onSwipeOffsetAnimationEnd,
+      child: child,
+    );
+  }
+
+  Future<void> _changeTrackFromSwipe(
+    HybridAudioHandler handler,
+    double direction,
+  ) async {
+    final previousIndex = handler.player.currentIndex;
+    final previousTrackId = handler.activeTrack?.id;
+    _trackSwipeDirection = direction > 0 ? -1 : 1;
+    if (mounted) setState(() {});
+
+    try {
+      await _trackTransitionController.forward(from: 0).orCancel;
+      if (!mounted) return;
+
+      // A button/queue/playback update may have changed the item while the
+      // outgoing visual was animating. In that case, use that actual item
+      // rather than applying a second skip on top of it.
+      final changedBeforeSkip =
+          handler.player.currentIndex != previousIndex ||
+          handler.activeTrack?.id != previousTrackId;
+      if (!changedBeforeSkip) {
+        if (direction > 0) {
+          await handler.skipToNext();
+        } else {
+          await handler.skipToPrevious();
+        }
+      }
+      if (!mounted) return;
+
+      // The handler serializes the queue change and republishes the active
+      // item before completing. A boundary/no-op skip restores the same view.
+      final changed =
+          handler.player.currentIndex != previousIndex ||
+          handler.activeTrack?.id != previousTrackId;
+      if (mounted) {
+        setState(() {
+          _swipeOffset = 0;
+          _swipeOffsetDuration = Duration.zero;
+          _trackTransitionIncoming = changed;
+        });
+      }
+      await _trackTransitionController.reverse().orCancel;
+      if (mounted) {
+        setState(() {
+          _trackTransitionIncoming = false;
+          _swipeOffsetDuration = Duration.zero;
+        });
+      }
+    } on TickerCanceled {
+      // The route was disposed while its transition was in flight.
+    } catch (error, stackTrace) {
+      debugPrint('Full Player swipe track change failed: $error\n$stackTrace');
+      final changed =
+          handler.player.currentIndex != previousIndex ||
+          handler.activeTrack?.id != previousTrackId;
+      if (mounted) {
+        setState(() {
+          _swipeOffset = 0;
+          _swipeOffsetDuration = Duration.zero;
+          _trackTransitionIncoming = changed;
+        });
+      }
+      if (mounted && _trackTransitionController.value > 0) {
+        try {
+          await _trackTransitionController.reverse().orCancel;
+          if (mounted) setState(() => _trackTransitionIncoming = false);
+        } on TickerCanceled {
+          // The route was disposed while restoring its outgoing content.
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _swipeOffset = 0;
+          _swipeSettling = false;
+          _swipeOffsetDuration = Duration.zero;
+          _trackTransitionIncoming = false;
+        });
+      }
+    }
+  }
+
+  void _restoreSwipePosition() {
+    if (!mounted || _swipeSettling) return;
+    if (_swipeOffset == 0) {
+      setState(() {
+        _swipeTravel = 0;
+        _swipeVerticalTravel = 0;
+        _swipeRestoreInFlight = false;
+        _swipeSettling = false;
+        _swipeOffsetDuration = Duration.zero;
+      });
+      return;
+    }
+    setState(() {
+      _swipeSettling = true;
+      _swipeRestoreInFlight = true;
+      _swipeTravel = 0;
+      _swipeVerticalTravel = 0;
+      _swipeOffsetDuration = _trackTransitionDuration;
+      _swipeOffset = 0;
+    });
+  }
+
+  void _onSwipeOffsetAnimationEnd() {
+    if (!_swipeRestoreInFlight || !mounted) return;
+    setState(() {
+      _swipeRestoreInFlight = false;
+      _swipeSettling = false;
+      _swipeOffsetDuration = Duration.zero;
+    });
+  }
+
+  Future<void> _loadArtworkStyle() async {
+    final loadGeneration = _artworkStyleChangeGeneration;
+    final preferences = await SharedPreferences.getInstance();
+    final saved = preferences.getString(_artworkStyleKey);
+    if (!mounted || saved == null ||
+        loadGeneration != _artworkStyleChangeGeneration) return;
+    final style = AudioArtworkStyle.values.where(
+      (value) => value.name == saved,
+    );
+    if (style.isNotEmpty) setState(() => _artworkStyle = style.first);
+  }
+
+  Future<void> _setArtworkStyle(AudioArtworkStyle style) async {
+    if (_artworkStyle == style) return;
+    final generation = ++_artworkStyleChangeGeneration;
+    setState(() => _artworkStyle = style);
+    _artworkStyleWriteChain = _artworkStyleWriteChain.then((_) async {
+      final preferences = await SharedPreferences.getInstance();
+      if (generation != _artworkStyleChangeGeneration) return;
+      await preferences.setString(_artworkStyleKey, style.name);
+    });
+    await _artworkStyleWriteChain;
+  }
 
   Future<void> _seekBy(HybridAudioHandler handler, Duration delta) async {
     final duration = handler.player.duration ?? Duration.zero;
@@ -90,7 +385,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _AudioControlsSheet(handler: handler),
+          builder:
+          (_) => _AudioControlsSheet(
+            handler: handler,
+            artworkStyle: _artworkStyle,
+            onArtworkStyleChanged: _setArtworkStyle,
+          ),
     );
   }
 
@@ -100,15 +400,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
     MediaItem item,
     HybridAudioHandler handler,
   ) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder:
-          (_) => _LyricsSheet(
-            lyricsFuture: _loadLyrics(controller, item),
-            positionStream: handler.player.positionStream,
-          ),
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder:
+            (_) => LyricsPage(
+              title: item.title,
+              artist: item.artist ?? 'Unknown artist',
+              lyricsLoader: () => _loadLyrics(controller, item),
+              onRetry: _retryLyrics,
+              positionStream: handler.player.positionStream,
+              onLineTap: handler.seek,
+            ),
+      ),
     );
   }
 
@@ -116,26 +419,46 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
     HybridMusicController controller,
     MediaItem item,
   ) {
-    if (_lyricsItemId != item.id) {
+    if (_lyricsItemId != item.id || _lyricsFuture == null) {
       _lyricsItemId = item.id;
       _lyricsFuture = controller.lyricsService.loadFor(item);
     }
     return _lyricsFuture!;
   }
 
+  void _retryLyrics() {
+    if (!mounted) return;
+    setState(() {
+      _lyricsItemId = null;
+      _lyricsFuture = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
     final handler = controller.audioHandler;
+    final tokens = context.watch<ThemeProvider>().tokens;
+    final dynamicColors = DynamicColorSettings.instance.enabled;
+    final palette = _paletteService.current.value;
+    final accentColor = dynamicColors ? palette.safeAccent : tokens.accent;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: tokens.background,
       body: SafeArea(
         child: StreamBuilder<MediaItem?>(
           stream: handler.mediaItem,
           builder: (context, mediaSnapshot) {
             final item = mediaSnapshot.data;
             if (item == null) return const _NoTrackState();
+            final queueIndex = handler.player.currentIndex;
+            if (queueIndex != null &&
+                _previousQueueIndex != null &&
+                queueIndex != _previousQueueIndex) {
+              _trackChangeDirection =
+                  queueIndex > _previousQueueIndex! ? 1 : -1;
+            }
+            if (queueIndex != null) _previousQueueIndex = queueIndex;
 
             return StreamBuilder<PlaybackState>(
               stream: handler.playbackState,
@@ -149,168 +472,360 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                         AudioProcessingState.loading;
 
                 final activeTrack = handler.activeTrack;
+                _syncArtworkPalette(activeTrack, tokens);
                 final isFavorite =
                     activeTrack != null && controller.isFavorite(activeTrack);
-                return Column(
+                return Stack(
+                  fit: StackFit.expand,
                   children: <Widget>[
-                    _TopBar(
-                      item: item,
-                      onClose: () => Navigator.of(context).maybePop(),
-                      onEffects: () => _showAudioControls(context, handler),
-                    ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final recordSize =
-                              math
-                                  .min(
-                                    constraints.maxWidth - 48,
-                                    math.max(220, constraints.maxHeight * 0.40),
-                                  )
-                                  .toDouble();
-                          return GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onHorizontalDragEnd: (details) async {
-                              final velocity = details.primaryVelocity ?? 0;
-                              if (velocity.abs() < 380) return;
-                              if (velocity < 0) {
-                                await handler.skipToNext();
-                              } else {
-                                await handler.skipToPrevious();
-                              }
-                            },
-                            onVerticalDragEnd: (details) {
-                              if ((details.primaryVelocity ?? 0) > 650)
-                                Navigator.of(context).maybePop();
-                            },
-                            child: SingleChildScrollView(
-                              physics: const BouncingScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-                              child: Column(
-                                children: <Widget>[
-                                  EchoReveal(
-                                    duration: const Duration(milliseconds: 760),
-                                    offset: const Offset(0, 0.05),
-                                    child: GestureDetector(
-                                      onDoubleTap:
-                                          () => _seekBy(
-                                            handler,
-                                            const Duration(seconds: 10),
-                                          ),
-                                      child: Hero(
-                                        tag: 'track-art-${item.id}',
-                                        child: _AnimatedVinyl(
-                                          key: ValueKey('vinyl-${item.id}'),
-                                          artUri: item.artUri,
-                                          track: activeTrack,
-                                          isPlaying: isPlaying,
-                                          size: recordSize,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  AudioVisualizer(
-                                    key: ValueKey('waveform-${item.id}'),
-                                    track: activeTrack,
-                                    playing: isPlaying,
-                                    positionStream: handler.player.positionStream,
-                                    audioSessionId:
-                                        handler.player.androidAudioSessionId,
-                                    duration: item.duration ?? handler.player.duration,
-                                    height: 56,
-                                    barCount: 44,
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    switchInCurve: Curves.easeOutCubic,
-                                    child: _TrackMeta(
-                                      key: ValueKey(item.id),
-                                      title: item.title,
-                                      artist: item.artist ?? 'Unknown artist',
-                                      source:
-                                          item.extras?['source']?.toString(),
-                                      onLyrics:
-                                          () => setState(
-                                            () => _showLyrics = !_showLyrics,
-                                          ),
-                                      lyricsSelected: _showLyrics,
-                                    ),
-                                  ),
-                                  AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 260),
-                                    child:
-                                        _showLyrics
-                                            ? LyricsView(
-                                              key: ValueKey(
-                                                'lyrics-${item.id}',
-                                              ),
-                                              lyricsFuture: _loadLyrics(
-                                                controller,
-                                                item,
-                                              ),
-                                              positionStream:
-                                                  handler.player.positionStream,
-                                            )
-                                            : const SizedBox(
-                                              key: ValueKey('empty-lyrics'),
-                                            ),
-                                  ),
-                                  const SizedBox(height: 18),
-                                  _SeekSection(
-                                    handler: handler,
-                                    draggedPosition: _draggedPosition,
-                                    onDragStart:
-                                        (value) => setState(
-                                          () => _draggedPosition = value,
-                                        ),
-                                    onDragEnd: (value) async {
-                                      setState(() => _draggedPosition = null);
-                                      await handler.seek(
-                                        Duration(milliseconds: value.round()),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(height: 10),
-                                  _TransportControls(
-                                    handler: handler,
-                                    isPlaying: isPlaying,
-                                    isBuffering: isBuffering,
-                                    onPlayPause: controller.togglePlayback,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _PlayerActionDock(
-                                    favorite: isFavorite,
-                                    favoritePulse: _favoritePulse,
-                                    onFavorite:
-                                        () => _toggleFavorite(
-                                          controller,
-                                          activeTrack,
-                                        ),
-                                    onLyrics:
-                                        () => _showFullLyrics(
-                                          context,
-                                          controller,
-                                          item,
-                                          handler,
-                                        ),
-                                    onQueue:
-                                        () => _showQueuePeek(context, handler),
-                                    onControls:
-                                        () => _showAudioControls(
-                                          context,
-                                          handler,
-                                        ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
+                    Positioned.fill(
+                      child: AnimatedBuilder(
+                        animation: AmbientColorFlowSettings.instance,
+                        builder: (context, _) {
+                          final flowSettings =
+                              AmbientColorFlowSettings.instance;
+                          if (!flowSettings.loaded || !flowSettings.enabled) {
+                            return const SizedBox.shrink();
+                          }
+                          return AmbientColorFlow(color: palette.ambientColor);
                         },
                       ),
+                    ),
+                    Column(
+                      children: <Widget>[
+                        _TopBar(
+                          item: item,
+                          onClose: () => Navigator.of(context).maybePop(),
+                          onEffects: () => _showAudioControls(context, handler),
+                        ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final recordSize =
+                                  math
+                                      .min(
+                                        constraints.maxWidth - 48,
+                                        math.max(
+                                          196,
+                                          constraints.maxHeight * 0.34,
+                                        ),
+                                      )
+                                      .toDouble();
+                              return GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onHorizontalDragStart: (_) {
+                                  if (_swipeSettling) return;
+                                  setState(() {
+                                    _swipeTravel = 0;
+                                    _swipeVerticalTravel = 0;
+                                    _swipeOffsetDuration = Duration.zero;
+                                  });
+                                },
+                                onHorizontalDragUpdate: (details) {
+                                  if (_swipeSettling) return;
+                                  _swipeTravel += details.delta.dx;
+                                  _swipeVerticalTravel +=
+                                      details.delta.dy.abs();
+                                  if (_swipeTravel.abs() >=
+                                      _swipeVerticalTravel) {
+                                    setState(() {
+                                      _swipeOffsetDuration = Duration.zero;
+                                      _swipeOffset =
+                                          _swipeTravel
+                                              .clamp(-140.0, 140.0)
+                                              .toDouble();
+                                    });
+                                  }
+                                },
+                                onHorizontalDragCancel: () {
+                                  _restoreSwipePosition();
+                                },
+                                onHorizontalDragEnd: (details) async {
+                                  if (_swipeSettling) return;
+                                  final velocity = details.primaryVelocity ?? 0;
+                                  final horizontalTravel = _swipeTravel;
+                                  final verticalTravel = _swipeVerticalTravel;
+                                  final hasIntentionalTravel =
+                                      horizontalTravel.abs() >=
+                                          _minimumSwipeTravel;
+                                  final isFastShortFlick =
+                                      horizontalTravel.abs() >=
+                                          _minimumFlickTravel &&
+                                      velocity.abs() >= _minimumFlickVelocity;
+                                  if ((!hasIntentionalTravel &&
+                                          !isFastShortFlick) ||
+                                      horizontalTravel.abs() <
+                                          verticalTravel *
+                                              _horizontalDominanceRatio) {
+                                    _restoreSwipePosition();
+                                    return;
+                                  }
+                                  // Use the travelled direction rather than the
+                                  // release velocity. Slow drags often end with
+                                  // little velocity, and a release wobble must
+                                  // not reverse an otherwise clear swipe.
+                                  final direction = horizontalTravel < 0
+                                      ? 1.0
+                                      : -1.0;
+                                  setState(() {
+                                    _swipeSettling = true;
+                                    _swipeTravel = 0;
+                                    _swipeVerticalTravel = 0;
+                                    _swipeOffsetDuration = Duration.zero;
+                                    _swipeRestoreInFlight = false;
+                                  });
+                                  await _changeTrackFromSwipe(
+                                    handler,
+                                    direction,
+                                  );
+                                },
+                                onVerticalDragEnd: (details) {
+                                  if ((details.primaryVelocity ?? 0) > 650) {
+                                    Navigator.of(context).maybePop();
+                                  }
+                                },
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    24,
+                                    8,
+                                    24,
+                                    28,
+                                  ),
+                                  child: Column(
+                                    children: <Widget>[
+                                      EchoReveal(
+                                        duration: const Duration(
+                                          milliseconds: 760,
+                                        ),
+                                        offset: const Offset(0, 0.05),
+                                        child: GestureDetector(
+                                          onDoubleTap:
+                                              () => _seekBy(
+                                                handler,
+                                                const Duration(seconds: 10),
+                                              ),
+                                          child: _trackContentTransition(
+                                            incoming: _trackTransitionIncoming,
+                                            child: AnimatedSwitcher(
+                                              duration:
+                                                  _swipeSettling
+                                                      ? Duration.zero
+                                                      : Motion.of(context).base,
+                                              transitionBuilder: (
+                                                child,
+                                                animation,
+                                              ) {
+                                                final begin = Offset(
+                                                  _trackChangeDirection * 0.08,
+                                                  0,
+                                                );
+                                                return FadeTransition(
+                                                  opacity: animation,
+                                                  child: SlideTransition(
+                                                    position: Tween<Offset>(
+                                                      begin: begin,
+                                                      end: Offset.zero,
+                                                    ).animate(
+                                                      CurvedAnimation(
+                                                        parent: animation,
+                                                        curve:
+                                                            MotionTokens
+                                                                .standard,
+                                                      ),
+                                                    ),
+                                                    child: child,
+                                                  ),
+                                                );
+                                              },
+                                              child: Hero(
+                                                key: ValueKey(
+                                                  'hero-art-${item.id}',
+                                                ),
+                                                tag: 'track-art-${item.id}',
+                                                child:
+                                                    _artworkStyle ==
+                                                            AudioArtworkStyle
+                                                                .lark
+                                                        ? _LarkArtwork(
+                                                          key: ValueKey(
+                                                            'lark-${item.id}',
+                                                          ),
+                                                          artUri: item.artUri,
+                                                          track: activeTrack,
+                                                          isPlaying: isPlaying,
+                                                          accentColor:
+                                                              accentColor,
+                                                          size: recordSize,
+                                                        )
+                                                        : _AnimatedVinyl(
+                                                          key: ValueKey(
+                                                            'vinyl-${item.id}',
+                                                          ),
+                                                          artUri: item.artUri,
+                                                          track: activeTrack,
+                                                          isPlaying: isPlaying,
+                                                          accentColor:
+                                                              accentColor,
+                                                          size: recordSize,
+                                                        ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 18),
+                                      AudioVisualizer(
+                                        playing: isPlaying,
+                                        sourceUri:
+                                            item.extras?['source']
+                                                        ?.toString() ==
+                                                    'local'
+                                                ? item.id
+                                                : null,
+                                        audioSessionId:
+                                            handler
+                                                .player
+                                                .androidAudioSessionId,
+                                        position: playbackState?.updatePosition,
+                                        positionStream:
+                                            handler.player.positionStream,
+                                        speedStream: handler.player.speedStream,
+                                        initialSpeed: handler.playbackSpeed,
+                                        duration: handler.player.duration,
+                                        onSeek: handler.seek,
+                                        height: 62,
+                                        barCount: 36,
+                                        profile: AudioVisualizerProfile.full,
+                                        seed: item.id,
+                                        color:
+                                            Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                      ),
+                                      const SizedBox(height: 20),
+                                      _trackContentTransition(
+                                        incoming: _trackTransitionIncoming,
+                                        child: AnimatedSwitcher(
+                                          duration:
+                                              _swipeSettling
+                                                  ? Duration.zero
+                                                  : Motion.of(context).base,
+                                          transitionBuilder: (
+                                            child,
+                                            animation,
+                                          ) {
+                                            final begin = Offset(
+                                              0,
+                                              _trackChangeDirection * 0.05,
+                                            );
+                                            return FadeTransition(
+                                              opacity: animation,
+                                              child: SlideTransition(
+                                                position: Tween<Offset>(
+                                                  begin: begin,
+                                                  end: Offset.zero,
+                                                ).animate(
+                                                  CurvedAnimation(
+                                                    parent: animation,
+                                                    curve:
+                                                        MotionTokens.standard,
+                                                  ),
+                                                ),
+                                                child: child,
+                                              ),
+                                            );
+                                          },
+                                          child: _TrackMeta(
+                                            key: ValueKey(item.id),
+                                            trackId: item.id,
+                                            title: item.title,
+                                            artist:
+                                                item.artist ?? 'Unknown artist',
+                                            onLyrics:
+                                                () => _showFullLyrics(
+                                                  context,
+                                                  controller,
+                                                  item,
+                                                  handler,
+                                                ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      _SeekSection(
+                                        handler: handler,
+                                        draggedPosition: _draggedPosition,
+                                        accentColor: accentColor,
+                                        buffering: isBuffering,
+                                        onDragStart:
+                                            (value) => setState(
+                                              () => _draggedPosition = value,
+                                            ),
+                                        onDragEnd: (value) async {
+                                          setState(
+                                            () => _draggedPosition = null,
+                                          );
+                                          await handler.seek(
+                                            Duration(
+                                              milliseconds: value.round(),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _TransportControls(
+                                        handler: handler,
+                                        accentColor: accentColor,
+                                        isPlaying: isPlaying,
+                                        isBuffering: isBuffering,
+                                        onPlayPause: controller.togglePlayback,
+                                        onSeekBack:
+                                            () => _seekBy(
+                                              handler,
+                                              const Duration(seconds: -10),
+                                            ),
+                                        onSeekForward:
+                                            () => _seekBy(
+                                              handler,
+                                              const Duration(seconds: 10),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _PlayerActionDock(
+                                        favorite: isFavorite,
+                                        favoritePulse: _favoritePulse,
+                                        onFavorite:
+                                            () => _toggleFavorite(
+                                              controller,
+                                              activeTrack,
+                                            ),
+                                        onLyrics:
+                                            () => _showFullLyrics(
+                                              context,
+                                              controller,
+                                              item,
+                                              handler,
+                                            ),
+                                        onQueue:
+                                            () => _showQueuePeek(
+                                              context,
+                                              handler,
+                                            ),
+                                        onControls:
+                                            () => _showAudioControls(
+                                              context,
+                                              handler,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 );
@@ -338,7 +853,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
+      padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
       child: Row(
         children: <Widget>[
           IconButton(
@@ -347,8 +862,9 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
           ),
           Expanded(
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Text(
                   'NOW PLAYING',
@@ -360,7 +876,7 @@ class _TopBar extends StatelessWidget {
                     letterSpacing: 2.0,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(width: 8),
                 _SourcePill(source: item.extras?['source']?.toString()),
               ],
             ),
@@ -378,11 +894,12 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _AnimatedVinyl extends StatefulWidget {
-  const _AnimatedVinyl({
+class _LarkArtwork extends StatelessWidget {
+  const _LarkArtwork({
     required this.artUri,
     required this.track,
     required this.isPlaying,
+    required this.accentColor,
     required this.size,
     super.key,
   });
@@ -390,6 +907,55 @@ class _AnimatedVinyl extends StatefulWidget {
   final Uri? artUri;
   final MediaTrack? track;
   final bool isPlaying;
+  final Color accentColor;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final artwork =
+        track == null
+            ? _Artwork(uri: artUri, size: size)
+            : YazenMediaArtwork(
+              track: track,
+              size: size,
+              borderRadius: BorderRadius.circular(size * 0.16),
+            );
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 420),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.16),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: accentColor.withValues(alpha: isPlaying ? 0.34 : 0.14),
+            blurRadius: isPlaying ? 34 : 16,
+            spreadRadius: isPlaying ? 3 : 1,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.16),
+        child: artwork,
+      ),
+    );
+  }
+}
+
+class _AnimatedVinyl extends StatefulWidget {
+  const _AnimatedVinyl({
+    required this.artUri,
+    required this.track,
+    required this.isPlaying,
+    required this.accentColor,
+    required this.size,
+    super.key,
+  });
+
+  final Uri? artUri;
+  final MediaTrack? track;
+  final bool isPlaying;
+  final Color accentColor;
   final double size;
 
   @override
@@ -420,7 +986,12 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
     if (widget.isPlaying) {
       _rotationController.repeat();
     } else {
-      _rotationController.stop();
+      final target = (_rotationController.value + 0.035).clamp(0.0, 1.0);
+      _rotationController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 700),
+        curve: MotionTokens.exit,
+      );
     }
   }
 
@@ -433,141 +1004,145 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
   @override
   Widget build(BuildContext context) {
     final size = widget.size;
-    final tokens = context.read<ThemeProvider>().tokens;
-    return AnimatedBuilder(
-      animation: _rotationController,
-      builder: (context, child) {
-        return Transform.rotate(
-          angle: _rotationController.value * math.pi * 2,
-          child: AnimatedScale(
-            scale: widget.isPlaying ? 1.0 : 0.94,
-            duration: const Duration(milliseconds: 520),
-            curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 500),
+    final disc = Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        DecoratedBox(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: <Color>[Color(0xFF333333), Color(0xFF080808)],
+            ),
+          ),
+          child: ClipOval(
+            child: SizedBox.expand(
+              child:
+                  widget.track == null
+                      ? _Artwork(uri: widget.artUri, size: size)
+                      : YazenMediaArtwork(
+                        track: widget.track,
+                        size: size,
+                        circular: true,
+                      ),
+            ),
+          ),
+        ),
+        Container(
+          width: size * 0.18,
+          height: size * 0.18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.accentColor,
+            border: Border.all(color: Colors.black, width: 5),
+          ),
+        ),
+      ],
+    );
+
+    return AnimatedScale(
+      scale: widget.isPlaying ? 1 : 0.96,
+      duration: Motion.of(context).base,
+      curve: MotionTokens.standard,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            AnimatedContainer(
+              duration: Motion.of(context).base,
               width: size,
               height: size,
-              padding: EdgeInsets.all(size * 0.045),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFF080808),
                 boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: tokens.accentStrong.withValues(
-                      alpha: widget.isPlaying ? 0.38 : 0.16,
+                    color: widget.accentColor.withValues(
+                      alpha: widget.isPlaying ? 0.32 : 0.13,
                     ),
-                    blurRadius: widget.isPlaying ? 44 : 18,
-                    spreadRadius: widget.isPlaying ? 7 : 2,
-                  ),
-                ],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: <Widget>[
-                  DecoratedBox(
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: <Color>[Color(0xFF333333), Color(0xFF080808)],
-                      ),
-                    ),
-                    child: ClipOval(
-                      child: SizedBox.expand(
-                        child:
-                            widget.track == null
-                                ? _Artwork(uri: widget.artUri)
-                                : YazenMediaArtwork(
-                                  track: widget.track,
-                                  size: size,
-                                  circular: true,
-                                ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    width: size * 0.18,
-                    height: size * 0.18,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: tokens.accent,
-                      border: Border.all(color: Colors.black, width: 5),
-                    ),
+                    blurRadius: widget.isPlaying ? 38 : 16,
+                    spreadRadius: widget.isPlaying ? 5 : 1,
                   ),
                 ],
               ),
             ),
-          ),
-        );
-      },
+            AnimatedBuilder(
+              animation: _rotationController,
+              child: RepaintBoundary(
+                child: Padding(
+                  padding: EdgeInsets.all(size * 0.045),
+                  child: disc,
+                ),
+              ),
+              builder:
+                  (context, child) => Transform.rotate(
+                    angle: _rotationController.value * math.pi * 2,
+                    child: child,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class _Artwork extends StatelessWidget {
-  const _Artwork({this.uri});
+  const _Artwork({this.uri, required this.size});
 
   final Uri? uri;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    if (uri == null) {
-      return ColoredBox(
-        color: Color(0xFF25213A),
-        child: Center(
-          child: Icon(Icons.music_note_rounded, color: tokens.accent, size: 72),
-        ),
-      );
-    }
-    return Image.network(
-      uri.toString(),
-      fit: BoxFit.cover,
-      cacheWidth: 720,
-      cacheHeight: 720,
-      errorBuilder:
-          (_, __, ___) => ColoredBox(
-            color: Color(0xFF25213A),
-            child: Center(
-              child: Icon(
-                Icons.music_note_rounded,
-                color: tokens.accent,
-                size: 72,
-              ),
-            ),
-          ),
+    final fallback = ColoredBox(
+      color: const Color(0xFF25213A),
+      child: Center(
+        child: Icon(Icons.music_note_rounded, color: tokens.accent, size: 72),
+      ),
     );
+    if (uri == null) return fallback;
+    return YazenMediaArtwork(size: size, imageUri: uri, placeholder: fallback);
   }
 }
 
 class _TrackMeta extends StatelessWidget {
   const _TrackMeta({
+    required this.trackId,
     required this.title,
     required this.artist,
-    required this.source,
     required this.onLyrics,
-    required this.lyricsSelected,
     super.key,
   });
 
+  final String trackId;
   final String title;
   final String artist;
-  final String? source;
   final VoidCallback onLyrics;
-  final bool lyricsSelected;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
     return Column(
       children: <Widget>[
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
+        Hero(
+          tag: 'track-title-$trackId',
+          child: Material(
+            color: Colors.transparent,
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontSize: 21,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.35,
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 7),
@@ -576,26 +1151,18 @@ class _TrackMeta extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: tokens.textSecondary,
-            fontSize: 15,
+            fontSize: 13.5,
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 9),
-        _SourcePill(source: source),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: onLyrics,
-          icon: Icon(
-            lyricsSelected ? Icons.lyrics : Icons.lyrics_outlined,
-            size: 17,
-          ),
-          label: Text(lyricsSelected ? 'Hide lyrics' : 'Show lyrics'),
+          icon: const Icon(Icons.lyrics_outlined, size: 17),
+          label: const Text('Open lyrics', style: TextStyle(fontSize: 13)),
           style: OutlinedButton.styleFrom(
-            foregroundColor:
-                lyricsSelected ? tokens.accent : tokens.textSecondary,
-            side: BorderSide(
-              color: lyricsSelected ? tokens.accent : tokens.divider,
-            ),
+            foregroundColor: tokens.textSecondary,
+            side: BorderSide(color: tokens.divider),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -610,12 +1177,16 @@ class _SeekSection extends StatelessWidget {
   const _SeekSection({
     required this.handler,
     required this.draggedPosition,
+    required this.accentColor,
+    required this.buffering,
     required this.onDragStart,
     required this.onDragEnd,
   });
 
   final HybridAudioHandler handler;
   final double? draggedPosition;
+  final Color accentColor;
+  final bool buffering;
   final ValueChanged<double> onDragStart;
   final ValueChanged<double> onDragEnd;
 
@@ -625,8 +1196,9 @@ class _SeekSection extends StatelessWidget {
     return StreamBuilder<Duration?>(
       stream: handler.player.durationStream,
       builder: (context, durationSnapshot) {
-        final duration = durationSnapshot.data ?? Duration.zero;
-        final totalMs = math.max(duration.inMilliseconds, 1).toDouble();
+        final duration = durationSnapshot.data;
+        final totalMs = math.max(duration?.inMilliseconds ?? 0, 1).toDouble();
+        final hasKnownDuration = duration != null && duration > Duration.zero;
         return StreamBuilder<Duration>(
           stream: handler.player.positionStream,
           builder: (context, positionSnapshot) {
@@ -639,25 +1211,41 @@ class _SeekSection extends StatelessWidget {
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 4,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 7,
+                    thumbShape: RoundSliderThumbShape(
+                      enabledThumbRadius: draggedPosition == null ? 7 : 10,
                     ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 16,
+                    overlayShape: RoundSliderOverlayShape(
+                      overlayRadius: draggedPosition == null ? 15 : 20,
                     ),
-                    activeTrackColor: tokens.accent,
+                    showValueIndicator:
+                        draggedPosition == null
+                            ? ShowValueIndicator.never
+                            : ShowValueIndicator.onDrag,
+                    activeTrackColor: accentColor,
                     inactiveTrackColor: tokens.surfaceMuted,
                     thumbColor: tokens.textPrimary,
-                    overlayColor: tokens.accent.withValues(alpha: 0.16),
+                    overlayColor: accentColor.withValues(alpha: 0.18),
                   ),
                   child: Slider(
                     min: 0,
                     max: totalMs,
                     value: value.clamp(0, totalMs).toDouble(),
-                    onChanged: duration == Duration.zero ? null : onDragStart,
-                    onChangeEnd: duration == Duration.zero ? null : onDragEnd,
+                    label:
+                        draggedPosition == null
+                            ? null
+                            : _formatDuration(
+                              Duration(milliseconds: value.round()),
+                            ),
+                    onChanged: hasKnownDuration ? onDragStart : null,
+                    onChangeEnd: hasKnownDuration ? onDragEnd : null,
                   ),
                 ),
+                if (buffering)
+                  LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: tokens.surfaceMuted,
+                    color: accentColor.withValues(alpha: 0.72),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Row(
@@ -671,7 +1259,7 @@ class _SeekSection extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        _formatDuration(duration),
+                        playbackDurationLabel(duration),
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 12,
@@ -689,38 +1277,53 @@ class _SeekSection extends StatelessWidget {
   }
 
   String _formatDuration(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+    return formatPlaybackDuration(duration);
   }
+}
+
+String playbackDurationLabel(Duration? duration) {
+  if (duration == null || duration <= Duration.zero) return '--:--';
+  return formatPlaybackDuration(duration);
+}
+
+String formatPlaybackDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
 }
 
 class _TransportControls extends StatelessWidget {
   const _TransportControls({
     required this.handler,
+    required this.accentColor,
     required this.isPlaying,
     required this.isBuffering,
     required this.onPlayPause,
+    required this.onSeekBack,
+    required this.onSeekForward,
   });
 
   final HybridAudioHandler handler;
+  final Color accentColor;
   final bool isPlaying;
   final bool isBuffering;
   final VoidCallback onPlayPause;
-
+  final VoidCallback onSeekBack;
+  final VoidCallback onSeekForward;
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return StreamBuilder<bool>(
-      stream: handler.player.shuffleModeEnabledStream,
-      builder: (context, shuffleSnapshot) {
-        return StreamBuilder<LoopMode>(
-          stream: handler.player.loopModeStream,
-          builder: (context, loopSnapshot) {
-            final shuffleEnabled = shuffleSnapshot.data ?? false;
-            final loopMode = loopSnapshot.data ?? LoopMode.off;
-            return Row(
+    return StreamBuilder<PlaybackState>(
+      stream: handler.playbackState,
+      builder: (context, snapshot) {
+        final state = snapshot.data;
+        final shuffleMode = state?.shuffleMode ?? handler.shuffleMode;
+        final repeatMode = state?.repeatMode ?? handler.repeatMode;
+        final shuffleEnabled = shuffleMode != AudioServiceShuffleMode.none;
+        return Column(
+          children: <Widget>[
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
                 EchoIconButton(
@@ -746,31 +1349,17 @@ class _TransportControls extends StatelessWidget {
                 ),
                 EchoBreathingGlow(
                   enabled: isPlaying && !isBuffering,
-                  color: tokens.accentStrong,
-                  child: IconButton.filled(
+                  color: accentColor,
+                  child: PlayPauseMorph(
+                    playing: isPlaying,
                     tooltip: isPlaying ? 'Pause' : 'Play',
                     onPressed: onPlayPause,
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(68, 68),
-                      backgroundColor: tokens.accent,
-                      foregroundColor:
-                          tokens.isLight ? Colors.white : Colors.black,
-                    ),
-                    icon:
-                        isBuffering
-                            ? const SizedBox.square(
-                              dimension: 26,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3,
-                                color: Colors.black,
-                              ),
-                            )
-                            : Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              size: 36,
-                            ),
+                    minimumSize: const Size(68, 68),
+                    iconSize: 36,
+                    backgroundColor: accentColor,
+                    foregroundColor:
+                        tokens.isLight ? Colors.white : Colors.black,
+                    buffering: isBuffering,
                   ),
                 ),
                 EchoIconButton(
@@ -781,32 +1370,89 @@ class _TransportControls extends StatelessWidget {
                   size: 48,
                 ),
                 EchoIconButton(
-                  tooltip: 'Repeat mode',
+                  tooltip: 'Repeat: ${_repeatLabel(repeatMode)}',
                   icon:
-                      loopMode == LoopMode.one
+                      repeatMode == AudioServiceRepeatMode.one
                           ? Icons.repeat_one_rounded
                           : Icons.repeat_rounded,
-                  selected: loopMode != LoopMode.off,
+                  selected: repeatMode != AudioServiceRepeatMode.none,
                   onPressed:
-                      () => handler.setRepeatMode(_nextRepeatMode(loopMode)),
+                      () => handler.setRepeatMode(nextRepeatMode(repeatMode)),
                   color: tokens.textSecondary,
                   selectedColor: tokens.accent,
                   size: 48,
                 ),
               ],
-            );
-          },
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _QuickSeekButton(
+                  label: '−10',
+                  icon: Icons.replay_10_rounded,
+                  onPressed: onSeekBack,
+                ),
+                const SizedBox(width: 22),
+                _QuickSeekButton(
+                  label: '+10',
+                  icon: Icons.forward_10_rounded,
+                  onPressed: onSeekForward,
+                ),
+              ],
+            ),
+          ],
         );
       },
     );
   }
 
-  AudioServiceRepeatMode _nextRepeatMode(LoopMode mode) {
+  String _repeatLabel(AudioServiceRepeatMode mode) {
     return switch (mode) {
-      LoopMode.off => AudioServiceRepeatMode.all,
-      LoopMode.all => AudioServiceRepeatMode.one,
-      LoopMode.one => AudioServiceRepeatMode.none,
+      AudioServiceRepeatMode.none => 'off',
+      AudioServiceRepeatMode.one => 'one',
+      AudioServiceRepeatMode.all => 'all',
+      AudioServiceRepeatMode.group => 'group',
     };
+  }
+}
+
+class _QuickSeekButton extends StatelessWidget {
+  const _QuickSeekButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return EchoPressable(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 18, color: tokens.textSecondary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -884,8 +1530,7 @@ class _SourcePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    final isYouTube = source == 'youtube';
-    final color = isYouTube ? tokens.accentStrong : tokens.accent;
+    final color = tokens.accent;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
@@ -897,16 +1542,10 @@ class _SourcePill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
-              isYouTube
-                  ? Icons.ondemand_video_rounded
-                  : Icons.phone_android_rounded,
-              size: 12,
-              color: color,
-            ),
+            Icon(Icons.phone_android_rounded, size: 12, color: color),
             const SizedBox(width: 5),
             Text(
-              isYouTube ? 'YOUTUBE STREAM' : 'LOCAL AUDIO',
+              'LOCAL AUDIO',
               style: TextStyle(
                 color: color,
                 fontSize: 9,
@@ -1010,9 +1649,9 @@ class _DockAction extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               AnimatedScale(
-                scale: pulse ? 1.12 : 1,
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOutCubic,
+                scale: pulse ? 1.28 : 1,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.elasticOut,
                 child: Icon(
                   icon,
                   size: 20,
@@ -1106,7 +1745,7 @@ class _QueuePeekSheet extends StatelessWidget {
                               )
                               : null,
                       onTap: () async {
-                        await handler.player.seek(Duration.zero, index: index);
+                        await handler.playQueueIndex(index);
                         if (context.mounted) Navigator.pop(context);
                       },
                     );
@@ -1117,10 +1756,57 @@ class _QueuePeekSheet extends StatelessWidget {
   }
 }
 
+class _ArtworkStyleSelector extends StatelessWidget {
+  const _ArtworkStyleSelector({required this.value, required this.onChanged});
+
+  final AudioArtworkStyle value;
+  final ValueChanged<AudioArtworkStyle> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.read<ThemeProvider>().tokens;
+    return Row(
+      children: <Widget>[
+        Icon(Icons.album_rounded, color: tokens.textSecondary),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Text(
+            'Artwork style',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        DropdownButton<AudioArtworkStyle>(
+          value: value,
+          underline: const SizedBox.shrink(),
+          onChanged: (next) {
+            if (next != null) onChanged(next);
+          },
+          items: const <DropdownMenuItem<AudioArtworkStyle>>[
+            DropdownMenuItem(
+              value: AudioArtworkStyle.lark,
+              child: Text('Yazen art'),
+            ),
+            DropdownMenuItem(
+              value: AudioArtworkStyle.vinyl,
+              child: Text('YAZEN vinyl'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _AudioControlsSheet extends StatefulWidget {
-  const _AudioControlsSheet({required this.handler});
+  const _AudioControlsSheet({
+    required this.handler,
+    required this.artworkStyle,
+    required this.onArtworkStyleChanged,
+  });
 
   final HybridAudioHandler handler;
+  final AudioArtworkStyle artworkStyle;
+  final ValueChanged<AudioArtworkStyle> onArtworkStyleChanged;
 
   @override
   State<_AudioControlsSheet> createState() => _AudioControlsSheetState();
@@ -1128,12 +1814,23 @@ class _AudioControlsSheet extends StatefulWidget {
 
 class _AudioControlsSheetState extends State<_AudioControlsSheet> {
   late bool _surround;
-  bool _equalizer = false;
+  late bool _equalizer;
+  late AudioArtworkStyle _artworkStyle;
 
   @override
   void initState() {
     super.initState();
     _surround = widget.handler.threeDSurroundEnabled;
+    _equalizer = widget.handler.equalizerEnabled;
+    _artworkStyle = widget.artworkStyle;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AudioControlsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.artworkStyle != widget.artworkStyle) {
+      _artworkStyle = widget.artworkStyle;
+    }
   }
 
   @override
@@ -1144,13 +1841,42 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
       icon: Icons.tune_rounded,
       child: Column(
         children: <Widget>[
-          _SheetSwitch(
-            icon: Icons.equalizer_rounded,
-            title: 'Equalizer',
-            value: _equalizer,
-            onChanged: (value) async {
-              setState(() => _equalizer = value);
-              await widget.handler.setEqualizerEnabled(value);
+          _ArtworkStyleSelector(
+            value: _artworkStyle,
+            onChanged: (value) {
+              setState(() => _artworkStyle = value);
+              widget.onArtworkStyleChanged(value);
+            },
+          ),
+          const SizedBox(height: 8),
+          StreamBuilder<bool>(
+            stream: widget.handler.equalizerEnabledStream,
+            initialData: widget.handler.equalizerEnabled,
+            builder: (context, snapshot) {
+              final enabled = snapshot.data ?? _equalizer;
+              return _SheetSwitch(
+                icon: Icons.equalizer_rounded,
+                title:
+                    widget.handler.equalizerAvailable
+                        ? 'Equalizer'
+                        : 'Equalizer unavailable',
+                value: widget.handler.equalizerAvailable && enabled,
+                onChanged:
+                    widget.handler.equalizerAvailable
+                        ? (value) async {
+                          setState(() => _equalizer = value);
+                          final applied = await widget.handler
+                              .setEqualizerEnabled(value);
+                          if (!mounted || applied) return;
+                          setState(() => _equalizer = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Equalizer could not be applied.'),
+                            ),
+                          );
+                        }
+                        : null,
+              );
             },
           ),
           _SheetSwitch(
@@ -1220,6 +1946,12 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
             children: <Widget>[
               _TimerChip(label: 'Off', duration: null, handler: widget.handler),
               _TimerChip(
+                label: 'End of track',
+                duration: null,
+                mode: SleepTimerMode.endOfCurrentTrack,
+                handler: widget.handler,
+              ),
+              _TimerChip(
                 label: '15 min',
                 duration: const Duration(minutes: 15),
                 handler: widget.handler,
@@ -1236,6 +1968,31 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          StreamBuilder<Duration?>(
+            stream: widget.handler.sleepTimerRemainingStream,
+            initialData: widget.handler.sleepTimerRemaining,
+            builder: (context, snapshot) {
+              final remaining = snapshot.data;
+              final mode = widget.handler.sleepTimerMode;
+              if (remaining == null && mode != SleepTimerMode.endOfCurrentTrack) {
+                return const SizedBox.shrink();
+              }
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  mode == SleepTimerMode.endOfCurrentTrack
+                      ? 'Sleep timer active · end of current track'
+                      : 'Sleep timer active · ${_formatSleepTimer(remaining!)} remaining',
+                  style: TextStyle(
+                    color: tokens.accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 10),
           Text(
             'Advanced effects stay in the same lightweight audio pipeline.',
@@ -1248,28 +2005,54 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
   }
 }
 
+String _formatSleepTimer(Duration value) {
+  final hours = value.inHours.toString().padLeft(2, '0');
+  final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$hours:$minutes:$seconds';
+}
+
 class _TimerChip extends StatelessWidget {
   const _TimerChip({
     required this.label,
     required this.duration,
     required this.handler,
+    this.mode = SleepTimerMode.duration,
   });
 
   final String label;
   final Duration? duration;
+  final SleepTimerMode mode;
   final HybridAudioHandler handler;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return ActionChip(
-      label: Text(label),
-      onPressed: () => handler.setSleepTimer(duration),
-      avatar: Icon(
-        duration == null ? Icons.timer_off_rounded : Icons.timer_rounded,
-        size: 16,
-        color: tokens.accent,
-      ),
+    return StreamBuilder<Duration?>(
+      stream: handler.sleepTimerRemainingStream,
+      initialData: handler.sleepTimerRemaining,
+      builder: (context, snapshot) {
+        final active = snapshot.data != null ||
+            handler.sleepTimerMode == SleepTimerMode.endOfCurrentTrack;
+        final selected = label == 'Off'
+            ? !active
+            : mode == SleepTimerMode.endOfCurrentTrack
+                ? handler.sleepTimerMode == mode
+                : active && handler.sleepTimerMode == SleepTimerMode.duration;
+        return ActionChip(
+          label: Text(label),
+          backgroundColor: selected
+              ? tokens.accent.withValues(alpha: 0.18)
+              : null,
+          side: selected ? BorderSide(color: tokens.accent) : null,
+          onPressed: () => handler.setSleepTimer(duration, mode: mode),
+          avatar: Icon(
+            duration == null ? Icons.timer_off_rounded : Icons.timer_rounded,
+            size: 16,
+            color: tokens.accent,
+          ),
+        );
+      },
     );
   }
 }
@@ -1285,7 +2068,7 @@ class _SheetSwitch extends StatelessWidget {
   final IconData icon;
   final String title;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1299,31 +2082,6 @@ class _SheetSwitch extends StatelessWidget {
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
       value: value,
       onChanged: onChanged,
-    );
-  }
-}
-
-class _LyricsSheet extends StatelessWidget {
-  const _LyricsSheet({
-    required this.lyricsFuture,
-    required this.positionStream,
-  });
-
-  final Future<SyncedLyrics?> lyricsFuture;
-  final Stream<Duration> positionStream;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SheetSurface(
-      title: 'Lyrics',
-      icon: Icons.lyrics_rounded,
-      child: SizedBox(
-        height: math.min(MediaQuery.sizeOf(context).height * 0.62, 520),
-        child: LyricsView(
-          lyricsFuture: lyricsFuture,
-          positionStream: positionStream,
-        ),
-      ),
     );
   }
 }
