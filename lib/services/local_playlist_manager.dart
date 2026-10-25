@@ -60,9 +60,8 @@ class EchoPlaylist {
       id: id,
       name: name ?? this.name,
       tracks: List<MediaTrack>.unmodifiable(tracks ?? this.tracks),
-      coverTrackId: clearCoverTrackId
-          ? null
-          : (coverTrackId ?? this.coverTrackId),
+      coverTrackId:
+          clearCoverTrackId ? null : (coverTrackId ?? this.coverTrackId),
       additionOrder: List<String>.unmodifiable(
         additionOrder ??
             this.additionOrder ??
@@ -81,24 +80,26 @@ class EchoPlaylist {
 
   factory EchoPlaylist.fromJson(Map<String, dynamic> json) {
     final rawTracks = json['tracks'];
-    final tracks = rawTracks is List
-        ? rawTracks
-              .whereType<Map>()
-              .map(
-                (item) => mediaTrackFromJson(Map<String, dynamic>.from(item)),
-              )
-              .toList(growable: false)
-        : const <MediaTrack>[];
+    final tracks =
+        rawTracks is List
+            ? rawTracks
+                .whereType<Map>()
+                .map(
+                  (item) => mediaTrackFromJson(Map<String, dynamic>.from(item)),
+                )
+                .toList(growable: false)
+            : const <MediaTrack>[];
     return EchoPlaylist(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Untitled playlist',
       tracks: List<MediaTrack>.unmodifiable(tracks),
       coverTrackId: json['coverTrackId']?.toString(),
-      additionOrder: json['additionOrder'] is List
-          ? (json['additionOrder'] as List)
-                .map((item) => item.toString())
-                .toList(growable: false)
-          : tracks.map((track) => track.id).toList(growable: false),
+      additionOrder:
+          json['additionOrder'] is List
+              ? (json['additionOrder'] as List)
+                  .map((item) => item.toString())
+                  .toList(growable: false)
+              : tracks.map((track) => track.id).toList(growable: false),
     );
   }
 }
@@ -142,12 +143,14 @@ class LocalPlaylistManager extends ChangeNotifier {
     try {
       final savedPlaylists = _preferences!.getString(_playlistsKey);
       final savedFavorites = _preferences!.getString(_favoritesKey);
-      _playlists = savedPlaylists == null
-          ? const <EchoPlaylist>[]
-          : _decodePlaylists(savedPlaylists);
-      _favorites = savedFavorites == null
-          ? const <MediaTrack>[]
-          : _decodeTracks(savedFavorites);
+      _playlists =
+          savedPlaylists == null
+              ? const <EchoPlaylist>[]
+              : _decodePlaylists(savedPlaylists);
+      _favorites =
+          savedFavorites == null
+              ? const <MediaTrack>[]
+              : _decodeTracks(savedFavorites);
       _playCounts = _decodeIntMap(_preferences!.getString(_historyKey));
       _metadata = _decodeMetadata(_preferences!.getString(_metadataKey));
       _hiddenIds = _decodeStringSet(_preferences!.getString(_hiddenKey));
@@ -169,10 +172,10 @@ class LocalPlaylistManager extends ChangeNotifier {
         return values == null
             ? track
             : track.copyWith(
-                title: values['title'],
-                artist: values['artist'],
-                album: values['album'],
-              );
+              title: values['title'],
+              artist: values['artist'],
+              album: values['album'],
+            );
       })
       .toList(growable: false);
 
@@ -201,13 +204,14 @@ class LocalPlaylistManager extends ChangeNotifier {
     };
     _metadata[trackId] = values;
     _libraryOverlayRevision++;
-    MediaTrack update(MediaTrack track) => track.id == trackId
-        ? track.copyWith(
-            title: values['title'],
-            artist: values['artist'],
-            album: values['album'],
-          )
-        : track;
+    MediaTrack update(MediaTrack track) =>
+        track.id == trackId
+            ? track.copyWith(
+              title: values['title'],
+              artist: values['artist'],
+              album: values['album'],
+            )
+            : track;
     _favorites = List<MediaTrack>.unmodifiable(_favorites.map(update));
     _playlists = List<EchoPlaylist>.unmodifiable(
       _playlists
@@ -296,9 +300,10 @@ class LocalPlaylistManager extends ChangeNotifier {
       final candidate = List<EchoPlaylist>.unmodifiable(
         previousPlaylists
             .map(
-              (playlist) => playlist.id == playlistId
-                  ? playlist.copyWith(name: normalized)
-                  : playlist,
+              (playlist) =>
+                  playlist.id == playlistId
+                      ? playlist.copyWith(name: normalized)
+                      : playlist,
             )
             .toList(growable: false),
       );
@@ -328,9 +333,10 @@ class LocalPlaylistManager extends ChangeNotifier {
       _playlists = List<EchoPlaylist>.unmodifiable(
         _playlists
             .map(
-              (playlist) => playlist.id == playlistId
-                  ? playlist.copyWith(name: normalized)
-                  : playlist,
+              (playlist) =>
+                  playlist.id == playlistId
+                      ? playlist.copyWith(name: normalized)
+                      : playlist,
             )
             .toList(growable: false),
       );
@@ -407,13 +413,13 @@ class LocalPlaylistManager extends ChangeNotifier {
             return addedIds.isEmpty
                 ? playlist
                 : playlist.copyWith(
-                    tracks: next,
-                    coverTrackId: addedIds.last,
-                    additionOrder: <String>[
-                      ...playlist.effectiveAdditionOrder,
-                      ...addedIds,
-                    ],
-                  );
+                  tracks: next,
+                  coverTrackId: addedIds.last,
+                  additionOrder: <String>[
+                    ...playlist.effectiveAdditionOrder,
+                    ...addedIds,
+                  ],
+                );
           })
           .toList(growable: false),
     );
@@ -471,19 +477,19 @@ class LocalPlaylistManager extends ChangeNotifier {
             final coverId = playlist.coverTrackId;
             final nextCoverId =
                 coverId != null && tracks.any((track) => track.id == coverId)
-                ? coverId
-                : (additionOrder.isEmpty ? null : additionOrder.last);
+                    ? coverId
+                    : (additionOrder.isEmpty ? null : additionOrder.last);
             return nextCoverId == null
                 ? playlist.copyWith(
-                    tracks: tracks,
-                    additionOrder: additionOrder,
-                    clearCoverTrackId: true,
-                  )
+                  tracks: tracks,
+                  additionOrder: additionOrder,
+                  clearCoverTrackId: true,
+                )
                 : playlist.copyWith(
-                    tracks: tracks,
-                    additionOrder: additionOrder,
-                    coverTrackId: nextCoverId,
-                  );
+                  tracks: tracks,
+                  additionOrder: additionOrder,
+                  coverTrackId: nextCoverId,
+                );
           })
           .toList(growable: false),
     );
@@ -592,11 +598,10 @@ class LocalPlaylistManager extends ChangeNotifier {
       }
       return counts is Map
           ? <String, int>{
-              for (final entry in counts.entries)
-                entry.key.toString(): entry.value is num
-                    ? (entry.value as num).toInt()
-                    : 0,
-            }
+            for (final entry in counts.entries)
+              entry.key.toString():
+                  entry.value is num ? (entry.value as num).toInt() : 0,
+          }
           : <String, int>{};
     } catch (_) {
       return <String, int>{};
@@ -610,12 +615,13 @@ class LocalPlaylistManager extends ChangeNotifier {
       if (decoded is! Map) return <String, Map<String, String>>{};
       return <String, Map<String, String>>{
         for (final entry in decoded.entries)
-          entry.key.toString(): entry.value is Map
-              ? <String, String>{
-                  for (final field in (entry.value as Map).entries)
-                    field.key.toString(): field.value.toString(),
-                }
-              : <String, String>{},
+          entry.key.toString():
+              entry.value is Map
+                  ? <String, String>{
+                    for (final field in (entry.value as Map).entries)
+                      field.key.toString(): field.value.toString(),
+                  }
+                  : <String, String>{},
       };
     } catch (_) {
       return <String, Map<String, String>>{};

@@ -207,9 +207,10 @@ class HybridAudioHandler extends BaseAudioHandler
 
   Future<void> _finishSelectionSourceLoad(int request) async {
     if (_selectionSourceLoadRequest != request) return;
-    final interrupt = _selectionInterruptRequest == request
-        ? _selectionInterruptFuture
-        : null;
+    final interrupt =
+        _selectionInterruptRequest == request
+            ? _selectionInterruptFuture
+            : null;
     if (interrupt != null) await interrupt;
     if (_selectionSourceLoadRequest == request) {
       _selectionSourceLoadRequest = null;
@@ -506,9 +507,10 @@ class HybridAudioHandler extends BaseAudioHandler
         index < parameters.bands.length && index < _equalizerBandGains.length;
         index++
       ) {
-        final gain = _equalizerBandGains[index]
-            .clamp(parameters.minDecibels, parameters.maxDecibels)
-            .toDouble();
+        final gain =
+            _equalizerBandGains[index]
+                .clamp(parameters.minDecibels, parameters.maxDecibels)
+                .toDouble();
         await parameters.bands[index].setGain(gain);
         if (_isDisposed) return;
       }
@@ -542,9 +544,10 @@ class HybridAudioHandler extends BaseAudioHandler
           bandIndex >= _equalizerBandGains.length) {
         return;
       }
-      final gain = _equalizerBandGains[bandIndex]
-          .clamp(parameters.minDecibels, parameters.maxDecibels)
-          .toDouble();
+      final gain =
+          _equalizerBandGains[bandIndex]
+              .clamp(parameters.minDecibels, parameters.maxDecibels)
+              .toDouble();
       _equalizerBandGains[bandIndex] = gain;
       await parameters.bands[bandIndex].setGain(gain);
       _equalizerError = null;
@@ -857,9 +860,8 @@ class HybridAudioHandler extends BaseAudioHandler
       await _player.setAudioSources(
         sources,
         initialIndex: index,
-        initialPosition: savedCurrentTrackSurvived
-            ? snapshot.position
-            : Duration.zero,
+        initialPosition:
+            savedCurrentTrackSurvived ? snapshot.position : Duration.zero,
       );
       _queueTracks
         ..clear()
@@ -1176,9 +1178,8 @@ class HybridAudioHandler extends BaseAudioHandler
         _queueTracks.any((track) => track.isRemote)) {
       return;
     }
-    final index = (_player.currentIndex ?? 0)
-        .clamp(0, _queueTracks.length - 1)
-        .toInt();
+    final index =
+        (_player.currentIndex ?? 0).clamp(0, _queueTracks.length - 1).toInt();
     unawaited(
       _playbackStore
           .saveProgress(
@@ -1207,9 +1208,8 @@ class HybridAudioHandler extends BaseAudioHandler
       return;
     }
     final queueSnapshot = List<MediaTrack>.unmodifiable(_queueTracks);
-    final index = (_player.currentIndex ?? 0)
-        .clamp(0, queueSnapshot.length - 1)
-        .toInt();
+    final index =
+        (_player.currentIndex ?? 0).clamp(0, queueSnapshot.length - 1).toInt();
     unawaited(
       _playbackStore
           .save(

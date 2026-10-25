@@ -506,9 +506,10 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
-    final selectedTrack = tracks.isEmpty
-        ? null
-        : tracks[initialIndex.clamp(0, tracks.length - 1)];
+    final selectedTrack =
+        tracks.isEmpty
+            ? null
+            : tracks[initialIndex.clamp(0, tracks.length - 1)];
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();

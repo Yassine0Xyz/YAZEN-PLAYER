@@ -104,9 +104,10 @@ class _HomeScreenState extends State<HomeScreen> {
           controller: _libraryPageController,
           itemCount: LibraryTab.values.length,
           physics: const BouncingScrollPhysics(),
-          onPageChanged: (index) => context
-              .read<HybridMusicController>()
-              .selectTab(LibraryTab.values[index]),
+          onPageChanged:
+              (index) => context.read<HybridMusicController>().selectTab(
+                LibraryTab.values[index],
+              ),
           itemBuilder: (context, index) {
             final tab = LibraryTab.values[index];
             return AnimatedBuilder(
@@ -117,9 +118,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 showTabs: false,
               ),
               builder: (context, child) {
-                final page = _libraryPageController.hasClients
-                    ? (_libraryPageController.page ?? index.toDouble())
-                    : index.toDouble();
+                final page =
+                    _libraryPageController.hasClients
+                        ? (_libraryPageController.page ?? index.toDouble())
+                        : index.toDouble();
                 final distance = (page - index).abs().clamp(0.0, 1.0);
                 final drift = (page - index) * -12.0;
                 return Opacity(
@@ -214,16 +216,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: logoSize,
                     height: logoSize,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      width: logoSize,
-                      height: logoSize,
-                      color: tokens.accent,
-                      child: Icon(
-                        Icons.graphic_eq_rounded,
-                        color: tokens.isLight ? Colors.white : Colors.black,
-                        size: compact ? 22 : 26,
-                      ),
-                    ),
+                    errorBuilder:
+                        (context, error, stackTrace) => Container(
+                          width: logoSize,
+                          height: logoSize,
+                          color: tokens.accent,
+                          child: Icon(
+                            Icons.graphic_eq_rounded,
+                            color: tokens.isLight ? Colors.white : Colors.black,
+                            size: compact ? 22 : 26,
+                          ),
+                        ),
                   ),
                 ),
                 SizedBox(width: compact ? ThemeSpacing.x2 : ThemeSpacing.x3),
@@ -290,27 +293,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.equalizer_rounded,
                     title: 'Equalizer',
                     subtitle: 'Shape your listening experience',
-                    onTap: () => Navigator.pop(
-                      sheetContext,
-                      _HeaderMoreAction.equalizer,
-                    ),
+                    onTap:
+                        () => Navigator.pop(
+                          sheetContext,
+                          _HeaderMoreAction.equalizer,
+                        ),
                   ),
                   _MoreOption(
                     icon: Icons.settings_outlined,
                     title: 'Settings',
                     subtitle: 'Playback, library and appearance',
-                    onTap: () =>
-                        Navigator.pop(sheetContext, _HeaderMoreAction.settings),
+                    onTap:
+                        () => Navigator.pop(
+                          sheetContext,
+                          _HeaderMoreAction.settings,
+                        ),
                   ),
                   if (Platform.isLinux)
                     _MoreOption(
                       icon: Icons.folder_open_rounded,
                       title: 'Add local files',
                       subtitle: 'Import audio or video from this computer',
-                      onTap: () => Navigator.pop(
-                        sheetContext,
-                        _HeaderMoreAction.addFiles,
-                      ),
+                      onTap:
+                          () => Navigator.pop(
+                            sheetContext,
+                            _HeaderMoreAction.addFiles,
+                          ),
                     ),
                 ],
               ),
@@ -329,8 +337,9 @@ class _HomeScreenState extends State<HomeScreen> {
       case _HeaderMoreAction.addFiles:
         await controller.pickLocalFiles();
         if (!mounted || controller.errorMessage == null) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(controller.errorMessage!)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(controller.errorMessage!)));
     }
   }
 
@@ -343,140 +352,144 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         final tokens = context.read<ThemeProvider>().tokens;
         final isVideos = controller.selectedTab == LibraryTab.videos;
-        final availableSorts = isVideos
-            ? <LibrarySort>[
-                LibrarySort.newestFirst,
-                LibrarySort.oldestFirst,
-                LibrarySort.sizeLowToHigh,
-                LibrarySort.sizeHighToLow,
-                LibrarySort.durationShortToLong,
-                LibrarySort.durationLongToShort,
-                LibrarySort.nameAZ,
-                LibrarySort.nameZA,
-              ]
-            : LibrarySort.values;
-        final availableFilters = isVideos
-            ? const <LibraryFilter>[LibraryFilter.all]
-            : LibraryFilter.values;
+        final availableSorts =
+            isVideos
+                ? <LibrarySort>[
+                  LibrarySort.newestFirst,
+                  LibrarySort.oldestFirst,
+                  LibrarySort.sizeLowToHigh,
+                  LibrarySort.sizeHighToLow,
+                  LibrarySort.durationShortToLong,
+                  LibrarySort.durationLongToShort,
+                  LibrarySort.nameAZ,
+                  LibrarySort.nameZA,
+                ]
+                : LibrarySort.values;
+        final availableFilters =
+            isVideos
+                ? const <LibraryFilter>[LibraryFilter.all]
+                : LibraryFilter.values;
         var selectedSort = controller.librarySort;
         final selectedFilters = Set<LibraryFilter>.of(
           controller.libraryFilters,
         );
         return StatefulBuilder(
-          builder: (context, setModalState) => Container(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.86,
-            ),
-            decoration: BoxDecoration(
-              color: tokens.surfaceElevated,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Expanded(
-                    child: ListView(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                      children: <Widget>[
-                        Text(
-                          'Sort and filter',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          'SORT BY',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        RadioGroup<LibrarySort>(
-                          groupValue: selectedSort,
-                          onChanged: (value) {
-                            if (value != null) {
-                              setModalState(() => selectedSort = value);
-                            }
-                          },
-                          child: Column(
-                            children: availableSorts
-                                .map(
-                                  (sort) => RadioListTile<LibrarySort>(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    value: sort,
-                                    title: Text(_sortLabel(sort)),
-                                    activeColor: tokens.accent,
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'FILTER',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 2,
+          builder:
+              (context, setModalState) => Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+                ),
+                decoration: BoxDecoration(
+                  color: tokens.surfaceElevated,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Expanded(
+                        child: ListView(
+                          shrinkWrap: true,
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
                           children: <Widget>[
-                            for (final filter in availableFilters)
-                              FilterChip(
-                                label: Text(_filterLabel(filter)),
-                                selected: filter == LibraryFilter.all
-                                    ? selectedFilters.isEmpty
-                                    : selectedFilters.contains(filter),
-                                onSelected: (selected) {
-                                  setModalState(() {
-                                    if (filter == LibraryFilter.all) {
-                                      selectedFilters.clear();
-                                    } else if (selected) {
-                                      selectedFilters.add(filter);
-                                    } else {
-                                      selectedFilters.remove(filter);
-                                    }
-                                  });
-                                },
+                            Text(
+                              'Sort and filter',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              'SORT BY',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
                               ),
+                            ),
+                            const SizedBox(height: 6),
+                            RadioGroup<LibrarySort>(
+                              groupValue: selectedSort,
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setModalState(() => selectedSort = value);
+                                }
+                              },
+                              child: Column(
+                                children: availableSorts
+                                    .map(
+                                      (sort) => RadioListTile<LibrarySort>(
+                                        dense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        value: sort,
+                                        title: Text(_sortLabel(sort)),
+                                        activeColor: tokens.accent,
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'FILTER',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 2,
+                              children: <Widget>[
+                                for (final filter in availableFilters)
+                                  FilterChip(
+                                    label: Text(_filterLabel(filter)),
+                                    selected:
+                                        filter == LibraryFilter.all
+                                            ? selectedFilters.isEmpty
+                                            : selectedFilters.contains(filter),
+                                    onSelected: (selected) {
+                                      setModalState(() {
+                                        if (filter == LibraryFilter.all) {
+                                          selectedFilters.clear();
+                                        } else if (selected) {
+                                          selectedFilters.add(filter);
+                                        } else {
+                                          selectedFilters.remove(filter);
+                                        }
+                                      });
+                                    },
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () {
-                          controller
-                            ..setLibrarySort(selectedSort)
-                            ..setLibraryFilters(selectedFilters);
-                          Navigator.of(context).pop();
-                        },
-                        child: const Text('Apply'),
                       ),
-                    ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: () {
+                              controller
+                                ..setLibrarySort(selectedSort)
+                                ..setLibraryFilters(selectedFilters);
+                              Navigator.of(context).pop();
+                            },
+                            child: const Text('Apply'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
         );
       },
     );
@@ -603,33 +616,37 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
               ),
             );
           },
-          child: item == null
-              ? const SizedBox.shrink(key: ValueKey('mini-player-hidden'))
-              : StreamBuilder<PlaybackState>(
-                  key: ValueKey<String>('mini-player-${item.id}'),
-                  stream: handler.playbackState,
-                  builder: (context, playbackSnapshot) {
-                    return MiniPlayer(
-                      item: item,
-                      isPlaying: playbackSnapshot.data?.playing ?? false,
-                      duration: item.duration,
-                      positionStream: handler.player.positionStream,
-                      onPlayPause: controller.togglePlayback,
-                      onPrevious: handler.skipToPrevious,
-                      onNext: handler.skipToNext,
-                      onDismiss: () => unawaited(handler.stop()),
-                      onRepeat: controller.toggleRepeat,
-                      onQueue: () =>
-                          Navigator.of(context).push(QueueScreen.route()),
-                      repeatMode:
-                          playbackSnapshot.data?.repeatMode ??
-                          controller.repeatMode,
-                      onStop: handler.stop,
-                      onTap: () =>
-                          Navigator.of(context).push(FullPlayerScreen.route()),
-                    );
-                  },
-                ),
+          child:
+              item == null
+                  ? const SizedBox.shrink(key: ValueKey('mini-player-hidden'))
+                  : StreamBuilder<PlaybackState>(
+                    key: ValueKey<String>('mini-player-${item.id}'),
+                    stream: handler.playbackState,
+                    builder: (context, playbackSnapshot) {
+                      return MiniPlayer(
+                        item: item,
+                        isPlaying: playbackSnapshot.data?.playing ?? false,
+                        duration: item.duration,
+                        positionStream: handler.player.positionStream,
+                        onPlayPause: controller.togglePlayback,
+                        onPrevious: handler.skipToPrevious,
+                        onNext: handler.skipToNext,
+                        onDismiss: () => unawaited(handler.stop()),
+                        onRepeat: controller.toggleRepeat,
+                        onQueue:
+                            () =>
+                                Navigator.of(context).push(QueueScreen.route()),
+                        repeatMode:
+                            playbackSnapshot.data?.repeatMode ??
+                            controller.repeatMode,
+                        onStop: handler.stop,
+                        onTap:
+                            () => Navigator.of(
+                              context,
+                            ).push(FullPlayerScreen.route()),
+                      );
+                    },
+                  ),
         );
       },
     );

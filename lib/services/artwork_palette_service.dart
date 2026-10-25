@@ -123,9 +123,10 @@ class ArtworkPaletteService {
           lightVibrant: Color(colors[2]),
           darkVibrant: Color(colors[3]),
           muted: Color(colors[4]),
-          ambientColor: colors[6] == 0
-              ? _enhanceAmbientColor(themeAccent)
-              : Color(colors[6]),
+          ambientColor:
+              colors[6] == 0
+                  ? _enhanceAmbientColor(themeAccent)
+                  : Color(colors[6]),
           safeAccent: Color(colors[1]),
         ),
         surface,
@@ -268,8 +269,8 @@ List<int> _extractPalette(List<int> pixels) {
       (((red ~/ count) & 0xFF) << 16) |
       (((green ~/ count) & 0xFF) << 8) |
       ((blue ~/ count) & 0xFF);
-  final saturationPermille = ((saturationSum / count).clamp(0.0, 1.0) * 1000)
-      .round();
+  final saturationPermille =
+      ((saturationSum / count).clamp(0.0, 1.0) * 1000).round();
   return <int>[
     dominant,
     vibrantColor,
@@ -283,9 +284,8 @@ List<int> _extractPalette(List<int> pixels) {
 
 Color _enhanceAmbientColor(Color color) {
   final hsv = HSVColor.fromColor(color);
-  final source = hsv.saturation < 0.12
-      ? HSVColor.fromColor(const Color(0xFF7657D5))
-      : hsv;
+  final source =
+      hsv.saturation < 0.12 ? HSVColor.fromColor(const Color(0xFF7657D5)) : hsv;
   return source
       .withSaturation(source.saturation.clamp(0.52, 0.76).toDouble())
       .withValue(source.value.clamp(0.7, 0.9).toDouble())
@@ -317,9 +317,8 @@ class _AmbientColorBucket {
 
 Color _ensureContrast(Color candidate, Color surface) {
   if (_contrastRatio(candidate, surface) >= 4.5) return candidate;
-  final target = surface.computeLuminance() < 0.45
-      ? Colors.white
-      : Colors.black;
+  final target =
+      surface.computeLuminance() < 0.45 ? Colors.white : Colors.black;
   for (var step = 1; step <= 20; step++) {
     final adjusted = Color.lerp(candidate, target, step / 20)!;
     if (_contrastRatio(adjusted, surface) >= 4.5) return adjusted;

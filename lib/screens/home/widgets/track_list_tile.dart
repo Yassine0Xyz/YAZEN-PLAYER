@@ -47,14 +47,16 @@ class TrackListTile extends StatelessWidget {
             duration: MotionTokens.fast,
             curve: MotionTokens.standard,
             decoration: BoxDecoration(
-              color: isCurrentTrack
-                  ? tokens.accent.withValues(alpha: 0.045)
-                  : Colors.transparent,
+              color:
+                  isCurrentTrack
+                      ? tokens.accent.withValues(alpha: 0.045)
+                      : Colors.transparent,
               borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
               border: Border.all(
-                color: isCurrentTrack
-                    ? tokens.accent.withValues(alpha: 0.12)
-                    : Colors.transparent,
+                color:
+                    isCurrentTrack
+                        ? tokens.accent.withValues(alpha: 0.12)
+                        : Colors.transparent,
               ),
             ),
             child: Material(
@@ -72,9 +74,8 @@ class TrackListTile extends StatelessWidget {
                         children: <Widget>[
                           YazenMediaArtwork(
                             track: track,
-                            size: compact && artworkSize > 58
-                                ? 58
-                                : artworkSize,
+                            size:
+                                compact && artworkSize > 58 ? 58 : artworkSize,
                           ),
                           if (isCurrentTrack)
                             Positioned(
@@ -110,9 +111,10 @@ class TrackListTile extends StatelessWidget {
                                 ),
                                 child: Icon(
                                   Icons.check_rounded,
-                                  color: tokens.isLight
-                                      ? Colors.white
-                                      : Colors.black,
+                                  color:
+                                      tokens.isLight
+                                          ? Colors.white
+                                          : Colors.black,
                                   size: compact ? 28 : 32,
                                 ),
                               ),
@@ -128,14 +130,13 @@ class TrackListTile extends StatelessWidget {
                               track.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(
-                                    color: isCurrentTrack
-                                        ? tokens.accent
-                                        : null,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.1,
-                                  ),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.titleSmall?.copyWith(
+                                color: isCurrentTrack ? tokens.accent : null,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.1,
+                              ),
                             ),
                             const SizedBox(height: ThemeSpacing.x1),
                             Row(
@@ -179,15 +180,16 @@ class TrackListTile extends StatelessWidget {
                         ),
                       if (onFavorite != null)
                         _SmallAction(
-                          tooltip: isFavorite
-                              ? 'Remove from favorites'
-                              : 'Add to favorites',
-                          icon: isFavorite
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          color: isFavorite
-                              ? tokens.accent
-                              : tokens.textSecondary,
+                          tooltip:
+                              isFavorite
+                                  ? 'Remove from favorites'
+                                  : 'Add to favorites',
+                          icon:
+                              isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                          color:
+                              isFavorite ? tokens.accent : tokens.textSecondary,
                           selected: isFavorite,
                           selectedBackgroundColor: tokens.accent.withValues(
                             alpha: 0.10,
