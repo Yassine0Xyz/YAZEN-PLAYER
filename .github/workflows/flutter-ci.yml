@@ -35,6 +35,20 @@ jobs:
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed .
 
+      - name: Capture formatter patch for diagnosis
+        if: failure()
+        run: |
+          dart format .
+          git diff --binary > /tmp/dart-format.patch
+
+      - name: Upload formatter patch
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dart-format-patch
+          path: /tmp/dart-format.patch
+          if-no-files-found: error
+
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
