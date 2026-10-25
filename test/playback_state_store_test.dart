@@ -205,6 +205,34 @@ void main() {
     expect(preferences.getString(PlaybackStateStore.queueKey), isNotNull);
   });
 
+  test('treats false SharedPreferences results as persistence failures', () async {
+    final preferences = _FalseResultPreferences();
+    final store = PlaybackStateStore(
+      preferencesLoader: () async => preferences,
+    );
+    const track = MediaTrack(
+      id: 'false-result-track',
+      title: 'False Result Track',
+      artist: 'Artist',
+      album: 'Album',
+      source: TrackSource.local,
+    );
+
+    await expectLater(
+      store.saveQueue(<MediaTrack>[track]),
+      throwsA(isA<StateError>()),
+    );
+    expect(preferences.values, isEmpty);
+
+    preferences.failWrites = false;
+    await store.saveQueue(<MediaTrack>[track]);
+    expect(preferences.getString(PlaybackStateStore.queueKey), isNotNull);
+
+    preferences.failWrites = true;
+    await expectLater(store.clear(), throwsA(isA<StateError>()));
+    expect(preferences.getString(PlaybackStateStore.queueKey), isNotNull);
+  });
+
   test('saves and clamps a playback snapshot', () async {
     const store = PlaybackStateStore();
     final track = MediaTrack(
@@ -251,6 +279,28 @@ class _ThrowOncePreferences implements PlaybackStatePreferences {
 
   @override
   Future<bool> remove(String key) async {
+    values.remove(key);
+    return true;
+  }
+}
+
+class _FalseResultPreferences implements PlaybackStatePreferences {
+  bool failWrites = true;
+  final Map<String, String> values = <String, String>{};
+
+  @override
+  String? getString(String key) => values[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    if (failWrites) return false;
+    values[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    if (failWrites) return false;
     values.remove(key);
     return true;
   }

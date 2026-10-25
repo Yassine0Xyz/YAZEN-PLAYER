@@ -169,6 +169,27 @@ void main() {
     },
   );
 
+  test('Repeat All manual Next wraps from the final queue item', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    await handler.playTrackQueue(
+      <MediaTrack>[_track(1), _track(2)],
+      initialIndex: 1,
+    );
+    await handler.setRepeatMode(AudioServiceRepeatMode.all);
+    await handler.skipToNext();
+
+    expect(player.currentIndex, 0);
+    expect(player.position, Duration.zero);
+    expect(player.playing, isTrue);
+
+    await handler.dispose();
+    await player.close();
+  });
+
   test('opening a folder reuses the loaded library tracks', () async {
     final songs = <MediaTrack>[
       _folderTrack(1, '/Music/ArtistA/Live'),
@@ -533,6 +554,36 @@ void main() {
       await directory.delete(recursive: true);
     },
   );
+
+  test('restore accepts persisted HTTP(S) remote tracks', () async {
+    final store = const PlaybackStateStore();
+    final remote = MediaTrack(
+      id: 'remote-1',
+      title: 'Remote track',
+      artist: 'Remote artist',
+      album: 'Remote album',
+      source: TrackSource.remote,
+      uri: Uri.parse('https://example.com/audio.mp3'),
+      headers: const <String, String>{'Authorization': 'Bearer test'},
+    );
+    await store.save(
+      queue: <MediaTrack>[remote],
+      currentIndex: 0,
+      position: const Duration(seconds: 12),
+      playing: true,
+    );
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(player: player, playbackStore: store);
+    await handler.restoreLastPlayback();
+
+    expect(handler.queueTracks.single.id, 'remote-1');
+    expect(player.currentIndex, 0);
+    expect(player.position, const Duration(seconds: 12));
+    expect(player.playing, isTrue);
+
+    await handler.dispose();
+    await player.close();
+  });
 
   test('restore clears storage when every saved file is missing', () async {
     final directory = await Directory.systemTemp.createTemp('yazen-restore-');

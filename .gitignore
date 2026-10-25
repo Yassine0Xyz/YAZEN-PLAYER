@@ -26,3 +26,5 @@ android/app/*.keystore
 
 # Generated native directories when using a partial source drop
 # Keep the platform setup snippets and raw resource committed.
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh

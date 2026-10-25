@@ -69,11 +69,11 @@ class _HomeScreenState extends State<HomeScreen> {
   ) => Column(
     children: <Widget>[
       Padding(
-        padding: const EdgeInsets.fromLTRB(20, 15, 20, 0),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: _buildHeader(context),
       ),
       Padding(
-        padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
+        padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: <Widget>[
@@ -98,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       LibraryTabs(selected: selectedTab, onSelected: _selectLibraryTab),
-      const SizedBox(height: 6),
+      const SizedBox(height: 4),
       Expanded(
         child: PageView.builder(
           controller: _libraryPageController,
@@ -264,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: ThemeSpacing.x1),
               Align(alignment: Alignment.centerRight, child: actionRow),
             ],
-            const SizedBox(height: ThemeSpacing.x2),
+            const SizedBox(height: ThemeSpacing.x1),
           ],
         );
       },

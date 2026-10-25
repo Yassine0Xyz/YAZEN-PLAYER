@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
@@ -34,8 +35,9 @@ Future<void> main() async {
       ),
     );
   } catch (_) {
-    // Keep the first frame available even if the media-service plugin is not
-    // ready on a fresh install; the handler still supports foreground audio.
+    // A direct handler fallback cannot provide Android's media session or
+    // foreground-service boundary, so never present it as background audio.
+    if (Platform.isAndroid) rethrow;
     audioHandler = HybridAudioHandler();
   }
 

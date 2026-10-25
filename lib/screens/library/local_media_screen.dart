@@ -577,7 +577,7 @@ class _SongsViewState extends State<_SongsView> {
                           maxCrossAxisExtent: 220,
                           mainAxisExtent:
                               displaySettings.density == LibraryDensity.compact
-                                  ? 270
+                                  ? 280
                                   : 294,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 8,
@@ -1399,7 +1399,7 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
             ? widget.settings.videosDensity
             : widget.settings.density;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       child: Column(
         children: <Widget>[
           TextField(
@@ -1431,7 +1431,7 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: <Widget>[
               SegmentedButton<LibraryLayoutMode>(

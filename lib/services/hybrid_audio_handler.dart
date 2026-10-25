@@ -964,9 +964,12 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<bool> _isRestorableTrack(MediaTrack track) async {
-    if (!track.isLocal) return false;
     final uri = track.uri;
     if (uri == null) return false;
+    if (track.isRemote) {
+      return uri.scheme == 'http' || uri.scheme == 'https';
+    }
+    if (!track.isLocal) return false;
     if (uri.scheme == 'file') return File.fromUri(uri).exists();
     // Content URIs are resolved by Android's MediaProvider; File.exists cannot
     // validate them, so leave validation to the platform audio source.
@@ -1044,8 +1047,16 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() => _runQueueMutation(() async {
-    if (!_player.hasNext) return;
-    await _player.seekToNext();
+    if (_player.hasNext) {
+      await _player.seekToNext();
+      return;
+    }
+    if (_repeatMode == AudioServiceRepeatMode.all &&
+        _queueTracks.length > 1 &&
+        _player.sequence.isNotEmpty) {
+      await _player.seek(Duration.zero, index: 0);
+      await _player.play();
+    }
   });
 
   Future<void> playQueueIndex(int index) => _runQueueMutation(() async {

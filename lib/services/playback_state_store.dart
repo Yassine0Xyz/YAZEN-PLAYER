@@ -91,7 +91,7 @@ class PlaybackStateStore {
   Future<void> saveQueue(List<MediaTrack> queue) {
     return _enqueue<void>((preferences) async {
       final payload = queue.map(mediaTrackToJson).toList(growable: false);
-      await preferences.setString(queueKey, jsonEncode(payload));
+      await _setString(preferences, queueKey, jsonEncode(payload));
     });
   }
 
@@ -112,7 +112,7 @@ class PlaybackStateStore {
         'shuffleMode': shuffleMode,
         'speed': speed,
       };
-      await preferences.setString(progressKey, jsonEncode(payload));
+      await _setString(preferences, progressKey, jsonEncode(payload));
     });
   }
 
@@ -135,8 +135,8 @@ class PlaybackStateStore {
         'shuffleMode': shuffleMode,
         'speed': speed,
       };
-      await preferences.setString(queueKey, jsonEncode(queuePayload));
-      await preferences.setString(progressKey, jsonEncode(progressPayload));
+      await _setString(preferences, queueKey, jsonEncode(queuePayload));
+      await _setString(preferences, progressKey, jsonEncode(progressPayload));
     });
   }
 
@@ -151,7 +151,8 @@ class PlaybackStateStore {
         final legacy = _decodeLegacy(preferences.getString(legacyKey));
         if (legacy != null) {
           if (queueRaw == null) {
-            await preferences.setString(
+            await _setString(
+              preferences,
               queueKey,
               jsonEncode(
                 legacy.queue.map(mediaTrackToJson).toList(growable: false),
@@ -159,7 +160,8 @@ class PlaybackStateStore {
             );
           }
           if (progressRaw == null) {
-            await preferences.setString(
+            await _setString(
+              preferences,
               progressKey,
               jsonEncode(<String, dynamic>{
                 'currentIndex': legacy.currentIndex,
@@ -171,7 +173,7 @@ class PlaybackStateStore {
               }),
             );
           }
-          await preferences.remove(legacyKey);
+          await _remove(preferences, legacyKey);
           queueRaw ??= preferences.getString(queueKey);
           progressRaw ??= preferences.getString(progressKey);
         }
@@ -185,10 +187,29 @@ class PlaybackStateStore {
 
   Future<void> clear() async {
     await _enqueue<void>((preferences) async {
-      await preferences.remove(queueKey);
-      await preferences.remove(progressKey);
-      await preferences.remove(legacyKey);
+      await _remove(preferences, queueKey);
+      await _remove(preferences, progressKey);
+      await _remove(preferences, legacyKey);
     });
+  }
+
+  static Future<void> _setString(
+    PlaybackStatePreferences preferences,
+    String key,
+    String value,
+  ) async {
+    if (!await preferences.setString(key, value)) {
+      throw StateError('Failed to persist playback preference: $key');
+    }
+  }
+
+  static Future<void> _remove(
+    PlaybackStatePreferences preferences,
+    String key,
+  ) async {
+    if (!await preferences.remove(key)) {
+      throw StateError('Failed to remove playback preference: $key');
+    }
   }
 
   static List<MediaTrack>? _decodeQueue(String? raw) {
