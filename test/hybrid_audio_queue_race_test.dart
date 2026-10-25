@@ -175,10 +175,10 @@ void main() {
       player: player,
       playbackStore: const PlaybackStateStore(),
     );
-    await handler.playTrackQueue(
-      <MediaTrack>[_track(1), _track(2)],
-      initialIndex: 1,
-    );
+    await handler.playTrackQueue(<MediaTrack>[
+      _track(1),
+      _track(2),
+    ], initialIndex: 1);
     await handler.setRepeatMode(AudioServiceRepeatMode.all);
     await handler.skipToNext();
 
