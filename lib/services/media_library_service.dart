@@ -238,12 +238,25 @@ class MediaLibraryService {
               entry['durationMs'] is num
                   ? (entry['durationMs'] as num).toInt()
                   : 0;
+          final sizeBytes =
+              entry['sizeBytes'] is num
+                  ? (entry['sizeBytes'] as num).toInt()
+                  : null;
+          final dateAdded =
+              entry['dateAdded'] is num
+                  ? (entry['dateAdded'] as num).toInt()
+                  : 0;
           return MediaTrack.fromLocalVideo(
             path: path,
             contentUri: uri,
             title: title,
             duration:
                 durationMs > 0 ? Duration(milliseconds: durationMs) : null,
+            sizeBytes: sizeBytes,
+            modifiedAt:
+                dateAdded > 0
+                    ? DateTime.fromMillisecondsSinceEpoch(dateAdded * 1000)
+                    : null,
           );
         })
         .toList(growable: false);

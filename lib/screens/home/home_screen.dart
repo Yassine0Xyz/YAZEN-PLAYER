@@ -33,6 +33,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final PageController _libraryPageController;
+  bool _showLibraryHeader = true;
 
   @override
   void initState() {
@@ -68,35 +69,37 @@ class _HomeScreenState extends State<HomeScreen> {
     LibraryTab selectedTab,
   ) => Column(
     children: <Widget>[
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-        child: _buildHeader(context),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                'Your library',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.7,
+      if (_showLibraryHeader)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: _buildHeader(context),
+        ),
+      if (_showLibraryHeader)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Your library',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.7,
+                  ),
                 ),
               ),
-            ),
-            Text(
-              '${context.read<HybridMusicController>().visibleTracks.length} items',
-              style: TextStyle(
-                color: context.read<ThemeProvider>().tokens.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+              Text(
+                '${context.read<HybridMusicController>().visibleTracks.length} items',
+                style: TextStyle(
+                  color: context.read<ThemeProvider>().tokens.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       LibraryTabs(selected: selectedTab, onSelected: _selectLibraryTab),
       const SizedBox(height: 4),
       Expanded(
@@ -116,6 +119,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 selectedTab: tab,
                 onTabSelected: _selectLibraryTab,
                 showTabs: false,
+                onScrollDelta: (delta) {
+                  if (delta > 0 && _showLibraryHeader) {
+                    setState(() => _showLibraryHeader = false);
+                  } else if (delta < 0 && !_showLibraryHeader) {
+                    setState(() => _showLibraryHeader = true);
+                  }
+                },
               ),
               builder: (context, child) {
                 final page =

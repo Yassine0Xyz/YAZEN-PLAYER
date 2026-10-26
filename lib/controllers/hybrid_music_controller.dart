@@ -203,43 +203,48 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   int _compareTracks(MediaTrack a, MediaTrack b) {
+    final int primary;
     switch (librarySort) {
       case LibrarySort.newestFirst:
-        return (b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+        primary = (b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
             .compareTo(a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
       case LibrarySort.oldestFirst:
-        return (a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+        primary = (a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
             .compareTo(b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
       case LibrarySort.sizeLowToHigh:
-        return (a.sizeBytes ?? 0).compareTo(b.sizeBytes ?? 0);
+        primary = (a.sizeBytes ?? 0).compareTo(b.sizeBytes ?? 0);
       case LibrarySort.sizeHighToLow:
-        return (b.sizeBytes ?? 0).compareTo(a.sizeBytes ?? 0);
+        primary = (b.sizeBytes ?? 0).compareTo(a.sizeBytes ?? 0);
       case LibrarySort.durationShortToLong:
-        return (a.duration ?? Duration.zero).compareTo(
+        primary = (a.duration ?? Duration.zero).compareTo(
           b.duration ?? Duration.zero,
         );
       case LibrarySort.durationLongToShort:
-        return (b.duration ?? Duration.zero).compareTo(
+        primary = (b.duration ?? Duration.zero).compareTo(
           a.duration ?? Duration.zero,
         );
       case LibrarySort.nameAZ:
-        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        primary = a.title.toLowerCase().compareTo(b.title.toLowerCase());
       case LibrarySort.nameZA:
-        return b.title.toLowerCase().compareTo(a.title.toLowerCase());
+        primary = b.title.toLowerCase().compareTo(a.title.toLowerCase());
       case LibrarySort.artistAZ:
-        return a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+        primary = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
       case LibrarySort.mostPlayed:
-        return _playlistManager
+        primary = _playlistManager
             .playCount(b.id)
             .compareTo(_playlistManager.playCount(a.id));
       case LibrarySort.recentlyPlayedFirst:
-        return (_playlistManager.lastPlayed(b.id) ??
+        primary = (_playlistManager.lastPlayed(b.id) ??
                 DateTime.fromMillisecondsSinceEpoch(0))
             .compareTo(
               _playlistManager.lastPlayed(a.id) ??
                   DateTime.fromMillisecondsSinceEpoch(0),
             );
     }
+    if (primary != 0) return primary;
+    final title = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    if (title != 0) return title;
+    return a.id.compareTo(b.id);
   }
 
   bool _matchesLibraryFilters(MediaTrack track) {
@@ -367,7 +372,13 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
           );
           _importedAudioFiles[track.id] = track;
         } else if (_videoFileExtensions.contains(extension)) {
-          final track = MediaTrack.fromLocalVideo(path: path, title: title);
+          final metadata = await File(path).stat();
+          final track = MediaTrack.fromLocalVideo(
+            path: path,
+            title: title,
+            sizeBytes: metadata.size,
+            modifiedAt: metadata.modified,
+          );
           _importedVideoFiles[track.id] = track;
         }
       }

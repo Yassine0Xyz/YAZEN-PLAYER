@@ -364,6 +364,10 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<void> _handleInterruption(AudioInterruptionEvent event) async {
+    // Another media app commonly emits a pause-type focus event. Do not turn
+    // that external focus change into a YAZEN pause; Android may still duck or
+    // revoke focus when system policy requires it.
+    if (event.begin && event.type == AudioInterruptionType.pause) return;
     final action = _interruptionCoordinator.handle(
       begin: event.begin,
       type: event.type,
@@ -1052,7 +1056,7 @@ class HybridAudioHandler extends BaseAudioHandler
       return;
     }
     if (_repeatMode == AudioServiceRepeatMode.all &&
-        _queueTracks.length > 1 &&
+        _queueTracks.isNotEmpty &&
         _player.sequence.isNotEmpty) {
       await _player.seek(Duration.zero, index: 0);
       await _player.play();
@@ -1099,7 +1103,7 @@ class HybridAudioHandler extends BaseAudioHandler
       // guarded fallback for platforms/versions that report completed at the
       // queue boundary without exposing a next item.
       if (_repeatMode == AudioServiceRepeatMode.all &&
-          _queueTracks.length > 1 &&
+          _queueTracks.isNotEmpty &&
           !_player.hasNext) {
         await _player.seek(Duration.zero, index: 0);
         if (stillCurrent()) await _player.play();

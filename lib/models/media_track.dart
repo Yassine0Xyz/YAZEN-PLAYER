@@ -113,6 +113,8 @@ class MediaTrack {
     required String title,
     Duration? duration,
     String? contentUri,
+    int? sizeBytes,
+    DateTime? modifiedAt,
   }) {
     final normalized = contentUri?.trim() ?? '';
     final uri =
@@ -128,6 +130,8 @@ class MediaTrack {
       kind: MediaKind.video,
       uri: uri,
       duration: duration,
+      sizeBytes: sizeBytes,
+      modifiedAt: modifiedAt,
     );
   }
 }

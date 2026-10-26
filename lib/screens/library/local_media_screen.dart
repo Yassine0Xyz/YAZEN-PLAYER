@@ -29,12 +29,14 @@ class LocalMediaScreen extends StatelessWidget {
     required this.selectedTab,
     required this.onTabSelected,
     this.showTabs = true,
+    this.onScrollDelta,
     super.key,
   });
 
   final LibraryTab selectedTab;
   final ValueChanged<LibraryTab> onTabSelected;
   final bool showTabs;
+  final ValueChanged<double>? onScrollDelta;
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +87,7 @@ class LocalMediaScreen extends StatelessWidget {
       );
     }
 
-    return switch (selectedTab) {
+    final view = switch (selectedTab) {
       LibraryTab.songs => _SongsView(tracks: snapshot.visibleTracks),
       LibraryTab.artists => _ArtistsView(artists: snapshot.artists),
       LibraryTab.albums => _AlbumsView(albums: snapshot.albums),
@@ -101,6 +103,21 @@ class LocalMediaScreen extends StatelessWidget {
         favorites: snapshot.favorites,
       ),
     };
+    if (onScrollDelta == null ||
+        (selectedTab != LibraryTab.songs && selectedTab != LibraryTab.videos)) {
+      return view;
+    }
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollUpdateNotification &&
+            notification.scrollDelta != null &&
+            notification.scrollDelta!.abs() >= 0.5) {
+          onScrollDelta!(notification.scrollDelta!);
+        }
+        return false;
+      },
+      child: view,
+    );
   }
 }
 
@@ -511,6 +528,15 @@ class _SongsViewState extends State<_SongsView> {
       animation: displaySettings,
       builder: (context, _) {
         final grid = displaySettings.layoutMode == LibraryLayoutMode.grid;
+        final availableWidth = (MediaQuery.sizeOf(context).width - 40).clamp(
+          1.0,
+          double.infinity,
+        );
+        final columnCount = (availableWidth / 230).ceil().clamp(1, 6).toInt();
+        final cellWidth =
+            (availableWidth - ((columnCount - 1) * 10)) / columnCount;
+        final compact = displaySettings.density == LibraryDensity.compact;
+        final gridExtent = cellWidth - 16 + (compact ? 98 : 106);
         return Column(
           children: <Widget>[
             _LibraryViewToolbar(
@@ -575,10 +601,7 @@ class _SongsViewState extends State<_SongsView> {
                         ),
                         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 220,
-                          mainAxisExtent:
-                              displaySettings.density == LibraryDensity.compact
-                                  ? 280
-                                  : 294,
+                          mainAxisExtent: gridExtent,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 8,
                         ),
@@ -1289,6 +1312,17 @@ class _VideosView extends StatelessWidget {
       animation: settings,
       builder: (context, _) {
         final grid = settings.videosLayoutMode == LibraryLayoutMode.grid;
+        final compact = settings.videosDensity == LibraryDensity.compact;
+        final availableWidth = (MediaQuery.sizeOf(context).width - 40).clamp(
+          1.0,
+          double.infinity,
+        );
+        final columnCount = (availableWidth / 290).ceil().clamp(1, 6).toInt();
+        final cellWidth =
+            (availableWidth - ((columnCount - 1) * 10)) / columnCount;
+        final videoAspectRatio = compact ? 2.25 : 1.9;
+        final labelHeight = compact ? 48.0 : 68.0;
+        final gridExtent = cellWidth / videoAspectRatio + labelHeight;
         return Column(
           children: <Widget>[
             _LibraryViewToolbar(
@@ -1310,25 +1344,23 @@ class _VideosView extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 280,
-                          mainAxisExtent:
-                              settings.videosDensity == LibraryDensity.compact
-                                  ? 190
-                                  : 220,
+                          mainAxisExtent: gridExtent,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 12,
                         ),
                         itemCount: tracks.length,
                         itemBuilder:
                             (context, index) =>
-                                _videoCard(context, tracks[index]),
+                                _videoCard(context, tracks[index], compact),
                       )
                       : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                         itemCount: tracks.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 24),
+                        separatorBuilder:
+                            (_, _) => SizedBox(height: compact ? 12 : 24),
                         itemBuilder:
                             (context, index) =>
-                                _videoCard(context, tracks[index]),
+                                _videoCard(context, tracks[index], compact),
                       ),
             ),
           ],
@@ -1337,9 +1369,10 @@ class _VideosView extends StatelessWidget {
     );
   }
 
-  Widget _videoCard(BuildContext context, MediaTrack track) =>
+  Widget _videoCard(BuildContext context, MediaTrack track, bool compact) =>
       _VideoPreviewCard(
         track: track,
+        compact: compact,
         onPlay:
             () =>
                 Navigator.of(context).push(YazenVideoPlayerScreen.route(track)),
@@ -1362,29 +1395,11 @@ class _LibraryViewToolbar extends StatefulWidget {
 }
 
 class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
-  late final TextEditingController _searchController;
+  bool _showDisplayControls = false;
 
   @override
   void initState() {
     super.initState();
-    _searchController = TextEditingController(
-      text: widget.controller.searchQuery,
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _LibraryViewToolbar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.isVideos != widget.isVideos &&
-        _searchController.text != widget.controller.searchQuery) {
-      _searchController.text = widget.controller.searchQuery;
-    }
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 
   @override
@@ -1402,84 +1417,79 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       child: Column(
         children: <Widget>[
-          TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              widget.controller.setSearchQuery(value);
-              setState(() {});
-            },
-            decoration: InputDecoration(
-              hintText: widget.isVideos ? 'Search videos' : 'Search songs',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon:
-                  _searchController.text.isEmpty
-                      ? null
-                      : IconButton(
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          _searchController.clear();
-                          widget.controller.setSearchQuery('');
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-              filled: true,
-              fillColor: tokens.surface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
           Row(
             children: <Widget>[
-              SegmentedButton<LibraryLayoutMode>(
-                segments: const <ButtonSegment<LibraryLayoutMode>>[
-                  ButtonSegment(
-                    value: LibraryLayoutMode.list,
-                    icon: Icon(Icons.view_list_rounded),
-                  ),
-                  ButtonSegment(
-                    value: LibraryLayoutMode.grid,
-                    icon: Icon(Icons.grid_view_rounded),
-                  ),
-                ],
-                selected: <LibraryLayoutMode>{layout},
-                onSelectionChanged: (value) {
-                  final next = value.first;
-                  if (widget.isVideos) {
-                    widget.settings.setVideosLayoutMode(next);
-                  } else {
-                    widget.settings.setLayoutMode(next);
-                  }
-                },
+              IconButton(
+                tooltip: 'Display settings',
+                onPressed:
+                    () => setState(
+                      () => _showDisplayControls = !_showDisplayControls,
+                    ),
+                icon: Icon(
+                  _showDisplayControls
+                      ? Icons.tune_rounded
+                      : Icons.tune_outlined,
+                ),
               ),
               const Spacer(),
-              DropdownButton<LibraryDensity>(
-                value: density,
-                underline: const SizedBox.shrink(),
-                items: const <DropdownMenuItem<LibraryDensity>>[
-                  DropdownMenuItem(
-                    value: LibraryDensity.comfortable,
-                    child: Text('Comfortable'),
-                  ),
-                  DropdownMenuItem(
-                    value: LibraryDensity.compact,
-                    child: Text('Compact'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  if (widget.isVideos) {
-                    widget.settings.setVideosDensity(value);
-                  } else {
-                    widget.settings.setDensity(value);
-                  }
-                },
-              ),
+              if (!_showDisplayControls)
+                Text(
+                  widget.isVideos ? 'Video display' : 'Song display',
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
             ],
           ),
+          if (_showDisplayControls) ...<Widget>[
+            const SizedBox(height: 6),
+            Row(
+              children: <Widget>[
+                SegmentedButton<LibraryLayoutMode>(
+                  segments: const <ButtonSegment<LibraryLayoutMode>>[
+                    ButtonSegment(
+                      value: LibraryLayoutMode.list,
+                      icon: Icon(Icons.view_list_rounded),
+                    ),
+                    ButtonSegment(
+                      value: LibraryLayoutMode.grid,
+                      icon: Icon(Icons.grid_view_rounded),
+                    ),
+                  ],
+                  selected: <LibraryLayoutMode>{layout},
+                  onSelectionChanged: (value) {
+                    final next = value.first;
+                    if (widget.isVideos) {
+                      widget.settings.setVideosLayoutMode(next);
+                    } else {
+                      widget.settings.setLayoutMode(next);
+                    }
+                  },
+                ),
+                const Spacer(),
+                DropdownButton<LibraryDensity>(
+                  value: density,
+                  underline: const SizedBox.shrink(),
+                  items: const <DropdownMenuItem<LibraryDensity>>[
+                    DropdownMenuItem(
+                      value: LibraryDensity.comfortable,
+                      child: Text('Comfortable'),
+                    ),
+                    DropdownMenuItem(
+                      value: LibraryDensity.compact,
+                      child: Text('Compact'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    if (widget.isVideos) {
+                      widget.settings.setVideosDensity(value);
+                    } else {
+                      widget.settings.setDensity(value);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1487,10 +1497,15 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
 }
 
 class _VideoPreviewCard extends StatelessWidget {
-  const _VideoPreviewCard({required this.track, required this.onPlay});
+  const _VideoPreviewCard({
+    required this.track,
+    required this.onPlay,
+    this.compact = false,
+  });
 
   final MediaTrack track;
   final VoidCallback onPlay;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1502,7 +1517,7 @@ class _VideoPreviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           AspectRatio(
-            aspectRatio: 1.9,
+            aspectRatio: compact ? 2.25 : 1.9,
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
@@ -1565,7 +1580,7 @@ class _VideoPreviewCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 6 : 10),
           Text(
             track.title,
             maxLines: 2,
