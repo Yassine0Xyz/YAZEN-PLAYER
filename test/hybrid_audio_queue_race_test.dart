@@ -190,6 +190,29 @@ void main() {
     await player.close();
   });
 
+  test('manual queue navigation wraps in both directions', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    await handler.playTrackQueue(<MediaTrack>[_track(1), _track(2), _track(3)]);
+
+    await handler.skipToPrevious();
+    expect(player.currentIndex, 2);
+    await handler.skipToNext();
+    expect(player.currentIndex, 0);
+
+    await handler.playQueueIndex(2);
+    await handler.skipToNext();
+    expect(player.currentIndex, 0);
+    await handler.skipToPrevious();
+    expect(player.currentIndex, 2);
+
+    await handler.dispose();
+    await player.close();
+  });
+
   test('Repeat All completion advances through the queue and wraps', () async {
     final player = _FakeAudioPlayer();
     final handler = HybridAudioHandler(

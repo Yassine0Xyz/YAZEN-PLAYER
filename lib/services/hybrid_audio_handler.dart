@@ -1051,9 +1051,9 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() => _runQueueMutation(() async {
-    final repeatAllIndex = _repeatAllTargetIndex();
-    if (repeatAllIndex != null) {
-      await _seekAndStartQueueIndex(repeatAllIndex);
+    final circularIndex = _circularQueueTargetIndex(1);
+    if (circularIndex != null) {
+      await _seekAndStartQueueIndex(circularIndex);
       return;
     }
     if (_player.hasNext) {
@@ -1074,10 +1074,13 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToPrevious() => _runQueueMutation(() async {
+    final circularIndex = _circularQueueTargetIndex(-1);
+    if (circularIndex != null) {
+      await _seekAndStartQueueIndex(circularIndex);
+      return;
+    }
     if (_player.hasPrevious) {
       await _player.seekToPrevious();
-    } else {
-      await _player.seek(Duration.zero);
     }
   });
 
@@ -1153,14 +1156,19 @@ class HybridAudioHandler extends BaseAudioHandler
       _repeatMode == AudioServiceRepeatMode.group;
 
   int? _repeatAllTargetIndex() {
-    if (!_repeatAllEnabled ||
-        _queueTracks.isEmpty ||
-        _player.sequence.isEmpty) {
+    if (!_repeatAllEnabled) return null;
+    return _circularQueueTargetIndex(1);
+  }
+
+  int? _circularQueueTargetIndex(int direction) {
+    final queueLength = _queueTracks.length;
+    if (queueLength == 0 || _player.sequence.length < queueLength) {
       return null;
     }
     final currentIndex = _player.currentIndex;
     if (currentIndex == null) return null;
-    return (currentIndex + 1) % _queueTracks.length;
+    final normalizedIndex = currentIndex % queueLength;
+    return (normalizedIndex + direction + queueLength) % queueLength;
   }
 
   Future<void> _seekAndStartQueueIndex(int index) async {
