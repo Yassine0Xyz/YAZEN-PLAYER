@@ -51,6 +51,7 @@ class _SharedPreferencesAdapter implements PlaybackStatePreferences {
 }
 
 class PlaybackStateStore {
+  static const payloadVersion = 2;
   static const queueKey = 'echo.playback_queue.v2';
   static const progressKey = 'echo.playback_progress.v2';
   static const legacyKey = 'echo.playback_snapshot.v1';
@@ -105,6 +106,7 @@ class PlaybackStateStore {
   }) {
     return _enqueue<void>((preferences) async {
       final payload = <String, dynamic>{
+        'version': payloadVersion,
         'currentIndex': currentIndex,
         'positionMs': position.inMilliseconds,
         'playing': playing,
@@ -128,6 +130,7 @@ class PlaybackStateStore {
     await _enqueue<void>((preferences) async {
       final queuePayload = queue.map(mediaTrackToJson).toList(growable: false);
       final progressPayload = <String, dynamic>{
+        'version': payloadVersion,
         'currentIndex': currentIndex,
         'positionMs': position.inMilliseconds,
         'playing': playing,
@@ -164,6 +167,7 @@ class PlaybackStateStore {
               preferences,
               progressKey,
               jsonEncode(<String, dynamic>{
+                'version': payloadVersion,
                 'currentIndex': legacy.currentIndex,
                 'positionMs': legacy.position.inMilliseconds,
                 'playing': legacy.playing,

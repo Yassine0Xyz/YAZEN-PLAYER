@@ -1051,16 +1051,10 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() => _runQueueMutation(() async {
-    if (_repeatMode == AudioServiceRepeatMode.all &&
-        _queueTracks.isNotEmpty &&
-        _player.sequence.isNotEmpty) {
-      final currentIndex = _player.currentIndex;
-      if (currentIndex != null) {
-        final nextIndex = (currentIndex + 1) % _queueTracks.length;
-        await _player.seek(Duration.zero, index: nextIndex);
-        _startPlaybackWithoutHoldingQueue();
-        return;
-      }
+    final repeatAllIndex = _repeatAllTargetIndex();
+    if (repeatAllIndex != null) {
+      await _seekAndStartQueueIndex(repeatAllIndex);
+      return;
     }
     if (_player.hasNext) {
       await _player.seekToNext();
@@ -1075,7 +1069,7 @@ class HybridAudioHandler extends BaseAudioHandler
       return;
     }
     await _player.seek(Duration.zero, index: index);
-    await _player.play();
+    _startPlaybackWithoutHoldingQueue();
   });
 
   @override
@@ -1104,13 +1098,9 @@ class HybridAudioHandler extends BaseAudioHandler
         _finishSleepTimer();
         return;
       }
-      if (_repeatMode == AudioServiceRepeatMode.all &&
-          _queueTracks.isNotEmpty &&
-          _player.sequence.isNotEmpty) {
-        final currentIndex = _player.currentIndex;
-        if (currentIndex == null) return;
-        final nextIndex = (currentIndex + 1) % _queueTracks.length;
-        await _player.seek(Duration.zero, index: nextIndex);
+      final repeatAllIndex = _repeatAllTargetIndex();
+      if (repeatAllIndex != null) {
+        await _player.seek(Duration.zero, index: repeatAllIndex);
         if (stillCurrent()) _startPlaybackWithoutHoldingQueue();
       }
     } finally {
@@ -1156,6 +1146,26 @@ class HybridAudioHandler extends BaseAudioHandler
     await super.setRepeatMode(repeatMode);
     _broadcastPlaybackState();
     _persistPlayback();
+  }
+
+  bool get _repeatAllEnabled =>
+      _repeatMode == AudioServiceRepeatMode.all ||
+      _repeatMode == AudioServiceRepeatMode.group;
+
+  int? _repeatAllTargetIndex() {
+    if (!_repeatAllEnabled ||
+        _queueTracks.isEmpty ||
+        _player.sequence.isEmpty) {
+      return null;
+    }
+    final currentIndex = _player.currentIndex;
+    if (currentIndex == null) return null;
+    return (currentIndex + 1) % _queueTracks.length;
+  }
+
+  Future<void> _seekAndStartQueueIndex(int index) async {
+    await _player.seek(Duration.zero, index: index);
+    _startPlaybackWithoutHoldingQueue();
   }
 
   void _onCurrentIndexChanged(int? index) {

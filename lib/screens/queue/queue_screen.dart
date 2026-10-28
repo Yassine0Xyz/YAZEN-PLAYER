@@ -51,6 +51,7 @@ class QueueScreen extends StatelessWidget {
         builder: (context, snapshot) {
           final items = snapshot.data ?? const <MediaItem>[];
           if (items.isEmpty) return const _EmptyQueue();
+          final tracks = handler.queueTracks;
           return ReorderableListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             itemCount: items.length,
@@ -60,7 +61,6 @@ class QueueScreen extends StatelessWidget {
             },
             itemBuilder: (context, index) {
               final item = items[index];
-              final tracks = handler.queueTracks;
               final track = index < tracks.length ? tracks[index] : null;
               final isCurrent = index == handler.currentQueueIndex;
               return Dismissible(
