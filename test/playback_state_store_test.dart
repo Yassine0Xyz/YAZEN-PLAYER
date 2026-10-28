@@ -76,6 +76,7 @@ void main() {
     expect(queuePayload, isA<List>());
     expect((queuePayload as List).single['id'], 'round-trip');
     expect(progressPayload, <String, dynamic>{
+      'version': PlaybackStateStore.payloadVersion,
       'currentIndex': 0,
       'positionMs': 42000,
       'playing': true,
