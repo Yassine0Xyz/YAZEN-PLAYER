@@ -1051,15 +1051,20 @@ class HybridAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() => _runQueueMutation(() async {
-    if (_player.hasNext) {
-      await _player.seekToNext();
-      return;
-    }
     if (_repeatMode == AudioServiceRepeatMode.all &&
         _queueTracks.isNotEmpty &&
         _player.sequence.isNotEmpty) {
-      await _player.seek(Duration.zero, index: 0);
-      await _player.play();
+      final currentIndex = _player.currentIndex;
+      if (currentIndex != null) {
+        final nextIndex = (currentIndex + 1) % _queueTracks.length;
+        await _player.seek(Duration.zero, index: nextIndex);
+        _startPlaybackWithoutHoldingQueue();
+        return;
+      }
+    }
+    if (_player.hasNext) {
+      await _player.seekToNext();
+      return;
     }
   });
 
@@ -1099,14 +1104,14 @@ class HybridAudioHandler extends BaseAudioHandler
         _finishSleepTimer();
         return;
       }
-      // just_audio normally performs this transition for LoopMode.all. Keep a
-      // guarded fallback for platforms/versions that report completed at the
-      // queue boundary without exposing a next item.
       if (_repeatMode == AudioServiceRepeatMode.all &&
           _queueTracks.isNotEmpty &&
-          !_player.hasNext) {
-        await _player.seek(Duration.zero, index: 0);
-        if (stillCurrent()) await _player.play();
+          _player.sequence.isNotEmpty) {
+        final currentIndex = _player.currentIndex;
+        if (currentIndex == null) return;
+        final nextIndex = (currentIndex + 1) % _queueTracks.length;
+        await _player.seek(Duration.zero, index: nextIndex);
+        if (stillCurrent()) _startPlaybackWithoutHoldingQueue();
       }
     } finally {
       _autoAdvanceInFlight = false;
@@ -1141,8 +1146,10 @@ class HybridAudioHandler extends BaseAudioHandler
     final loopMode = switch (repeatMode) {
       AudioServiceRepeatMode.none => LoopMode.off,
       AudioServiceRepeatMode.one => LoopMode.one,
-      AudioServiceRepeatMode.all => LoopMode.all,
-      AudioServiceRepeatMode.group => LoopMode.all,
+      // Repeat All is advanced explicitly so the final item always wraps,
+      // even on platforms where just_audio does not emit a usable next item.
+      AudioServiceRepeatMode.all => LoopMode.off,
+      AudioServiceRepeatMode.group => LoopMode.off,
     };
     await _player.setLoopMode(loopMode);
     _repeatMode = repeatMode;
