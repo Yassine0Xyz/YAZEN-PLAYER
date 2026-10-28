@@ -1195,9 +1195,7 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   void _persistPlayback() {
-    if (_isDisposed ||
-        _queueTracks.isEmpty ||
-        _queueTracks.any((track) => track.isRemote)) {
+    if (_isDisposed || _queueTracks.isEmpty) {
       return;
     }
     final index =
@@ -1224,9 +1222,7 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   void _persistQueueAndProgress() {
-    if (_isDisposed ||
-        _queueTracks.isEmpty ||
-        _queueTracks.any((track) => track.isRemote)) {
+    if (_isDisposed || _queueTracks.isEmpty) {
       return;
     }
     final queueSnapshot = List<MediaTrack>.unmodifiable(_queueTracks);

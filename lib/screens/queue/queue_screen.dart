@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../models/media_track.dart';
 import '../../services/hybrid_audio_handler.dart';
+import '../../widgets/media_artwork.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -58,6 +60,8 @@ class QueueScreen extends StatelessWidget {
             },
             itemBuilder: (context, index) {
               final item = items[index];
+              final tracks = handler.queueTracks;
+              final track = index < tracks.length ? tracks[index] : null;
               final isCurrent = index == handler.currentQueueIndex;
               return Dismissible(
                 key: ValueKey('queue-${item.id}-$index'),
@@ -66,6 +70,7 @@ class QueueScreen extends StatelessWidget {
                 background: const _DeleteBackground(),
                 child: _QueueTile(
                   item: item,
+                  track: track,
                   index: index,
                   isCurrent: isCurrent,
                   onPlay: () => handler.playQueueIndex(index),
@@ -117,6 +122,7 @@ class QueueScreen extends StatelessWidget {
 class _QueueTile extends StatelessWidget {
   const _QueueTile({
     required this.item,
+    required this.track,
     required this.index,
     required this.isCurrent,
     required this.onPlay,
@@ -125,6 +131,7 @@ class _QueueTile extends StatelessWidget {
   });
 
   final MediaItem item;
+  final MediaTrack? track;
   final int index;
   final bool isCurrent;
   final VoidCallback onPlay;
@@ -142,9 +149,18 @@ class _QueueTile extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         leading: ReorderableDragStartListener(
           index: index,
-          child: Icon(
-            Icons.drag_indicator_rounded,
-            color: tokens.textSecondary,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              YazenMediaArtwork(
+                track: track,
+                imageUri: item.artUri,
+                size: 54,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.drag_indicator_rounded, color: tokens.textSecondary),
+            ],
           ),
         ),
         title: Text(
@@ -157,7 +173,10 @@ class _QueueTile extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          item.artist ?? 'Unknown artist',
+          [
+            item.artist ?? 'Unknown artist',
+            if (item.album?.trim().isNotEmpty ?? false) item.album!,
+          ].join(' · '),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(color: tokens.textSecondary),

@@ -8,6 +8,7 @@ Map<String, dynamic> mediaTrackToJson(MediaTrack track) => <String, dynamic>{
   'source': track.source.name,
   'kind': track.kind.name,
   'uri': track.uri?.toString(),
+  'headers': track.headers,
   'artworkUri': track.artworkUri?.toString(),
   'durationMs': track.duration?.inMilliseconds,
   'folder': track.folder,
@@ -27,6 +28,14 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     orElse: () => MediaKind.audio,
   );
   final durationMs = json['durationMs'];
+  final rawHeaders = json['headers'];
+  final headers =
+      rawHeaders is Map
+          ? <String, String>{
+            for (final entry in rawHeaders.entries)
+              entry.key.toString(): entry.value.toString(),
+          }
+          : null;
   return MediaTrack(
     id: json['id']?.toString() ?? '',
     title: json['title']?.toString() ?? 'Unknown title',
@@ -35,6 +44,7 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     source: source,
     kind: kind,
     uri: _tryParseUri(json['uri']),
+    headers: headers,
     artworkUri: _tryParseUri(json['artworkUri']),
     duration:
         durationMs is num ? Duration(milliseconds: durationMs.toInt()) : null,
