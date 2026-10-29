@@ -1101,9 +1101,12 @@ class HybridAudioHandler extends BaseAudioHandler
         _finishSleepTimer();
         return;
       }
-      final repeatAllIndex = _repeatAllTargetIndex();
-      if (repeatAllIndex != null) {
-        await _player.seek(Duration.zero, index: repeatAllIndex);
+      // A queue created from Library, a Playlist, or a custom list is a
+      // continuous listening session. Keep automatic completion aligned with
+      // the circular Next action instead of stopping at the final item.
+      final nextQueueIndex = _circularQueueTargetIndex(1);
+      if (nextQueueIndex != null) {
+        await _player.seek(Duration.zero, index: nextQueueIndex);
         if (stillCurrent()) _startPlaybackWithoutHoldingQueue();
       }
     } finally {

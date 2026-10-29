@@ -240,6 +240,28 @@ void main() {
     await player.close();
   });
 
+  test('track completion wraps automatically at the queue boundary', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    await handler.playTrackQueue(<MediaTrack>[
+      _track(1),
+      _track(2),
+    ], initialIndex: 1);
+
+    player.emitProcessingState(ProcessingState.completed);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(player.currentIndex, 0);
+    expect(player.position, Duration.zero);
+    expect(player.playing, isTrue);
+
+    await handler.dispose();
+    await player.close();
+  });
+
   test('opening a folder reuses the loaded library tracks', () async {
     final songs = <MediaTrack>[
       _folderTrack(1, '/Music/ArtistA/Live'),
