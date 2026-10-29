@@ -69,10 +69,12 @@ class MiniPlayer extends StatelessWidget {
                         DynamicColorSettings.instance.enabled
                             ? palette.safeAccent
                             : tokens.accentStrong;
-                    return Material(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
-                      child: InkWell(
+                    return RepaintBoundary(
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
                         onTap: onTap,
                         borderRadius: BorderRadius.circular(ThemeRadii.xLarge),
                         child: AnimatedContainer(
@@ -280,6 +282,7 @@ class MiniPlayer extends StatelessWidget {
                               ],
                             ),
                           ),
+                        ),
                         ),
                       ),
                     );
