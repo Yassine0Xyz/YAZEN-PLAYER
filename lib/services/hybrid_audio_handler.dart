@@ -1154,15 +1154,6 @@ class HybridAudioHandler extends BaseAudioHandler
     _persistPlayback();
   }
 
-  bool get _repeatAllEnabled =>
-      _repeatMode == AudioServiceRepeatMode.all ||
-      _repeatMode == AudioServiceRepeatMode.group;
-
-  int? _repeatAllTargetIndex() {
-    if (!_repeatAllEnabled) return null;
-    return _circularQueueTargetIndex(1);
-  }
-
   int? _circularQueueTargetIndex(int direction) {
     final queueLength = _queueTracks.length;
     if (queueLength == 0 || _player.sequence.length < queueLength) {
