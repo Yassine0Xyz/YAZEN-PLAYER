@@ -121,6 +121,89 @@ class LocalMediaScreen extends StatelessWidget {
   }
 }
 
+class _LibraryScrollSurface extends StatefulWidget {
+  const _LibraryScrollSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_LibraryScrollSurface> createState() => _LibraryScrollSurfaceState();
+}
+
+class _LibraryScrollSurfaceState extends State<_LibraryScrollSurface> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PrimaryScrollController(
+      controller: _scrollController,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Scrollbar(
+            controller: _scrollController,
+            thumbVisibility: true,
+            interactive: true,
+            child: widget.child,
+          ),
+          AnimatedBuilder(
+            animation: _scrollController,
+            builder: (context, child) {
+              final showButton =
+                  _scrollController.hasClients &&
+                  _scrollController.offset > 420;
+              return Positioned(
+                right: 14,
+                bottom: 14,
+                child: IgnorePointer(
+                  ignoring: !showButton,
+                  child: AnimatedScale(
+                    scale: showButton ? 1 : 0.72,
+                    duration: MotionTokens.fast,
+                    curve: MotionTokens.standard,
+                    child: AnimatedOpacity(
+                      opacity: showButton ? 1 : 0,
+                      duration: MotionTokens.fast,
+                      child: child,
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: FloatingActionButton.small(
+              heroTag: null,
+              tooltip: 'Back to top',
+              onPressed: _scrollToTop,
+              child: const Icon(Icons.vertical_align_top_rounded),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LocalMediaSnapshot {
   const _LocalMediaSnapshot({
     required this.isLoading,
@@ -591,49 +674,54 @@ class _SongsViewState extends State<_SongsView> {
                         subtitle:
                             'Try clearing the search or changing filters.',
                       )
-                      : grid
-                      ? GridView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          ThemeSpacing.x3,
-                          0,
-                          ThemeSpacing.x3,
-                          MediaQuery.paddingOf(context).bottom + 112,
-                        ),
-                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          mainAxisExtent: gridExtent,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 8,
-                        ),
-                        itemCount: widget.tracks.length,
-                        itemBuilder:
-                            (_, index) => _buildGridTrack(
-                              context,
-                              controller,
-                              widget.tracks[index],
-                              index,
-                              displaySettings.density,
-                            ),
-                      )
-                      : ListView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          ThemeSpacing.x3,
-                          0,
-                          ThemeSpacing.x3,
-                          MediaQuery.paddingOf(context).bottom + 100,
-                        ),
-                        scrollCacheExtent: const ScrollCacheExtent.pixels(400),
-                        addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: true,
-                        itemCount: widget.tracks.length,
-                        itemBuilder:
-                            (_, index) => _buildListTrack(
-                              context,
-                              controller,
-                              widget.tracks[index],
-                              index,
-                              displaySettings.density,
-                            ),
+                      : _LibraryScrollSurface(
+                        child:
+                            grid
+                                ? GridView.builder(
+                                  padding: EdgeInsets.fromLTRB(
+                                    ThemeSpacing.x3,
+                                    0,
+                                    ThemeSpacing.x3,
+                                    MediaQuery.paddingOf(context).bottom + 112,
+                                  ),
+                                  gridDelegate:
+                                      SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 220,
+                                        mainAxisExtent: gridExtent,
+                                        crossAxisSpacing: 10,
+                                        mainAxisSpacing: 8,
+                                      ),
+                                  itemCount: widget.tracks.length,
+                                  itemBuilder:
+                                      (_, index) => _buildGridTrack(
+                                        context,
+                                        controller,
+                                        widget.tracks[index],
+                                        index,
+                                        displaySettings.density,
+                                      ),
+                                )
+                                : ListView.builder(
+                                  padding: EdgeInsets.fromLTRB(
+                                    ThemeSpacing.x3,
+                                    0,
+                                    ThemeSpacing.x3,
+                                    MediaQuery.paddingOf(context).bottom + 100,
+                                  ),
+                                  scrollCacheExtent:
+                                      const ScrollCacheExtent.pixels(400),
+                                  addAutomaticKeepAlives: false,
+                                  addRepaintBoundaries: true,
+                                  itemCount: widget.tracks.length,
+                                  itemBuilder:
+                                      (_, index) => _buildListTrack(
+                                        context,
+                                        controller,
+                                        widget.tracks[index],
+                                        index,
+                                        displaySettings.density,
+                                      ),
+                                ),
                       ),
             ),
           ],
@@ -1339,28 +1427,49 @@ class _VideosView extends StatelessWidget {
                         subtitle:
                             'Try clearing the search or changing the video library.',
                       )
-                      : grid
-                      ? GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 280,
-                          mainAxisExtent: gridExtent,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 12,
-                        ),
-                        itemCount: tracks.length,
-                        itemBuilder:
-                            (context, index) =>
-                                _videoCard(context, tracks[index], compact),
-                      )
-                      : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-                        itemCount: tracks.length,
-                        separatorBuilder:
-                            (_, _) => SizedBox(height: compact ? 12 : 24),
-                        itemBuilder:
-                            (context, index) =>
-                                _videoCard(context, tracks[index], compact),
+                      : _LibraryScrollSurface(
+                        child:
+                            grid
+                                ? GridView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    0,
+                                    20,
+                                    30,
+                                  ),
+                                  gridDelegate:
+                                      SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 280,
+                                        mainAxisExtent: gridExtent,
+                                        crossAxisSpacing: 10,
+                                        mainAxisSpacing: 12,
+                                      ),
+                                  itemCount: tracks.length,
+                                  itemBuilder:
+                                      (context, index) => _videoCard(
+                                        context,
+                                        tracks[index],
+                                        compact,
+                                      ),
+                                )
+                                : ListView.separated(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    0,
+                                    20,
+                                    30,
+                                  ),
+                                  itemCount: tracks.length,
+                                  separatorBuilder:
+                                      (_, _) =>
+                                          SizedBox(height: compact ? 12 : 24),
+                                  itemBuilder:
+                                      (context, index) => _videoCard(
+                                        context,
+                                        tracks[index],
+                                        compact,
+                                      ),
+                                ),
                       ),
             ),
           ],
