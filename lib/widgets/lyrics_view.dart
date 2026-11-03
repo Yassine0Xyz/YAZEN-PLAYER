@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/theme/motion_tokens.dart';
 import '../core/theme/theme_provider.dart';
 import '../services/lyrics_service.dart';
 
@@ -150,6 +153,9 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
 
   final _scrollController = ScrollController();
   int? _lastScrolledIndex;
+  Timer? _manualFollowResumeTimer;
+  bool _manualFollowPaused = false;
+  bool _programmaticScroll = false;
 
   int get _activeIndex {
     // A short lead compensates for audio-position and frame-rendering latency.
@@ -218,7 +224,9 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
   }
 
   void _scrollToActive() {
-    if (!mounted || !_scrollController.hasClients) return;
+    if (!mounted || _manualFollowPaused || !_scrollController.hasClients) {
+      return;
+    }
     final index = _activeIndex;
     if (_lastScrolledIndex == index) return;
     _lastScrolledIndex = index;
@@ -226,11 +234,30 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
         (index.clamp(0, widget.lines.length) * 52.0)
             .clamp(0.0, _scrollController.position.maxScrollExtent)
             .toDouble();
-    _scrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 360),
-      curve: Curves.easeOutCubic,
+    _programmaticScroll = true;
+    unawaited(
+      _scrollController
+          .animateTo(
+            target,
+            duration: MotionTokens.base,
+            curve: MotionTokens.standard,
+          )
+          .whenComplete(() => _programmaticScroll = false),
     );
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollStartNotification && !_programmaticScroll) {
+      _manualFollowPaused = true;
+      _manualFollowResumeTimer?.cancel();
+      _manualFollowResumeTimer = Timer(const Duration(seconds: 4), () {
+        if (!mounted) return;
+        _manualFollowPaused = false;
+        _lastScrolledIndex = null;
+        _scrollToActive();
+      });
+    }
+    return false;
   }
 
   @override
@@ -247,46 +274,59 @@ class _SyncedLyricsPanelState extends State<_SyncedLyricsPanel> {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: tokens.divider),
       ),
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(vertical: 72),
-        itemCount: widget.lines.length,
-        itemBuilder: (context, index) {
-          final active = index == activeIndex;
-          return AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 220),
-            style: TextStyle(
-              color: active ? tokens.accent : tokens.textSecondary,
-              fontSize: active ? 18 : 14,
-              height: 1.45,
-              fontWeight: active ? FontWeight.w900 : FontWeight.w600,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 9),
-              child: InkWell(
-                onTap:
-                    widget.onLineTap == null
-                        ? null
-                        : () =>
-                            widget.onLineTap!(widget.lines[index].timestamp),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(vertical: 72),
+          itemCount: widget.lines.length,
+          itemBuilder: (context, index) {
+            final active = index == activeIndex;
+            return AnimatedDefaultTextStyle(
+              duration: MotionTokens.fast,
+              style: TextStyle(
+                color: active ? tokens.accent : tokens.textSecondary,
+                fontSize: active ? 18 : 14,
+                height: 1.45,
+                fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+              ),
+              child: AnimatedScale(
+                scale: active ? 1 : 0.96,
+                duration: MotionTokens.fast,
+                child: AnimatedOpacity(
+                  opacity: active ? 1 : 0.68,
+                  duration: MotionTokens.fast,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    child: InkWell(
+                      onTap:
+                          widget.onLineTap == null
+                              ? null
+                              : () => widget.onLineTap!(
+                                widget.lines[index].timestamp,
+                              ),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        child: _lineText(context, widget.lines[index], active),
+                      ),
+                    ),
                   ),
-                  child: _lineText(context, widget.lines[index], active),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
 
   @override
   void dispose() {
+    _manualFollowResumeTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }

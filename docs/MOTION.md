@@ -20,3 +20,23 @@ animations into zero-duration transitions.
    and `saveLayer` surfaces.
 5. Share tickers/notifiers between repeated rows; do not create an animation
    controller for every list item.
+
+## Full-player smoke and artwork color
+
+- Smoke is enabled by default but can be disabled immediately in Settings.
+- The default pool is 48 particles, with a hard cap of 80; low-end frame timing
+  reduces the active budget. One cached radial sprite is rendered through
+  `drawRawAtlas` using preallocated transform, source-rect, and color buffers.
+- `SmokeSystem` is pure Dart and UI-independent. It receives the shared,
+  smoothed PCM energy stream; no synthetic waveform is created when PCM is
+  unavailable. Quiet, paused, and no-signal states settle to fewer/slower/fainter
+  particles.
+- One route/app-aware ticker runs only while the full player is visible, the app
+  is resumed, and reduced motion is not requested. The canvas has no blur,
+  `saveLayer`, or per-frame particle/paint allocations.
+- Artwork palettes fade over 800 ms on track changes; missing or desaturated
+  artwork falls back to the theme accent. The full-player palette is a transient
+  presentation state and does not alter persisted theme preferences.
+- A rolling 120-frame timing window lowers the particle budget when combined
+  build+raster p95 exceeds 12 ms for multiple windows, then raises it gradually
+  after sustained headroom.

@@ -33,7 +33,9 @@ flutter build linux --debug
 | Lyrics | Sidecar `.lrc`/`.txt`, embedded ID3 USLT/SYLT, local cache, optional LRCLIB, and optional Lyrics.ovh fallback. |
 | Artwork | Cached local artwork with gapless rendering to avoid black flashes during list rebuilds and track changes. |
 | Visualizer | Real PCM/FFT analysis for local Android files and a real Linux file-decoding path. No timer-driven fake spectrum. |
-| Settings | Theme, playback speed, equalizer availability, optional surround effect, smooth track transitions, visualizer controls, and sleep timer with fade-out. |
+| Player ambience | Optional default-on smoke in the full player, driven only by shared real PCM energy; it pauses with route/app visibility and respects reduced motion. |
+| Dynamic color | Optional default-on artwork palette for the full-player gradient, vinyl, seek bar, transport button, and mini-player border; theme colors remain the fallback. |
+| Settings | Theme, playback speed, equalizer availability, optional surround effect, smooth track transitions, visualizer controls, player ambience, dynamic artwork colors, and sleep timer with fade-out. |
 
 ## Architecture
 
@@ -60,6 +62,10 @@ lib/
 │   ├── lyrics_service.dart
 │   ├── media_library_service.dart
 │   ├── media_track_codec.dart
+│   ├── artwork_palette_service.dart
+│   ├── playback_energy_service.dart
+│   ├── smoke_effect_settings.dart
+│   ├── smoke_system.dart
 │   ├── playback_state_store.dart
 │   └── visualizer_settings.dart
 ├── widgets/

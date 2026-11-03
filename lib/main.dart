@@ -11,6 +11,7 @@ import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
 import 'services/startup_restore.dart';
+import 'services/app_route_observer.dart';
 import 'widgets/now_playing_scope.dart';
 
 Future<void> main() async {
@@ -100,6 +101,7 @@ class HybridMusicApp extends StatelessWidget {
           return MaterialApp(
             title: 'YAZEN',
             debugShowCheckedModeBanner: false,
+            navigatorObservers: <NavigatorObserver>[appRouteObserver],
             theme: themeState.theme,
             builder:
                 (context, child) => NowPlayingScope(

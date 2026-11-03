@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'audio_beat_detector.dart';
 import 'linux_pcm_spectrum_service.dart';
 
 @immutable
@@ -16,6 +17,7 @@ class AudioEnergy {
     required this.mid,
     required this.treble,
     required this.available,
+    this.beat = 0,
     this.bands = const <double>[],
   });
 
@@ -25,6 +27,7 @@ class AudioEnergy {
       mid = 0,
       treble = 0,
       available = false,
+      beat = 0,
       bands = const <double>[];
 
   final double level;
@@ -32,6 +35,7 @@ class AudioEnergy {
   final double mid;
   final double treble;
   final bool available;
+  final double beat;
   final List<double> bands;
 }
 
@@ -144,6 +148,7 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   static const Duration _release = Duration(milliseconds: 600);
 
   final PcmSpectrumSource _source;
+  final AudioBeatDetector _beatDetector = AudioBeatDetector();
   final ValueNotifier<AudioEnergy> _energy = ValueNotifier<AudioEnergy>(
     const AudioEnergy.idle(),
   );
@@ -318,12 +323,14 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
     final bass = _smooth(previous.bass, targets.$2, elapsed);
     final mid = _smooth(previous.mid, targets.$3, elapsed);
     final treble = _smooth(previous.treble, targets.$4, elapsed);
+    final beat = _beatDetector.process(bands, timestamp: now);
     _energy.value = AudioEnergy(
       level: level,
       bass: bass,
       mid: mid,
       treble: treble,
       available: true,
+      beat: beat,
       bands: List<double>.unmodifiable(bands),
     );
   }
@@ -363,6 +370,7 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   }
 
   void _publishUnavailable() {
+    _beatDetector.reset();
     final current = _energy.value;
     if (!current.available &&
         current.level == 0 &&

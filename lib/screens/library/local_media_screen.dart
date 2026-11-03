@@ -225,7 +225,7 @@ class _HiddenFilesView extends StatelessWidget {
         return TrackListTile(
           key: ValueKey<String>('hidden-${track.id}'),
           track: track,
-          onTap: () => controller.playTrack(track),
+          onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
           trailing: IconButton(
             tooltip: 'Restore to library',
             onPressed:

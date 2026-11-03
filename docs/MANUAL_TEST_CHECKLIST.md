@@ -57,6 +57,11 @@ This checklist records device-dependent regressions that cannot be covered relia
 - [ ] Visualizer progress line remains smooth between position events and avoids rebuilding unrelated player content.
 - [ ] Smoke effect: quiet/loud audio, pause/resume, missing artwork, theme contrast, and track palette change.
 - [ ] Smoke effect: rotate the device; run a ten-minute memory/frame-rate check; verify thermal and battery impact.
+- [ ] Turn Smoke effect off in Settings during playback; confirm it disappears immediately and no longer holds a smoke ticker/PCM consumer. Turn it back on and confirm it returns without reopening the player.
+- [ ] Cover the full player with another route, background the app, then return; confirm smoke pauses and resumes without stale audio/energy state.
+- [ ] Enable system reduced motion; confirm smoke and lyric transitions stop or become static.
+- [ ] Toggle dynamic artwork colors on and off while playing; verify the 800 ms track transition, theme fallback for missing/gray artwork, and readable seek/lyric labels in light and dark themes.
+- [ ] Scrub seek while synced lyrics are open; verify time preview and active lyric follow remain smooth and do not cause unrelated screen rebuilds.
 
 ## Results / notes
 

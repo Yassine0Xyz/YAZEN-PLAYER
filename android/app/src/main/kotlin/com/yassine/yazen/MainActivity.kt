@@ -10,6 +10,7 @@ import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
@@ -83,6 +84,10 @@ class MainActivity : AudioServiceActivity() {
                     "readArtworkPixels" -> readArtworkPixels(
                         call.argument<String>("uri"),
                         call.argument<Int>("size") ?: 64,
+                        result,
+                    )
+                    "readOriginalArtwork" -> readOriginalArtwork(
+                        call.argument<String>("uri"),
                         result,
                     )
                     else -> result.notImplemented()
@@ -502,6 +507,40 @@ class MainActivity : AudioServiceActivity() {
                 null
             }
             mainHandler.post { result.success(pixels) }
+        }
+    }
+
+    private fun readOriginalArtwork(uriString: String?, result: MethodChannel.Result) {
+        if (uriString.isNullOrBlank()) {
+            result.success(null)
+            return
+        }
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+        if (uri == null) {
+            result.success(null)
+            return
+        }
+        artworkExecutor.execute {
+            val artwork = try {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    if (uri.scheme == "file") {
+                        val path = uri.path
+                        if (path.isNullOrBlank()) null else {
+                            retriever.setDataSource(path)
+                            retriever.embeddedPicture
+                        }
+                    } else {
+                        retriever.setDataSource(applicationContext, uri)
+                        retriever.embeddedPicture
+                    }
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            } catch (_: Exception) {
+                null
+            }?.takeIf { it.isNotEmpty() && it.size <= 24 * 1024 * 1024 }
+            mainHandler.post { result.success(artwork) }
         }
     }
 
