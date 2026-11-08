@@ -49,6 +49,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   String? _gestureLabel;
   Timer? _gestureTimer;
   bool _appVisible = true;
+  bool _resumeAfterBackground = false;
   bool? _lastKeepScreenOn;
 
   @override
@@ -77,11 +78,22 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Android may report inactive while transitioning into picture-in-picture.
-    // Keep the display flag for active video during that visible transition.
+    // Android reports inactive while entering picture-in-picture. Keep video
+    // playing in that visible mode; pause only when the app actually moves to
+    // the background, then resume only if it was playing before the transition.
     _appVisible =
         state == AppLifecycleState.resumed ||
         state == AppLifecycleState.inactive;
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      if (widget.controller.value.isPlaying) {
+        _resumeAfterBackground = true;
+        unawaited(widget.controller.pause());
+      }
+    } else if (state == AppLifecycleState.resumed && _resumeAfterBackground) {
+      _resumeAfterBackground = false;
+      unawaited(widget.controller.play());
+    }
     _syncKeepScreenOn();
   }
 

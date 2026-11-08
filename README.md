@@ -30,6 +30,45 @@ interface.
 
 ## Recent Activity
 
+### Recent Activity: 2026-11-03 — V5 comprehensive performance and reliability pass
+
+Built a source-level V5 iteration on the cumulative Iteration 5 source archive.
+The pass targets avoidable library browsing work, particularly Android video
+MediaStore scans and thumbnail extraction, plus search-cache invalidation,
+dynamic sort callbacks, viewport memory, and continuous player decoration
+while scrolling. It retains the existing YAZEN audio engine and service
+architecture.
+
+The foundation validator and all 18 V5 source guardrails passed on this source tree. Flutter/Dart, Gradle, and
+the Android SDK are unavailable in the editing environment, so formatting,
+analysis, Flutter tests, Android compilation, GitHub Actions for V5, and
+real-device profiling have not been run. The added sort regression test is
+source-only until run in CI. No claim of zero lag or release readiness is made.
+
+See [the comprehensive V5 engineering audit and change log](docs/V5_COMPREHENSIVE_AUDIT_AND_CHANGELOG.md)
+and [the V5 device validation matrix](docs/V5_DEVICE_TEST_MATRIX.md) for exact
+file changes, Lark findings, retained architecture, known limits, and the
+manual test plan.
+
+Files changed in this V5 pass relative to the supplied Iteration 5 baseline:
+
+- `android/app/src/main/kotlin/com/yassine/yazen/MainActivity.kt`
+- `lib/screens/library/local_media_screen.dart`
+- `lib/screens/player/yazen_video_player.dart`
+- `lib/screens/search/search_screen.dart`
+- `lib/services/artwork_disk_cache.dart`
+- `lib/services/library_data_engine.dart`
+- `lib/widgets/echo_motion.dart`
+- `lib/widgets/media_artwork.dart`
+- `lib/widgets/video_thumbnail.dart`
+- `third_party/video_thumbnail/android/src/main/java/xyz/justsoft/video_thumbnail/VideoThumbnailPlugin.java`
+- `third_party/video_thumbnail/LOCAL_PATCHES.md`
+- `test/library_data_engine_test.dart`
+- `tool/validate_v5_performance.py`
+- `README.md`
+- `docs/V5_COMPREHENSIVE_AUDIT_AND_CHANGELOG.md`
+- `docs/V5_DEVICE_TEST_MATRIX.md`
+
 ### Recent Activity: 2026-10-25 — Repository replacement and remote CI validation
 
 The connected `Yassine0Xyz/YAZEN-PLAYER` repository was replaced on `main` with

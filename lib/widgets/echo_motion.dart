@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/theme/theme_tokens.dart';
+import '../services/scroll_performance_mode.dart';
 
 class EchoRevealSession {
   final Set<Object> _revealedKeys = <Object>{};
@@ -223,6 +224,8 @@ class _EchoBreathingGlowState extends State<EchoBreathingGlow>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   bool _reduceMotion = false;
+  bool _tickerEnabled = true;
+  bool _scrolling = false;
 
   @override
   void initState() {
@@ -231,16 +234,21 @@ class _EchoBreathingGlowState extends State<EchoBreathingGlow>
       vsync: this,
       duration: const Duration(milliseconds: 2600),
     );
+    ScrollPerformanceMode.isScrolling.addListener(_onScrollModeChanged);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (_reduceMotion != reduceMotion) {
-      _reduceMotion = reduceMotion;
-      _sync();
-    }
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _tickerEnabled = TickerMode.of(context);
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _sync();
+  }
+
+  void _onScrollModeChanged() {
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _sync();
   }
 
   @override
@@ -250,16 +258,17 @@ class _EchoBreathingGlowState extends State<EchoBreathingGlow>
   }
 
   void _sync() {
-    if (widget.enabled && !_reduceMotion) {
-      _controller.repeat(reverse: true);
+    if (widget.enabled && !_reduceMotion && _tickerEnabled && !_scrolling) {
+      if (!_controller.isAnimating) _controller.repeat(reverse: true);
     } else {
-      _controller.stop();
-      _controller.value = 0;
+      if (_controller.isAnimating) _controller.stop(canceled: false);
+      if (_reduceMotion) _controller.value = 0;
     }
   }
 
   @override
   void dispose() {
+    ScrollPerformanceMode.isScrolling.removeListener(_onScrollModeChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -304,6 +313,8 @@ class _EchoAmbientLayerState extends State<EchoAmbientLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   bool _reduceMotion = false;
+  bool _tickerEnabled = true;
+  bool _scrolling = false;
 
   @override
   void initState() {
@@ -312,24 +323,34 @@ class _EchoAmbientLayerState extends State<EchoAmbientLayer>
       vsync: this,
       duration: const Duration(seconds: 24),
     );
+    ScrollPerformanceMode.isScrolling.addListener(_onScrollModeChanged);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (_reduceMotion != reduceMotion) {
-      _reduceMotion = reduceMotion;
-      if (_reduceMotion) {
-        _controller.stop();
-      } else {
-        _controller.repeat();
-      }
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _tickerEnabled = TickerMode.of(context);
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _syncAnimation();
+  }
+
+  void _onScrollModeChanged() {
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _syncAnimation();
+  }
+
+  void _syncAnimation() {
+    if (_reduceMotion || !_tickerEnabled || _scrolling) {
+      if (_controller.isAnimating) _controller.stop(canceled: false);
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
     }
   }
 
   @override
   void dispose() {
+    ScrollPerformanceMode.isScrolling.removeListener(_onScrollModeChanged);
     _controller.dispose();
     super.dispose();
   }

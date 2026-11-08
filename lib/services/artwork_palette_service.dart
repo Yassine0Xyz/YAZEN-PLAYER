@@ -114,8 +114,9 @@ class ArtworkPaletteService {
         pixels,
         debugLabel: 'artwork-palette',
       );
-      if (colors.length < 7)
+      if (colors.length < 7) {
         return ArtworkPalette.fallback(themeAccent, surface);
+      }
       final palette = _withSafeAccent(
         ArtworkPalette(
           dominant: Color(colors[0]),

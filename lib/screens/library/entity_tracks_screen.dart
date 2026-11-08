@@ -95,38 +95,62 @@ class _LocalEntityTracksScreenState extends State<LocalEntityTracksScreen> {
               action: _retry,
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
-            itemCount: tracks.length + 1,
-            separatorBuilder: (_, _) => const SizedBox(height: 4),
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
-                  child: Text(
-                    '${tracks.length} ${tracks.length == 1 ? 'track' : 'tracks'}',
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                );
-              }
-              final trackIndex = index - 1;
-              final track = tracks[trackIndex];
-              return TrackListTile(
-                key: ValueKey<String>('entity-${track.id}'),
-                track: track,
-                onTap:
-                    () => unawaited(
-                      controller.playTrackQueue(
-                        tracks,
-                        initialIndex: trackIndex,
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth - 24 < 470;
+              return CustomScrollView(
+                slivers: <Widget>[
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Padding(
+                        // Keep the former 4px list separator after the count row.
+                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
+                        child: Text(
+                          '${tracks.length} ${tracks.length == 1 ? 'track' : 'tracks'}',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
-                isFavorite: controller.isFavorite(track),
-                onFavorite: () => controller.toggleFavorite(track),
-                onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
+                    sliver: SliverFixedExtentList(
+                      itemExtent: compact ? 76 : 82,
+                      delegate: SliverChildBuilderDelegate(
+                        (context, trackIndex) {
+                          final track = tracks[trackIndex];
+                          return Padding(
+                            // A default TrackListTile is 78px high; the 4px
+                            // bottom gap matches the previous separated list.
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: TrackListTile(
+                              key: ValueKey<String>('entity-${track.id}'),
+                              track: track,
+                              compact: compact,
+                              onTap:
+                                  () => unawaited(
+                                    controller.playTrackQueue(
+                                      tracks,
+                                      initialIndex: trackIndex,
+                                    ),
+                                  ),
+                              isFavorite: controller.isFavorite(track),
+                              onFavorite: () => controller.toggleFavorite(track),
+                              onAddToPlaylist:
+                                  () => showAddToPlaylistSheet(context, track),
+                            ),
+                          );
+                        },
+                        childCount: tracks.length,
+                        addAutomaticKeepAlives: false,
+                      ),
+                    ),
+                  ),
+                ],
               );
             },
           );

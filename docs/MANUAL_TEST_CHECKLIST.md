@@ -50,7 +50,7 @@ This checklist records device-dependent regressions that cannot be covered relia
 - [ ] Arabic / RTL layout.
 - [ ] 200% text scale without clipped controls or overflow.
 - [ ] Reduced motion enabled.
-- [ ] Performance mode enabled.
+- [ ] Performance mode (not implemented in the current source; add this check after a user-facing setting exists).
 
 ## Video and timers
 
@@ -74,6 +74,17 @@ This checklist records device-dependent regressions that cannot be covered relia
 - [ ] Enable system reduced motion; confirm Ambient Color Flow remains visible and static and lyric transitions respect the setting.
 - [ ] Toggle dynamic artwork colors on and off while playing; verify the 800 ms track transition, theme fallback for missing/gray artwork, and readable seek/lyric labels in light and dark themes.
 - [ ] Scrub seek while synced lyrics are open; verify time preview and active lyric follow remain smooth and do not cause unrelated screen rebuilds.
+
+## Library scroll performance regression checks
+
+- [ ] 500+ songs: fast repeated flings in Songs List with cold and warm artwork cache.
+- [ ] 500+ songs: fast repeated flings in Songs Grid with cold and warm artwork cache.
+- [ ] Reverse direction quickly during a fling; verify artwork for the final visible rows loads.
+- [ ] Stop during a fling; verify visible rows do not remain stuck on placeholders.
+- [ ] Include songs with missing artwork and unusually large embedded artwork.
+- [ ] On older Android versions, verify embedded artwork is downsampled and the media retriever/file handles are released after success and failure.
+- [ ] Verify play, favorite, add-to-playlist, and long-press selection actions remain functional after row-button simplification.
+- [ ] Compare UI-thread and raster-thread frame charts on the same device before and after the artwork changes.
 
 ## Results / notes
 

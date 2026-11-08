@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
+import kotlin.math.roundToInt
 
 class ArtworkQuery : ViewModel() {
 
@@ -136,22 +137,23 @@ class ArtworkQuery : ViewModel() {
             // If 'item' return null, no song/album has found, return null.
             val item = helper.loadFirstItem(type, id, resolver) ?: return@withContext null
 
+            val file = FileInputStream(item)
+            val metadata = MediaMetadataRetriever()
             try {
-                val file = FileInputStream(item)
-                val metadata = MediaMetadataRetriever()
-
                 metadata.setDataSource(file.fd)
                 val image = metadata.embeddedPicture
 
                 // Convert image. If null, return
                 artData = convertOrResize(byteArray = image) ?: return@withContext null
-
-                // 'close' can only be called using 'Android' >= 29/Q.
-                if (Build.VERSION.SDK_INT >= 29) metadata.close()
             } catch (e: Exception) {
-                // This may produce a lot of logging on console so, will required a explicit request
+                // This may produce a lot of logging on console so, will require an explicit request
                 // to show the errors.
                 if (showDetailedLog) Log.w(TAG, "($id) Message: $e")
+            } finally {
+                // release() is available on older Android versions too. Always
+                // close both native handles, including when artwork conversion fails.
+                runCatching { metadata.release() }
+                runCatching { file.close() }
             }
         }
 
@@ -159,29 +161,68 @@ class ArtworkQuery : ViewModel() {
     }
 
     //
-    private fun convertOrResize(bitmap: Bitmap? = null, byteArray: ByteArray? = null): ByteArray? {
-        val convertedBytes: ByteArray?
-        val byteArrayBase = ByteArrayOutputStream()
+    private fun convertOrResize(
+        bitmap: Bitmap? = null,
+        byteArray: ByteArray? = null,
+    ): ByteArray? {
+        val output = ByteArrayOutputStream()
+        var sourceBitmap: Bitmap? = bitmap
+        var outputBitmap: Bitmap? = null
 
         try {
-            // If 'bitmap' isn't null:
-            //   * The image(bitmap) is from first method. (Android >= 29/Q).
-            // else:
-            //   * The image(bytearray) is from second method. (Android < 29/Q).
-            if (bitmap != null) {
-                bitmap.compress(format, quality, byteArrayBase)
-            } else {
-                val convertedBitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray!!.size)
-                convertedBitmap.compress(format, quality, byteArrayBase)
-            }
-        } catch (e: Exception) {
-            // This may produce a lot of logging on console so, will required a explicit request
-            // to show the errors.
-            if (showDetailedLog) Log.w(TAG, "($id) Message: $e")
-        }
+            if (sourceBitmap == null) {
+                val encoded = byteArray ?: return null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(encoded, 0, encoded.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
-        convertedBytes = byteArrayBase.toByteArray()
-        byteArrayBase.close()
-        return convertedBytes
+                // Older Android versions expose embedded artwork as its original
+                // encoded bytes. Decode near the requested thumbnail size rather
+                // than allocating a full-resolution bitmap for every list row.
+                val targetSize = size.coerceIn(16, 2048)
+                var sampleSize = 1
+                while (
+                    maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= targetSize
+                ) {
+                    sampleSize *= 2
+                }
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                sourceBitmap = BitmapFactory.decodeByteArray(
+                    encoded,
+                    0,
+                    encoded.size,
+                    options,
+                ) ?: return null
+            }
+
+            val source = sourceBitmap ?: return null
+            val targetSize = size.coerceIn(16, 2048)
+            val scale = minOf(
+                1.0,
+                targetSize.toDouble() / maxOf(source.width, source.height),
+            )
+            val targetWidth = (source.width * scale).roundToInt().coerceAtLeast(1)
+            val targetHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
+            val rendered =
+                if (targetWidth != source.width || targetHeight != source.height) {
+                    Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+                } else {
+                    source
+                }
+            outputBitmap = rendered
+            if (!rendered.compress(format, quality, output)) return null
+            return output.toByteArray()
+        } catch (e: Exception) {
+            if (showDetailedLog) Log.w(TAG, "($id) Message: $e")
+            return null
+        } finally {
+            if (outputBitmap != null && outputBitmap !== sourceBitmap) {
+                outputBitmap?.recycle()
+            }
+            sourceBitmap?.recycle()
+            output.close()
+        }
     }
 }

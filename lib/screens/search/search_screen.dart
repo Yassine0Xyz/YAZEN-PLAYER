@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
@@ -27,16 +29,37 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   static const String _historyKey = 'yazen.search_history.v1';
   static const int _maxHistoryEntries = 10;
+  static final RegExp _arabicDiacritics = RegExp(r'[\u064B-\u065F\u0670]');
 
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   List<String> _history = const <String>[];
   String _query = '';
+  Timer? _queryDebounce;
+  String? _cachedResultsQuery;
+  List<MediaTrack>? _cachedSongs;
+  List<MediaTrack>? _cachedVideos;
+  List<ArtistModel>? _cachedArtists;
+  List<AlbumModel>? _cachedAlbums;
+  List<PlaylistModel>? _cachedDevicePlaylists;
+  List<EchoPlaylist>? _cachedCustomPlaylists;
+  int _cachedOverlayRevision = -1;
+  int _cachedCatalogRevision = -1;
+  List<_SearchEntry> _cachedEntries = const <_SearchEntry>[];
+  List<MediaTrack> _cachedAudioResults = const <MediaTrack>[];
 
   @override
   void initState() {
     super.initState();
     _loadHistory();
+  }
+
+  @override
+  void dispose() {
+    _queryDebounce?.cancel();
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHistory() async {
@@ -48,7 +71,15 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _onQueryChanged(String value) {
-    setState(() => _query = value.trim());
+    final next = value.trim();
+    _queryDebounce?.cancel();
+    if (next.isEmpty) {
+      setState(() => _query = '');
+      return;
+    }
+    _queryDebounce = Timer(const Duration(milliseconds: 120), () {
+      if (mounted && _query != next) setState(() => _query = next);
+    });
   }
 
   Future<void> _saveSearch() async {
@@ -98,49 +129,95 @@ class _SearchScreenState extends State<SearchScreen> {
     _focusNode.requestFocus();
   }
 
-  List<_SearchEntry> _results(HybridMusicController controller) {
+  List<_SearchEntry> _results(
+    HybridMusicController controller,
+    int catalogRevision,
+  ) {
     final query = _query;
-    if (query.isEmpty) return const <_SearchEntry>[];
+    final songs = controller.localSongs;
+    final videos = controller.localVideos;
+    final artists = controller.artists;
+    final albums = controller.albums;
+    final devicePlaylists = controller.playlists;
+    final customPlaylists = controller.playlistManager.playlists;
+    final overlayRevision = controller.playlistManager.libraryOverlayRevision;
+
+    // Search is a full-library scan. Cache it by immutable catalog identity and
+    // overlay revision so theme/history/unrelated widget rebuilds do not scan
+    // thousands of tracks again for an unchanged query.
+    if (_cachedResultsQuery == query &&
+        identical(_cachedSongs, songs) &&
+        identical(_cachedVideos, videos) &&
+        identical(_cachedArtists, artists) &&
+        identical(_cachedAlbums, albums) &&
+        identical(_cachedDevicePlaylists, devicePlaylists) &&
+        identical(_cachedCustomPlaylists, customPlaylists) &&
+        _cachedOverlayRevision == overlayRevision &&
+        _cachedCatalogRevision == catalogRevision) {
+      return _cachedEntries;
+    }
+
+    _cachedResultsQuery = query;
+    _cachedSongs = songs;
+    _cachedVideos = videos;
+    _cachedArtists = artists;
+    _cachedAlbums = albums;
+    _cachedDevicePlaylists = devicePlaylists;
+    _cachedCustomPlaylists = customPlaylists;
+    _cachedOverlayRevision = overlayRevision;
+    _cachedCatalogRevision = catalogRevision;
+
+    if (query.isEmpty) {
+      _cachedEntries = const <_SearchEntry>[];
+      _cachedAudioResults = const <MediaTrack>[];
+      return _cachedEntries;
+    }
+
     final entries = <_SearchEntry>[];
-    final tracks = <MediaTrack>[
-      ...controller.localSongs,
-      ...controller.localVideos,
-    ];
+    final normalizedQuery = _normalize(query);
     final seenTrackIds = <String>{};
     final matchingTracks = const LibrarySearchService()
-        .search(tracks, query)
+        .search(songs.followedBy(videos), query)
         .where((track) => seenTrackIds.add(track.id))
         .toList(growable: false);
-    _addGroup(
-      entries,
-      'Songs',
-      matchingTracks.where((track) => !track.isVideo).map(_SearchEntry.track),
+    _cachedAudioResults = List<MediaTrack>.unmodifiable(
+      matchingTracks.where((track) => !track.isVideo),
     );
 
     _addGroup(
       entries,
+      'Songs',
+      _cachedAudioResults.map(_SearchEntry.track),
+    );
+    _addGroup(
+      entries,
       'Artists',
-      controller.artists
-          .where((artist) => _matches(query, artist.artist))
+      artists
+          .where((artist) => _matchesNormalized(normalizedQuery, artist.artist))
           .map(_SearchEntry.artist),
     );
     _addGroup(
       entries,
       'Albums',
-      controller.albums
+      albums
           .where(
             (album) =>
-                _matches(query, album.album) ||
-                _matches(query, album.artist ?? ''),
+                _matchesNormalized(normalizedQuery, album.album) ||
+                _matchesNormalized(normalizedQuery, album.artist ?? ''),
           )
           .map(_SearchEntry.album),
     );
     _addGroup(entries, 'Playlists', <_SearchEntry>[
-      ...controller.playlistManager.playlists
-          .where((playlist) => _matches(query, playlist.name))
+      ...customPlaylists
+          .where(
+            (playlist) => _matchesNormalized(normalizedQuery, playlist.name),
+          )
           .map(_SearchEntry.customPlaylist),
-      ...controller.playlists
-          .where((playlist) => _matches(query, playlist.playlist))
+      ...devicePlaylists
+          .where(
+            (playlist) =>
+                _matchesNormalized(normalizedQuery, playlist.playlist),
+          )
           .map(_SearchEntry.devicePlaylist),
     ]);
     _addGroup(
@@ -148,7 +225,8 @@ class _SearchScreenState extends State<SearchScreen> {
       'Videos',
       matchingTracks.where((track) => track.isVideo).map(_SearchEntry.track),
     );
-    return entries;
+    _cachedEntries = List<_SearchEntry>.unmodifiable(entries);
+    return _cachedEntries;
   }
 
   void _addGroup(
@@ -163,13 +241,13 @@ class _SearchScreenState extends State<SearchScreen> {
       ..addAll(results);
   }
 
-  bool _matches(String query, String value) =>
-      _normalize(value).contains(_normalize(query));
+  bool _matchesNormalized(String normalizedQuery, String value) =>
+      _normalize(value).contains(normalizedQuery);
 
   String _normalize(String value) =>
       value
           .toLowerCase()
-          .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+          .replaceAll(_arabicDiacritics, '')
           .replaceAll('أ', 'ا')
           .replaceAll('إ', 'ا')
           .replaceAll('آ', 'ا')
@@ -242,21 +320,25 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   @override
-  void dispose() {
-    _textController.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
+    final catalogRevision = context.select<HybridMusicController, int>(
+      (value) => Object.hash(
+        identityHashCode(value.localSongs),
+        identityHashCode(value.localVideos),
+        identityHashCode(value.artists),
+        identityHashCode(value.albums),
+        identityHashCode(value.playlists),
+        // Custom playlist writes notify the controller but do not advance the
+        // track-overlay revision. Include their immutable-list identity so a
+        // search page left open refreshes after playlist create/rename/edit.
+        identityHashCode(value.playlistManager.playlists),
+        value.playlistManager.libraryOverlayRevision,
+      ),
+    );
     final tokens = context.read<ThemeProvider>().tokens;
-    final entries = _results(controller);
-    final audioResults = entries
-        .where((entry) => entry.track != null && !entry.track!.isVideo)
-        .map((entry) => entry.track!)
-        .toList(growable: false);
+    final entries = _results(controller, catalogRevision);
+    final audioResults = _cachedAudioResults;
     final isSearching = _query.isNotEmpty;
 
     return Scaffold(

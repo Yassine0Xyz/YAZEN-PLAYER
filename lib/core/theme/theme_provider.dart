@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
 import '../../widgets/echo_motion.dart';
+import '../../services/scroll_performance_mode.dart';
 import 'theme_tokens.dart';
 
 export 'theme_tokens.dart' show EchoThemePreset, ThemeTokens;
@@ -87,16 +89,30 @@ class ThemeBackdrop extends StatelessWidget {
         else
           RepaintBoundary(child: EchoAmbientLayer(tokens: tokens)),
         if (state.customBackground != null) ...<Widget>[
+          // A full-screen blur is one of the more expensive raster effects in
+          // the app. Keep the softened look while idle, but remove the filter
+          // entirely during active scrolling so it cannot compete with list
+          // layout and artwork decoding for GPU time.
           Positioned.fill(
-            child: Image(image: state.customBackground!, fit: BoxFit.cover),
-          ),
-          Positioned.fill(child: ColoredBox(color: tokens.scrim)),
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: const SizedBox.expand(),
+            child: RepaintBoundary(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: ScrollPerformanceMode.isScrolling,
+                builder: (context, scrolling, _) {
+                  final image = Image(
+                    image: state.customBackground!,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.low,
+                  );
+                  if (scrolling) return image;
+                  return ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: image,
+                  );
+                },
+              ),
             ),
           ),
+          Positioned.fill(child: ColoredBox(color: tokens.scrim)),
         ],
         child,
       ],
@@ -114,6 +130,10 @@ class _RgbRainbowLayer extends StatefulWidget {
 class _RgbRainbowLayerState extends State<_RgbRainbowLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final _FrameLimitedAnimationValue _paintValue;
+  bool _reduceMotion = false;
+  bool _tickerEnabled = true;
+  bool _scrolling = false;
 
   @override
   void initState() {
@@ -121,11 +141,38 @@ class _RgbRainbowLayerState extends State<_RgbRainbowLayer>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 26),
-    )..repeat();
+    );
+    _paintValue = _FrameLimitedAnimationValue(_controller);
+    ScrollPerformanceMode.isScrolling.addListener(_onScrollModeChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _tickerEnabled = TickerMode.of(context);
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _syncAnimation();
+  }
+
+  void _onScrollModeChanged() {
+    _scrolling = ScrollPerformanceMode.isScrolling.value;
+    _syncAnimation();
+  }
+
+  void _syncAnimation() {
+    if (_reduceMotion || !_tickerEnabled || _scrolling) {
+      if (_controller.isAnimating) _controller.stop(canceled: false);
+      _paintValue.sync();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
   void dispose() {
+    ScrollPerformanceMode.isScrolling.removeListener(_onScrollModeChanged);
+    _paintValue.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -133,16 +180,62 @@ class _RgbRainbowLayerState extends State<_RgbRainbowLayer>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _RgbRainbowPainter(_controller),
+      painter: _RgbRainbowPainter(_paintValue),
       child: const SizedBox.expand(),
     );
+  }
+}
+
+class _FrameLimitedAnimationValue extends ChangeNotifier
+    implements ValueListenable<double> {
+  _FrameLimitedAnimationValue(this._controller) : _value = _controller.value {
+    _controller.addListener(_onTick);
+  }
+
+  static const Duration _minimumPaintInterval = Duration(milliseconds: 50);
+
+  final AnimationController _controller;
+  Duration? _lastPublishedElapsed;
+  double _value;
+
+  @override
+  double get value => _value;
+
+  void _onTick() {
+    final elapsed = _controller.lastElapsedDuration;
+    final previous = _lastPublishedElapsed;
+    if (elapsed != null &&
+        previous != null &&
+        elapsed - previous < _minimumPaintInterval) {
+      return;
+    }
+    _lastPublishedElapsed = elapsed;
+    _publish();
+  }
+
+  void _publish() {
+    final next = _controller.value;
+    if (next == _value) return;
+    _value = next;
+    notifyListeners();
+  }
+
+  void sync() {
+    _lastPublishedElapsed = _controller.lastElapsedDuration;
+    _publish();
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onTick);
+    super.dispose();
   }
 }
 
 class _RgbRainbowPainter extends CustomPainter {
   _RgbRainbowPainter(this.animation) : super(repaint: animation);
 
-  final Animation<double> animation;
+  final ValueListenable<double> animation;
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -33,7 +33,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final PageController _libraryPageController;
-  bool _showLibraryHeader = true;
+  final ValueNotifier<bool> _showLibraryHeader = ValueNotifier<bool>(true);
+  double _headerScrollAccumulator = 0;
 
   @override
   void initState() {
@@ -48,7 +49,28 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _libraryPageController.dispose();
+    _showLibraryHeader.dispose();
     super.dispose();
+  }
+
+  void _handleLibraryScrollDelta(double delta) {
+    if (delta.abs() < 0.5) return;
+    final isVisible = _showLibraryHeader.value;
+    if ((isVisible && delta > 0) || (!isVisible && delta < 0)) {
+      _headerScrollAccumulator += delta;
+    } else {
+      _headerScrollAccumulator = delta;
+    }
+
+    // Avoid rebuilding the home page for tiny direction changes caused by
+    // touch jitter or scroll physics. Hide/show only after deliberate movement.
+    if (isVisible && _headerScrollAccumulator >= 18) {
+      _showLibraryHeader.value = false;
+      _headerScrollAccumulator = 0;
+    } else if (!isVisible && _headerScrollAccumulator <= -28) {
+      _showLibraryHeader.value = true;
+      _headerScrollAccumulator = 0;
+    }
   }
 
   void _selectLibraryTab(LibraryTab tab) {
@@ -69,37 +91,48 @@ class _HomeScreenState extends State<HomeScreen> {
     LibraryTab selectedTab,
   ) => Column(
     children: <Widget>[
-      if (_showLibraryHeader)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          child: _buildHeader(context),
-        ),
-      if (_showLibraryHeader)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+      ValueListenableBuilder<bool>(
+        valueListenable: _showLibraryHeader,
+        builder: (context, showHeader, _) {
+          if (!showHeader) return const SizedBox.shrink();
+          return Column(
             children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Your library',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.7,
-                  ),
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: _buildHeader(context),
               ),
-              Text(
-                '${context.read<HybridMusicController>().visibleTracks.length} items',
-                style: TextStyle(
-                  color: context.read<ThemeProvider>().tokens.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        'Your library',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.7,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${context.read<HybridMusicController>().visibleTracks.length} items',
+                      style: TextStyle(
+                        color:
+                            context.read<ThemeProvider>().tokens.textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
-          ),
-        ),
+          );
+        },
+      ),
       LibraryTabs(selected: selectedTab, onSelected: _selectLibraryTab),
       const SizedBox(height: 4),
       Expanded(
@@ -113,35 +146,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
           itemBuilder: (context, index) {
             final tab = LibraryTab.values[index];
-            return AnimatedBuilder(
-              animation: _libraryPageController,
-              child: LocalMediaScreen(
-                selectedTab: tab,
-                onTabSelected: _selectLibraryTab,
-                showTabs: false,
-                onScrollDelta: (delta) {
-                  if (delta > 0 && _showLibraryHeader) {
-                    setState(() => _showLibraryHeader = false);
-                  } else if (delta < 0 && !_showLibraryHeader) {
-                    setState(() => _showLibraryHeader = true);
-                  }
-                },
-              ),
-              builder: (context, child) {
-                final page =
-                    _libraryPageController.hasClients
-                        ? (_libraryPageController.page ?? index.toDouble())
-                        : index.toDouble();
-                final distance = (page - index).abs().clamp(0.0, 1.0);
-                final drift = (page - index) * -12.0;
-                return Opacity(
-                  opacity: 1.0 - (distance * 0.08),
-                  child: Transform.translate(
-                    offset: Offset(drift, 0),
-                    child: child,
-                  ),
-                );
-              },
+            // PageView already supplies the tab transition. Avoid rebuilding
+            // full library pages every animation frame for an extra fade/drift.
+            return LocalMediaScreen(
+              selectedTab: tab,
+              onTabSelected: _selectLibraryTab,
+              showTabs: false,
+              onScrollDelta: _handleLibraryScrollDelta,
             );
           },
         ),
@@ -337,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-    if (!mounted || action == null) return;
+    if (!context.mounted || action == null) return;
     final controller = context.read<HybridMusicController>();
     switch (action) {
       case _HeaderMoreAction.equalizer:
@@ -346,7 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await Navigator.of(context).push(SettingsScreen.route());
       case _HeaderMoreAction.addFiles:
         await controller.pickLocalFiles();
-        if (!mounted || controller.errorMessage == null) return;
+        if (!context.mounted || controller.errorMessage == null) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(controller.errorMessage!)));
@@ -431,12 +442,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: Column(
                                 children: availableSorts
                                     .map(
-                                      (sort) => RadioListTile<LibrarySort>(
-                                        dense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                        value: sort,
-                                        title: Text(_sortLabel(sort)),
-                                        activeColor: tokens.accent,
+                                      (sort) => Material(
+                                        color: Colors.transparent,
+                                        child: RadioListTile<LibrarySort>(
+                                          dense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          value: sort,
+                                          title: Text(_sortLabel(sort)),
+                                          activeColor: tokens.accent,
+                                        ),
                                       ),
                                     )
                                     .toList(growable: false),
@@ -545,21 +559,24 @@ class _MoreOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: tokens.accent.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        leading: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: tokens.accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: tokens.accent),
         ),
-        child: Icon(icon, color: tokens.accent),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: onTap,
     );
   }
 }

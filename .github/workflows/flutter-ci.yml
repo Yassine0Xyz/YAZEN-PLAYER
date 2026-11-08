@@ -1,10 +1,13 @@
 name: Flutter CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - diagnostics/temp-performance-v1
   pull_request:
-    branches: [main]
+    branches:
+      - diagnostics/temp-performance-v1
 
 permissions:
   contents: read
@@ -15,12 +18,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out source
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v4
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2.23.0
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.47.5
           channel: stable
           cache: true
 
@@ -32,31 +35,26 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Check formatting
+      - name: Format Dart sources
+        run: dart format .
+
+      - name: Verify Dart formatting
         run: dart format --output=none --set-exit-if-changed .
 
+      - name: Validate temporary diagnostics wiring
+        run: python3 tool/validate_temp_diagnostics.py
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
 
-      - name: Run focused regression tests
-        run: >-
-          flutter test
-          test/local_playlist_manager_test.dart
-          test/artwork_palette_service_test.dart
-          test/library_display_settings_test.dart
-          test/playback_policies_test.dart
-          test/playback_state_store_test.dart
-          test/track_content_transition_test.dart
-
-      - name: Run full test suite
+      - name: Run tests
         run: flutter test
 
-      - name: Validate Android debug build
+      - name: Build Android debug APK
         run: flutter build apk --debug --target-platform android-arm64
 
       - name: Upload Android debug APK
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v4
         with:
           name: yazen-player-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk

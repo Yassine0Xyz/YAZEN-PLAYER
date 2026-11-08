@@ -40,7 +40,10 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
         context = binding.getApplicationContext();
-        executor = Executors.newCachedThreadPool();
+        // Keep decoder work bounded even if a future caller bypasses YAZEN's
+        // Dart-side viewport gate. MediaMetadataRetriever is memory intensive;
+        // an unbounded cached pool can create a burst of native decoders.
+        executor = Executors.newFixedThreadPool(2);
         channel = new MethodChannel(binding.getBinaryMessenger(), "plugins.justsoft.xyz/video_thumbnail");
         channel.setMethodCallHandler(this);
     }
@@ -66,30 +69,39 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         final int quality = (int) args.get("quality");
         final String method = call.method;
 
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                Object thumbnail = null;
-                boolean handled = false;
-                Exception exc = null;
+        final ExecutorService activeExecutor = executor;
+        if (activeExecutor == null || activeExecutor.isShutdown()) {
+            result.error("executor_closed", "Video thumbnail service is no longer available.", null);
+            return;
+        }
+        try {
+            activeExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Object thumbnail = null;
+                    boolean handled = false;
+                    Exception exc = null;
 
-                try {
-                    if (method.equals("file")) {
-                        final String path = (String) args.get("path");
-                        thumbnail = buildThumbnailFile(video, headers, path, format, maxh, maxw, timeMs, quality);
-                        handled = true;
+                    try {
+                        if (method.equals("file")) {
+                            final String path = (String) args.get("path");
+                            thumbnail = buildThumbnailFile(video, headers, path, format, maxh, maxw, timeMs, quality);
+                            handled = true;
 
-                    } else if (method.equals("data")) {
-                        thumbnail = buildThumbnailData(video, headers, format, maxh, maxw, timeMs, quality);
-                        handled = true;
+                        } else if (method.equals("data")) {
+                            thumbnail = buildThumbnailData(video, headers, format, maxh, maxw, timeMs, quality);
+                            handled = true;
+                        }
+                    } catch (Exception e) {
+                        exc = e;
                     }
-                } catch (Exception e) {
-                    exc = e;
-                }
 
-                onResult(result, thumbnail, handled, exc);
-            }
-        });
+                    onResult(result, thumbnail, handled, exc);
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            result.error("executor_closed", "Video thumbnail service is closing.", null);
+        }
     }
 
     private static Bitmap.CompressFormat intToFormat(int format) {
@@ -121,15 +133,18 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         // Log.d(TAG, String.format("buildThumbnailData( format:%d, maxh:%d, maxw:%d,
         // timeMs:%d, quality:%d )", format, maxh, maxw, timeMs, quality));
         Bitmap bitmap = createVideoThumbnail(vidPath, headers, maxh, maxw, timeMs);
-        if (bitmap == null)
-            throw new NullPointerException();
+        if (bitmap == null) {
+            throw new IllegalStateException("Unable to decode a frame from the video.");
+        }
 
-        ByteArrayOutputStream stream = new ByteArrayOutputStream();
-        bitmap.compress(intToFormat(format), quality, stream);
-        bitmap.recycle();
-        if (bitmap == null)
-            throw new NullPointerException();
-        return stream.toByteArray();
+        try (ByteArrayOutputStream stream = new ByteArrayOutputStream()) {
+            if (!bitmap.compress(intToFormat(format), quality, stream)) {
+                throw new IOException("Unable to encode the video thumbnail.");
+            }
+            return stream.toByteArray();
+        } finally {
+            bitmap.recycle();
+        }
     }
 
     private String buildThumbnailFile(final String vidPath, final HashMap<String, String> headers, String path,
@@ -163,9 +178,9 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         }
 
         try {
-            FileOutputStream f = new FileOutputStream(fullpath);
-            f.write(bytes);
-            f.close();
+            try (FileOutputStream f = new FileOutputStream(fullpath)) {
+                f.write(bytes);
+            }
             Log.d(TAG, String.format("buildThumbnailFile( written:%d )", bytes.length));
         } catch (java.io.IOException e) {
             e.printStackTrace();
@@ -236,7 +251,15 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
                             targetH = Math.round(((float) targetW / width) * height);
                         }
                         Log.d(TAG, String.format("original w:%d, h:%d => %d, %d", width, height, targetW, targetH));
-                        bitmap = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true);
+                        Bitmap original = bitmap;
+                        bitmap = null;
+                        try {
+                            bitmap = Bitmap.createScaledBitmap(original, targetW, targetH, true);
+                        } finally {
+                            if (bitmap != original) {
+                                original.recycle();
+                            }
+                        }
                     }
                 }
             } else {

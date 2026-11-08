@@ -31,6 +31,7 @@ class ArtworkContentCropper {
   static Future<ProcessedArtwork> process(
     Uint8List bytes, {
     required String cacheKey,
+    int targetPixels = _maxOutputLongestSide,
   }) async {
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     ui.ImageDescriptor? descriptor;
@@ -46,6 +47,9 @@ class ArtworkContentCropper {
         );
       }
 
+      // Keep content-bound detection for square artwork too. Some covers use
+      // square canvases with intentional side padding, and changing that
+      // framing would alter the existing visual behavior.
       final bounds = await _boundsFor(
         cacheKey,
         descriptor,
@@ -60,9 +64,10 @@ class ArtworkContentCropper {
         );
       }
 
+      final outputLimit = targetPixels.clamp(96, _maxOutputLongestSide);
       final scale = math.min(
         1.0,
-        _maxOutputLongestSide / math.max(originalWidth, originalHeight),
+        outputLimit / math.max(originalWidth, originalHeight),
       );
       final decodeWidth = math.max(1, (originalWidth * scale).round());
       final decodeHeight = math.max(1, (originalHeight * scale).round());
@@ -74,11 +79,12 @@ class ArtworkContentCropper {
         final frame = await codec.getNextFrame();
         final image = frame.image;
         try {
+          final cropBounds = bounds;
           final source = ui.Rect.fromLTRB(
-            bounds.left * image.width,
-            bounds.top * image.height,
-            bounds.right * image.width,
-            bounds.bottom * image.height,
+            cropBounds.left * image.width,
+            cropBounds.top * image.height,
+            cropBounds.right * image.width,
+            cropBounds.bottom * image.height,
           );
           final cropWidth = source.width.round().clamp(1, image.width);
           final cropHeight = source.height.round().clamp(1, image.height);

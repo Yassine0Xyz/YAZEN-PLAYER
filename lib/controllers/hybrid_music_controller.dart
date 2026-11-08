@@ -9,13 +9,16 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/media_track.dart';
+import '../models/library_query.dart';
 import '../services/hybrid_audio_handler.dart';
 import '../services/playback_policies.dart';
 import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
-import '../services/library_search_service.dart';
-import '../services/folder_identity.dart';
+import '../services/library_data_engine.dart';
+import '../diagnostics/core/diagnostics_service.dart';
+
+export '../models/library_query.dart' show LibraryFilter, LibrarySort;
 
 class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   HybridMusicController({
@@ -71,7 +74,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   final HybridAudioHandler _audioHandler;
   final LocalPlaylistManager _playlistManager;
   final LyricsService _lyricsService;
-  static const LibrarySearchService _searchService = LibrarySearchService();
+  final LibraryDataEngine _libraryDataEngine = LibraryDataEngine();
+  int _dynamicLibraryRevision = 0;
 
   bool get _usesLinuxImportedFileMode =>
       Platform.isLinux && _library.runtimeType == MediaLibraryService;
@@ -79,8 +83,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   LibraryTab _selectedTab = LibraryTab.songs;
   List<MediaTrack> _baseLocalSongs = const <MediaTrack>[];
   List<MediaTrack> _localSongs = const <MediaTrack>[];
-  List<MediaTrack> _allLocalSongs = const <MediaTrack>[];
-  List<MediaTrack>? _hiddenTracksCache;
   List<MediaTrack> _localVideos = const <MediaTrack>[];
   final Map<String, MediaTrack> _importedAudioFiles = <String, MediaTrack>{};
   final Map<String, MediaTrack> _importedVideoFiles = <String, MediaTrack>{};
@@ -89,6 +91,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<PlaylistModel> _playlists = const <PlaylistModel>[];
   List<String> _folders = const <String>[];
   bool _isLoading = false;
+  bool _libraryLoadInProgress = false;
   final Map<LibraryTab, LibrarySort> _librarySortByTab =
       <LibraryTab, LibrarySort>{
         LibraryTab.songs: LibrarySort.newestFirst,
@@ -106,26 +109,27 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   };
   bool _videosLoading = false;
   bool _videosPermissionAttempted = false;
+  bool _secondaryLibraryLoading = false;
+  bool _secondaryLibraryLoaded = false;
   bool _permissionRequired = false;
   int _lastLibraryOverlayRevision = 0;
-  List<MediaTrack>? _visibleTracksCache;
-  Iterable<MediaTrack>? _visibleTracksSource;
-  LibrarySort? _visibleTracksCacheSort;
-  Set<LibraryFilter>? _visibleTracksCacheFilters;
-  String? _visibleTracksCacheQuery;
   int _playbackSelectionRequest = 0;
+  int _libraryLoadGeneration = 0;
+  bool _refreshQueuedDuringLoad = false;
+  bool _disposed = false;
+  int _secondaryLibraryGeneration = 0;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
   List<MediaTrack> get hiddenTracks =>
-      _hiddenTracksCache ??= List<MediaTrack>.unmodifiable(
-        _allLocalSongs.where((track) => _playlistManager.isHidden(track.id)),
-      );
+      _libraryDataEngine.snapshot.hiddenAudioTracks;
   List<MediaTrack> get localVideos => _localVideos;
   List<ArtistModel> get artists => _artists;
   List<AlbumModel> get albums => _albums;
   List<PlaylistModel> get playlists => _playlists;
   List<String> get folders => _folders;
+  Map<String, int> get folderTrackCounts =>
+      _libraryDataEngine.snapshot.folderCounts;
   bool get isLoading => _isLoading;
   bool get permissionRequired => _permissionRequired;
   AudioServiceRepeatMode get repeatMode => _audioHandler.repeatMode;
@@ -141,6 +145,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   HybridAudioHandler get audioHandler => _audioHandler;
   LyricsService get lyricsService => _lyricsService;
   LocalPlaylistManager get playlistManager => _playlistManager;
+  LibraryIndexSnapshot get librarySnapshot => _libraryDataEngine.snapshot;
 
   List<MediaTrack> get visibleTracks {
     final tracks = switch (_selectedTab) {
@@ -152,124 +157,69 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       LibraryTab.songs => _localSongs,
       LibraryTab.hidden => hiddenTracks,
     };
-    if (identical(_visibleTracksSource, tracks) &&
-        _visibleTracksCacheSort == librarySort &&
-        _sameFilters(_visibleTracksCacheFilters, libraryFilters) &&
-        _visibleTracksCacheQuery == searchQuery &&
-        _visibleTracksCache != null) {
-      return _visibleTracksCache!;
-    }
-    final filtered = _searchService
-        .search(tracks, searchQuery)
-        .where(_matchesLibraryFilters);
-    final sorted = List<MediaTrack>.of(filtered)..sort(_compareTracks);
-    final cached = List<MediaTrack>.unmodifiable(sorted);
-    _visibleTracksSource = tracks;
-    _visibleTracksCacheSort = librarySort;
-    _visibleTracksCacheFilters = Set<LibraryFilter>.of(libraryFilters);
-    _visibleTracksCacheQuery = searchQuery;
-    _visibleTracksCache = cached;
-    return cached;
-  }
-
-  List<MediaTrack> orderedTracks(Iterable<MediaTrack> tracks) {
-    final sorted = List<MediaTrack>.of(tracks);
-    sorted.sort(_compareTracks);
-    return sorted;
+    return _libraryDataEngine.queryTracks(
+      source: tracks,
+      sort: librarySort,
+      filters:
+          _libraryFiltersByTab[_selectedTab] ?? const <LibraryFilter>{},
+      query: searchQuery,
+      isFavorite: _playlistManager.isFavorite,
+      playCount: _playlistManager.playCount,
+      lastPlayed: _playlistManager.lastPlayed,
+      dynamicRevision: _dynamicLibraryRevision,
+    );
   }
 
   void setLibrarySort(LibrarySort sort) {
     if (librarySort == sort) return;
+    DiagnosticsService.instance.record('library_sort_changed', <String, Object?>{'tab': _selectedTab.name, 'sort': sort.name});
     _librarySortByTab[_selectedTab] = sort;
-    _visibleTracksCache = null;
+    _libraryDataEngine.invalidateQueries();
     notifyListeners();
   }
 
   void setLibraryFilters(Iterable<LibraryFilter> filters) {
     final next = filters.toSet()..remove(LibraryFilter.all);
     final current = _libraryFiltersByTab[_selectedTab] ?? <LibraryFilter>{};
-    if (_sameFilters(current, next)) return;
+    if (current.length == next.length && current.containsAll(next)) return;
+    DiagnosticsService.instance.record('library_filters_changed', <String, Object?>{'tab': _selectedTab.name, 'filters': next.map((filter) => filter.name).toList(growable: false)});
     _libraryFiltersByTab[_selectedTab] = next;
-    _visibleTracksCache = null;
+    _libraryDataEngine.invalidateQueries();
     notifyListeners();
   }
 
   void setSearchQuery(String query) {
     final normalized = query.trim();
     if (searchQuery == normalized) return;
+    DiagnosticsService.instance.record('library_search_changed', <String, Object?>{'tab': _selectedTab.name, 'queryLength': normalized.length});
     _searchQueryByTab[_selectedTab] = normalized;
-    _visibleTracksCache = null;
+    // The engine's ordered/filter cache is independent of search text, so a
+    // keystroke only invalidates the final text-match cache by query key.
     notifyListeners();
   }
 
-  int _compareTracks(MediaTrack a, MediaTrack b) {
-    final int primary;
-    switch (librarySort) {
-      case LibrarySort.newestFirst:
-        primary = (b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-            .compareTo(a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
-      case LibrarySort.oldestFirst:
-        primary = (a.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-            .compareTo(b.modifiedAt ?? DateTime.fromMillisecondsSinceEpoch(0));
-      case LibrarySort.sizeLowToHigh:
-        primary = (a.sizeBytes ?? 0).compareTo(b.sizeBytes ?? 0);
-      case LibrarySort.sizeHighToLow:
-        primary = (b.sizeBytes ?? 0).compareTo(a.sizeBytes ?? 0);
-      case LibrarySort.durationShortToLong:
-        primary = (a.duration ?? Duration.zero).compareTo(
-          b.duration ?? Duration.zero,
-        );
-      case LibrarySort.durationLongToShort:
-        primary = (b.duration ?? Duration.zero).compareTo(
-          a.duration ?? Duration.zero,
-        );
-      case LibrarySort.nameAZ:
-        primary = a.title.toLowerCase().compareTo(b.title.toLowerCase());
-      case LibrarySort.nameZA:
-        primary = b.title.toLowerCase().compareTo(a.title.toLowerCase());
-      case LibrarySort.artistAZ:
-        primary = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
-      case LibrarySort.mostPlayed:
-        primary = _playlistManager
-            .playCount(b.id)
-            .compareTo(_playlistManager.playCount(a.id));
-      case LibrarySort.recentlyPlayedFirst:
-        primary = (_playlistManager.lastPlayed(b.id) ??
-                DateTime.fromMillisecondsSinceEpoch(0))
-            .compareTo(
-              _playlistManager.lastPlayed(a.id) ??
-                  DateTime.fromMillisecondsSinceEpoch(0),
-            );
-    }
-    if (primary != 0) return primary;
-    final title = a.title.toLowerCase().compareTo(b.title.toLowerCase());
-    if (title != 0) return title;
-    return a.id.compareTo(b.id);
-  }
+  List<MediaTrack> orderedTracks(Iterable<MediaTrack> tracks) =>
+      _libraryDataEngine.sortTracks(
+        tracks,
+        librarySort,
+        playCount: _playlistManager.playCount,
+        lastPlayed: _playlistManager.lastPlayed,
+      );
 
-  bool _matchesLibraryFilters(MediaTrack track) {
-    final filters = libraryFilters;
-    if (filters.contains(LibraryFilter.favorites) &&
-        !_playlistManager.isFavorite(track)) {
-      return false;
-    }
-    if (filters.contains(LibraryFilter.importedFiles) &&
-        !track.id.startsWith('local-file:')) {
-      return false;
-    }
-    if (filters.contains(LibraryFilter.missingAlbum) &&
-        track.album.trim().isNotEmpty &&
-        track.album.toLowerCase() != 'unknown album') {
-      return false;
-    }
-    return true;
-  }
-
-  bool _sameFilters(Set<LibraryFilter>? a, Set<LibraryFilter> b) =>
-      a != null && a.length == b.length && a.containsAll(b);
-
-  Future<void> loadLibrary({bool requestPermission = true}) async {
-    _setLoading(true);
+  Future<void> loadLibrary({
+    bool requestPermission = true,
+    bool preserveCurrentLibrary = false,
+  }) async {
+    // A refresh should publish its replacement snapshot atomically while the
+    // current list stays visible. Initial loading still uses the loading state.
+    _libraryLoadInProgress = true;
+    var shouldLoadSecondaryCatalogs = false;
+    if (!preserveCurrentLibrary) _setLoading(true);
+    final loadGeneration = ++_libraryLoadGeneration;
+    // Any in-flight secondary catalog query belongs to the previous scan.
+    // It may finish, but must never publish stale artists/albums/playlists.
+    _secondaryLibraryGeneration++;
+    _secondaryLibraryLoaded = false;
     _errorMessage = null;
 
     try {
@@ -289,41 +239,62 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       if (!await _library.ensurePermission(
         requestIfDenied: requestPermission,
       )) {
-        _markPermissionRequired();
+        if (loadGeneration == _libraryLoadGeneration) {
+          _markPermissionRequired();
+        }
         return;
       }
+      if (loadGeneration != _libraryLoadGeneration) return;
       _permissionRequired = false;
-      final results = await Future.wait<dynamic>(<Future<dynamic>>[
-        _library.querySongs(),
-        _library.queryVideos(requestPermission: false),
-        _library.queryArtists(),
-        _library.queryAlbums(),
-        _library.queryPlaylists(),
-      ]);
-      _baseLocalSongs = _mergeTracks(
-        results[0] as List<MediaTrack>,
-        _importedAudioFiles.values,
-      );
-      _localVideos = _mergeTracks(
-        results[1] as List<MediaTrack>,
-        _importedVideoFiles.values,
-      );
-      _artists = results[2] as List<ArtistModel>;
-      _albums = results[3] as List<AlbumModel>;
-      _playlists = results[4] as List<PlaylistModel>;
+      // Songs are the critical path. Defer secondary catalogs until the first
+      // list is visible so a large library never blocks first paint.
+      final songs = await _library.querySongs();
+      // A newer scan may have started while MediaStore was responding. Never
+      // let an older result replace the newer library snapshot.
+      if (loadGeneration != _libraryLoadGeneration) return;
+      _baseLocalSongs = _mergeTracks(songs, _importedAudioFiles.values);
+      _artists = const <ArtistModel>[];
+      _albums = const <AlbumModel>[];
+      _playlists = const <PlaylistModel>[];
+      _secondaryLibraryLoaded = false;
       _rebuildLibraryDerivedLists();
+      shouldLoadSecondaryCatalogs = true;
     } catch (error) {
-      _errorMessage = 'Unable to read the device music library: $error';
+      if (loadGeneration == _libraryLoadGeneration) {
+        _errorMessage = 'Unable to read the device music library: $error';
+      }
     } finally {
-      _setLoading(false);
+      _libraryLoadInProgress = false;
+      var refreshQueued = false;
+      if (!preserveCurrentLibrary) _setLoading(false);
+      if (_refreshQueuedDuringLoad) {
+        _refreshQueuedDuringLoad = false;
+        refreshQueued = true;
+      }
+      if (refreshQueued) {
+        unawaited(refreshLibrary());
+      } else if (shouldLoadSecondaryCatalogs &&
+          !_disposed &&
+          loadGeneration == _libraryLoadGeneration &&
+          !_permissionRequired) {
+        // Start secondary catalogs only after the primary Songs result has
+        // been published and the initial loading state has been cleared.
+        unawaited(_loadSecondaryLibraryData(loadGeneration));
+      }
       notifyListeners();
     }
   }
 
   Future<void> refreshLibrary() async {
-    if (_isLoading) return;
+    if (_isLoading || _libraryLoadInProgress) {
+      _refreshQueuedDuringLoad = true;
+      return;
+    }
     if (_usesLinuxImportedFileMode) {
-      await loadLibrary(requestPermission: false);
+      await loadLibrary(
+        requestPermission: false,
+        preserveCurrentLibrary: true,
+      );
       return;
     }
     if (!await _library.recheckPermission()) {
@@ -331,7 +302,151 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return;
     }
-    await loadLibrary(requestPermission: false);
+    await loadLibrary(
+      requestPermission: false,
+      preserveCurrentLibrary: true,
+    );
+  }
+
+  Future<void> _yieldForCatalogFrame({int fallbackMilliseconds = 100}) =>
+      Future.any<void>(<Future<void>>[
+        WidgetsBinding.instance.endOfFrame,
+        Future<void>.delayed(Duration(milliseconds: fallbackMilliseconds)),
+      ]);
+
+  Future<void> _loadSecondaryLibraryData([int? requestedGeneration]) async {
+    final generation = requestedGeneration ?? _libraryLoadGeneration;
+    if (_disposed ||
+        _libraryLoadInProgress ||
+        _permissionRequired ||
+        generation != _libraryLoadGeneration ||
+        _secondaryLibraryLoaded) {
+      return;
+    }
+    if (_secondaryLibraryLoading) return;
+    _secondaryLibraryLoading = true;
+    final secondaryGeneration = _secondaryLibraryGeneration;
+    final catalogSpan = DiagnosticsService.instance.startSpan(
+      'library_secondary_catalog_pipeline',
+      data: <String, Object?>{'selectedTab': _selectedTab.name},
+    );
+    var completedCatalogs = 0;
+    try {
+      // Let the first Songs frame render before the larger secondary
+      // MediaStore payloads are decoded on the platform channel.
+      await _yieldForCatalogFrame(fallbackMilliseconds: 120);
+      if (_disposed ||
+          _libraryLoadInProgress ||
+          generation != _libraryLoadGeneration ||
+          secondaryGeneration != _secondaryLibraryGeneration) {
+        DiagnosticsService.instance.endSpan(
+          catalogSpan,
+          'superseded',
+          <String, Object?>{'reason': 'library_generation_changed_or_initial_load_active'},
+        );
+        return;
+      }
+
+      // Do not complete three large MethodChannel responses simultaneously.
+      // Loading and publishing one catalog at a time lowers peak decode and
+      // allocation pressure while keeping each catalog independently usable.
+      final order = <LibraryTab>[
+        _selectedTab,
+        LibraryTab.artists,
+        LibraryTab.albums,
+        LibraryTab.playlists,
+      ].where((tab) =>
+          tab == LibraryTab.artists ||
+          tab == LibraryTab.albums ||
+          tab == LibraryTab.playlists).toSet().toList(growable: false);
+
+      for (final catalog in order) {
+        if (_disposed ||
+            generation != _libraryLoadGeneration ||
+            secondaryGeneration != _secondaryLibraryGeneration) {
+          DiagnosticsService.instance.endSpan(
+            catalogSpan,
+            'superseded',
+            <String, Object?>{'completedCatalogs': completedCatalogs},
+          );
+          return;
+        }
+
+        final result = switch (catalog) {
+          LibraryTab.artists => await _library.queryArtists(),
+          LibraryTab.albums => await _library.queryAlbums(),
+          LibraryTab.playlists => await _library.queryPlaylists(),
+          _ => null,
+        };
+        // A refresh may supersede this query while the platform channel is
+        // returning. Discard the stale payload before assigning or notifying.
+        if (_disposed ||
+            generation != _libraryLoadGeneration ||
+            secondaryGeneration != _secondaryLibraryGeneration) {
+          DiagnosticsService.instance.endSpan(
+            catalogSpan,
+            'superseded',
+            <String, Object?>{'completedCatalogs': completedCatalogs},
+          );
+          return;
+        }
+        switch (catalog) {
+          case LibraryTab.artists:
+            _artists = result as List<ArtistModel>;
+            break;
+          case LibraryTab.albums:
+            _albums = result as List<AlbumModel>;
+            break;
+          case LibraryTab.playlists:
+            _playlists = result as List<PlaylistModel>;
+            break;
+          default:
+            continue;
+        }
+        completedCatalogs++;
+        DiagnosticsService.instance.record(
+          'library_catalog_published',
+          <String, Object?>{
+            'catalog': catalog.name,
+            'itemCount': switch (catalog) {
+              LibraryTab.artists => _artists.length,
+              LibraryTab.albums => _albums.length,
+              LibraryTab.playlists => _playlists.length,
+              _ => 0,
+            },
+            'completedCatalogs': completedCatalogs,
+          },
+        );
+        notifyListeners();
+        // Give the UI a chance to paint between catalog payloads.
+        await _yieldForCatalogFrame(fallbackMilliseconds: 60);
+      }
+      _secondaryLibraryLoaded = true;
+      DiagnosticsService.instance.endSpan(
+        catalogSpan,
+        'complete',
+        <String, Object?>{'completedCatalogs': completedCatalogs},
+      );
+    } catch (error) {
+      DiagnosticsService.instance.endSpan(
+        catalogSpan,
+        'failed',
+        <String, Object?>{
+          'completedCatalogs': completedCatalogs,
+          'errorType': error.runtimeType.toString(),
+        },
+      );
+      // Secondary catalogs are optional; the Songs tab remains usable.
+    } finally {
+      _secondaryLibraryLoading = false;
+      // If a newer scan superseded this one while its catalog queries were in
+      // flight, start one fresh catalog read for the latest library snapshot.
+      if (!_disposed &&
+          generation != _libraryLoadGeneration &&
+          !_secondaryLibraryLoaded) {
+        unawaited(_loadSecondaryLibraryData(_libraryLoadGeneration));
+      }
+    }
   }
 
   Future<void> requestMediaPermission() async {
@@ -425,9 +540,11 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     _permissionRequired = true;
     _errorMessage = null;
     _baseLocalSongs = const <MediaTrack>[];
-    _allLocalSongs = const <MediaTrack>[];
-    _localSongs = const <MediaTrack>[];
-    _hiddenTracksCache = const <MediaTrack>[];
+    final snapshot = _libraryDataEngine.rebuild(
+      tracks: const <MediaTrack>[],
+      hiddenTrackIds: const <String>[],
+    );
+    _localSongs = snapshot.visibleAudioTracks;
     _artists = const <ArtistModel>[];
     _albums = const <AlbumModel>[];
     _playlists = const <PlaylistModel>[];
@@ -437,39 +554,44 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       _importedVideoFiles.values,
     );
     _videosPermissionAttempted = false;
-    _invalidateTrackCaches();
   }
 
   void _rebuildLibraryDerivedLists() {
-    _allLocalSongs = List<MediaTrack>.unmodifiable(
-      _playlistManager.applyMetadata(_baseLocalSongs),
+    final diagnosticsSpan = DiagnosticsService.instance.startSpan('library_snapshot_rebuild', data: <String, Object?>{'inputTrackCount': _baseLocalSongs.length});
+    final metadataTracks = _playlistManager.applyMetadata(_baseLocalSongs);
+    final hiddenIds = <String>[];
+    for (final track in metadataTracks) {
+      if (_playlistManager.isHidden(track.id)) hiddenIds.add(track.id);
+    }
+    final snapshot = _libraryDataEngine.rebuild(
+      tracks: metadataTracks,
+      hiddenTrackIds: hiddenIds,
     );
-    _localSongs = List<MediaTrack>.unmodifiable(
-      _allLocalSongs.where((track) => !_playlistManager.isHidden(track.id)),
-    );
-    _hiddenTracksCache = null;
-    _folders = folderIdentities(_localSongs);
-    _invalidateTrackCaches();
+    _localSongs = snapshot.visibleAudioTracks;
+    _folders = snapshot.folders;
     _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
+    DiagnosticsService.instance.endSpan(diagnosticsSpan, 'complete', <String, Object?>{'visibleTrackCount': _localSongs.length, 'hiddenTrackCount': hiddenIds.length, 'folderCount': _folders.length});
   }
 
-  void _invalidateTrackCaches() {
-    _visibleTracksCache = null;
-    _visibleTracksSource = null;
-    _visibleTracksCacheSort = null;
-    _visibleTracksCacheFilters = null;
+  Future<void> addToQueue(MediaTrack track) {
+    DiagnosticsService.instance.record('playback_queue_add', <String, Object?>{'trackId': track.id});
+    return _audioHandler.addToQueue(track);
   }
 
-  Future<void> addToQueue(MediaTrack track) => _audioHandler.addToQueue(track);
+  Future<void> addTracksToQueue(Iterable<MediaTrack> tracks) {
+    DiagnosticsService.instance.record('playback_queue_add_many', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    return _audioHandler.addTracksToQueue(tracks);
+  }
 
-  Future<void> addTracksToQueue(Iterable<MediaTrack> tracks) =>
-      _audioHandler.addTracksToQueue(tracks);
+  Future<void> shareTracks(Iterable<MediaTrack> tracks) {
+    DiagnosticsService.instance.record('library_share_requested', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    return _library.shareAudioTracks(tracks);
+  }
 
-  Future<void> shareTracks(Iterable<MediaTrack> tracks) =>
-      _library.shareAudioTracks(tracks);
-
-  Future<int> deleteTracks(Iterable<MediaTrack> tracks) =>
-      _library.deleteAudioTracks(tracks);
+  Future<int> deleteTracks(Iterable<MediaTrack> tracks) {
+    DiagnosticsService.instance.record('library_delete_requested', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    return _library.deleteAudioTracks(tracks);
+  }
 
   Future<List<MediaTrack>> tracksForArtist(int artistId) =>
       _library.querySongsFrom(AudiosFromType.ARTIST_ID, artistId);
@@ -481,23 +603,29 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       _library.querySongsFrom(AudiosFromType.PLAYLIST, playlistId);
 
   Future<List<MediaTrack>> tracksForFolder(String folder) async =>
-      tracksInFolder(_localSongs, folder);
+      _libraryDataEngine.snapshot.tracksInFolder(folder);
 
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 
   Future<void> toggleFavorite(MediaTrack track) async {
+    DiagnosticsService.instance.record('playlist_favorite_toggled', <String, Object?>{'trackId': track.id, 'wasFavorite': _playlistManager.isFavorite(track)});
     await _playlistManager.toggleFavorite(track);
     notifyListeners();
   }
 
-  Future<EchoPlaylist> createPlaylist(String name) =>
-      _playlistManager.createPlaylist(name);
+  Future<EchoPlaylist> createPlaylist(String name) {
+    DiagnosticsService.instance.record('playlist_create_requested', <String, Object?>{'nameLength': name.length});
+    return _playlistManager.createPlaylist(name);
+  }
 
-  Future<void> addToPlaylist(String playlistId, MediaTrack track) =>
-      _playlistManager.addToPlaylist(playlistId, track);
+  Future<void> addToPlaylist(String playlistId, MediaTrack track) {
+    DiagnosticsService.instance.record('playlist_track_add_requested', <String, Object?>{'playlistId': playlistId, 'trackId': track.id});
+    return _playlistManager.addToPlaylist(playlistId, track);
+  }
 
   Future<void> playTrack(MediaTrack track) async {
     final request = ++_playbackSelectionRequest;
+    DiagnosticsService.instance.record('playback_track_requested', <String, Object?>{'trackId': track.id, 'titleLength': track.title.length});
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
@@ -507,10 +635,12 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       if (request != _playbackSelectionRequest) return;
       await _playlistManager.recordPlayed(track);
       if (request != _playbackSelectionRequest) return;
+      DiagnosticsService.instance.record('playback_track_started', <String, Object?>{'trackId': _audioHandler.activeTrack?.id});
       notifyListeners();
     } catch (error) {
       if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
+      DiagnosticsService.instance.record('playback_track_failed', <String, Object?>{'trackId': track.id, 'error': error.toString()});
       notifyListeners();
     }
   }
@@ -520,6 +650,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
+    DiagnosticsService.instance.record('playback_queue_requested', <String, Object?>{'trackCount': tracks.length, 'initialIndex': initialIndex});
     final selectedTrack =
         tracks.isEmpty
             ? null
@@ -530,6 +661,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       await _audioHandler.playTrackQueue(tracks, initialIndex: initialIndex);
+      DiagnosticsService.instance.record('playback_queue_started', <String, Object?>{'trackCount': tracks.length, 'selectedTrackId': selectedTrack?.id});
       if (request != _playbackSelectionRequest) return;
       if (selectedTrack != null) {
         await _playlistManager.recordPlayed(selectedTrack);
@@ -544,23 +676,34 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> togglePlayback() async {
+    final wasPlaying = _audioHandler.player.playing;
+    DiagnosticsService.instance.record('playback_toggle_requested', <String, Object?>{'wasPlaying': wasPlaying, 'trackId': _audioHandler.activeTrack?.id});
     if (_audioHandler.player.playing) {
       await _audioHandler.pause();
     } else {
       await _audioHandler.play();
     }
+    DiagnosticsService.instance.record('playback_toggle_completed', <String, Object?>{'isPlaying': _audioHandler.player.playing, 'trackId': _audioHandler.activeTrack?.id});
   }
 
   Future<void> toggleRepeat() async {
     final next = nextRepeatMode(_audioHandler.repeatMode);
+    DiagnosticsService.instance.record('playback_repeat_mode_changed', <String, Object?>{'previous': _audioHandler.repeatMode.name, 'next': next.name});
     await _audioHandler.setRepeatMode(next);
     notifyListeners();
   }
 
   void selectTab(LibraryTab tab) {
     if (_selectedTab == tab) return;
+    DiagnosticsService.instance.record('library_tab_selected', <String, Object?>{'previous': _selectedTab.name, 'next': tab.name});
     _selectedTab = tab;
     notifyListeners();
+    if (!_libraryLoadInProgress &&
+        (tab == LibraryTab.artists ||
+            tab == LibraryTab.albums ||
+            tab == LibraryTab.playlists)) {
+      unawaited(_loadSecondaryLibraryData());
+    }
     if (tab == LibraryTab.videos) {
       unawaited(loadVideos(requestPermission: true));
     }
@@ -600,7 +743,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     } else if (libraryFilters.contains(LibraryFilter.favorites) ||
         librarySort == LibrarySort.mostPlayed ||
         librarySort == LibrarySort.recentlyPlayedFirst) {
-      _invalidateTrackCaches();
+      _dynamicLibraryRevision++;
+      _libraryDataEngine.invalidateQueries();
     }
     notifyListeners();
   }
@@ -612,6 +756,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
+    _libraryLoadGeneration++;
+    _secondaryLibraryGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _playlistManager.removeListener(_onPlaylistChanged);
     _audioHandler.dispose();
@@ -619,19 +766,3 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 }
-
-enum LibrarySort {
-  newestFirst,
-  oldestFirst,
-  sizeLowToHigh,
-  sizeHighToLow,
-  durationShortToLong,
-  durationLongToShort,
-  nameAZ,
-  nameZA,
-  artistAZ,
-  mostPlayed,
-  recentlyPlayedFirst,
-}
-
-enum LibraryFilter { all, favorites, importedFiles, missingAlbum }

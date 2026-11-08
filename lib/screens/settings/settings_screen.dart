@@ -11,6 +11,8 @@ import '../../services/playback_policies.dart';
 import '../../services/dynamic_color_settings.dart';
 import '../../services/ambient_color_flow_settings.dart';
 import '../../services/library_display_settings.dart';
+import '../../diagnostics/core/diagnostics_service.dart';
+import '../../diagnostics/screens/diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -393,6 +395,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 24),
+          _SectionLabel(label: 'Performance Intelligence', tokens: tokens),
+          _SettingsCard(
+            tokens: tokens,
+            child: Column(
+              children: <Widget>[
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.monitor_heart_outlined, color: tokens.accent),
+                  title: const Text('Performance monitor', style: TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text('Full session journal, profiling and causal investigation', style: TextStyle(color: tokens.textSecondary)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DiagnosticsScreen())),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.file_download_outlined, color: tokens.accent),
+                  title: const Text('Export complete session', style: TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text('Raw JSONL journal, analysis JSON and Markdown report', style: TextStyle(color: tokens.textSecondary)),
+                  onTap: _exportDiagnosticLogs,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
@@ -413,6 +440,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _exportDiagnosticLogs() async {
+    try {
+      final result = await DiagnosticsService.instance.export();
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Diagnostic logs exported'),
+          content: SelectableText('${result.eventCount} events saved:\n\n${result.paths.join('\n\n')}'),
+          actions: <Widget>[TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to export logs: $error')));
+    }
   }
 
   Future<void> _loadPreferences() async {
@@ -616,7 +661,10 @@ class _SettingsCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: tokens.divider),
       ),
-      child: child,
+      child: Material(
+        color: Colors.transparent,
+        child: child,
+      ),
     );
   }
 }

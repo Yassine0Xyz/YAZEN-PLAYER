@@ -96,6 +96,111 @@ ThemeData buildAppTheme({ThemeTokens? tokens}) {
         TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
       ),
     ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: palette.surfaceElevated,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ThemeRadii.hero),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: palette.surfaceElevated,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeRadii.hero),
+      ),
+      titleTextStyle: refinedType.titleLarge?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
+      contentTextStyle: refinedType.bodyMedium?.copyWith(
+        color: palette.textSecondary,
+        height: 1.45,
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: palette.surfaceElevated,
+      contentTextStyle: TextStyle(
+        color: palette.textPrimary,
+        fontWeight: FontWeight.w600,
+      ),
+      elevation: ThemeElevation.medium,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeRadii.large),
+        side: BorderSide(color: palette.divider),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: palette.accent,
+        foregroundColor: palette.isLight ? Colors.white : Colors.black,
+        disabledBackgroundColor: palette.surfaceMuted,
+        disabledForegroundColor: palette.textSecondary,
+        minimumSize: const Size(48, 48),
+        padding: const EdgeInsets.symmetric(horizontal: ThemeSpacing.x5),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeRadii.large),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: palette.textPrimary,
+        minimumSize: const Size(48, 48),
+        padding: const EdgeInsets.symmetric(horizontal: ThemeSpacing.x5),
+        side: BorderSide(color: palette.divider),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeRadii.large),
+        ),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: palette.accent,
+        minimumSize: const Size(44, 44),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeRadii.medium),
+        ),
+      ),
+    ),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: palette.accent,
+      inactiveTrackColor: palette.surfaceMuted,
+      thumbColor: palette.accent,
+      overlayColor: palette.accent.withValues(alpha: 0.14),
+      trackHeight: 4,
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith<Color?>(
+        (states) =>
+            states.contains(WidgetState.selected)
+                ? (palette.isLight ? Colors.white : Colors.black)
+                : palette.textSecondary,
+      ),
+      trackColor: WidgetStateProperty.resolveWith<Color?>(
+        (states) =>
+            states.contains(WidgetState.selected)
+                ? palette.accent.withValues(alpha: 0.62)
+                : palette.surfaceMuted,
+      ),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: palette.accent,
+      linearTrackColor: palette.surfaceMuted,
+      circularTrackColor: palette.surfaceMuted,
+    ),
+    dividerTheme: DividerThemeData(
+      color: palette.divider,
+      thickness: 1,
+      space: ThemeSpacing.x4,
+    ),
     chipTheme: base.chipTheme.copyWith(
       backgroundColor: palette.surface,
       selectedColor: palette.accent,

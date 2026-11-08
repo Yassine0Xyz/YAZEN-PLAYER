@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 
@@ -12,11 +11,14 @@ import '../../services/local_playlist_manager.dart';
 import '../../services/artwork_palette_service.dart';
 import '../../services/folder_identity.dart';
 import '../../services/library_display_settings.dart';
+import '../../services/library_viewport_engine.dart';
 import '../../widgets/shimmer_skeleton.dart';
 import '../../widgets/playlist_picker_sheet.dart';
 import '../../widgets/video_thumbnail.dart';
 import '../../widgets/media_artwork.dart';
 import '../../widgets/now_playing_scope.dart';
+import '../../widgets/library_track_viewport.dart';
+import '../../widgets/track_actions_menu.dart';
 import '../home/widgets/library_tabs.dart';
 import '../home/widgets/track_list_tile.dart';
 import '../collections/favorites_screen.dart';
@@ -49,16 +51,16 @@ class LocalMediaScreen extends StatelessWidget {
         ],
         Expanded(
           child: Selector<HybridMusicController, _LocalMediaSnapshot>(
-            selector: (_, value) => _LocalMediaSnapshot.from(value),
+            selector:
+                (_, value) => _LocalMediaSnapshot.from(value, selectedTab),
             builder: (context, snapshot, _) {
-              return AnimatedSwitcher(
-                duration: MotionTokens.base,
-                switchInCurve: MotionTokens.standard,
-                switchOutCurve: MotionTokens.exit,
-                child: KeyedSubtree(
-                  key: ValueKey<LibraryTab>(selectedTab),
-                  child: _buildView(context, controller, snapshot),
-                ),
+              // Do not keep the previous tab's full lazy viewport alive during
+              // a cross-fade. On large libraries that temporarily doubles the
+              // mounted rows and can continue artwork work for an off-screen
+              // collection while the next tab is already building.
+              return KeyedSubtree(
+                key: ValueKey<LibraryTab>(selectedTab),
+                child: _buildView(context, controller, snapshot),
               );
             },
           ),
@@ -93,7 +95,7 @@ class LocalMediaScreen extends StatelessWidget {
       LibraryTab.albums => _AlbumsView(albums: snapshot.albums),
       LibraryTab.folders => _FoldersView(
         folders: snapshot.folders,
-        tracks: snapshot.localSongs,
+        counts: snapshot.folderCounts,
       ),
       LibraryTab.videos => _VideosView(tracks: snapshot.visibleTracks),
       LibraryTab.hidden => _HiddenFilesView(tracks: snapshot.hiddenTracks),
@@ -103,10 +105,10 @@ class LocalMediaScreen extends StatelessWidget {
         favorites: snapshot.favorites,
       ),
     };
-    if (onScrollDelta == null ||
-        (selectedTab != LibraryTab.songs && selectedTab != LibraryTab.videos)) {
-      return view;
-    }
+    final reportHeaderScroll =
+        onScrollDelta != null &&
+        (selectedTab == LibraryTab.songs || selectedTab == LibraryTab.videos);
+    if (!reportHeaderScroll) return view;
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (notification is ScrollUpdateNotification &&
@@ -132,21 +134,32 @@ class _LibraryScrollSurface extends StatefulWidget {
 
 class _LibraryScrollSurfaceState extends State<_LibraryScrollSurface> {
   late final ScrollController _scrollController;
+  bool _showBackToTop = false;
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController();
+    _scrollController = ScrollController()..addListener(_syncBackToTop);
+  }
+
+  void _syncBackToTop() {
+    final show =
+        _scrollController.positions.length == 1 &&
+        _scrollController.offset > 420;
+    if (show == _showBackToTop || !mounted) return;
+    setState(() => _showBackToTop = show);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _scrollController
+      ..removeListener(_syncBackToTop)
+      ..dispose();
     super.dispose();
   }
 
   Future<void> _scrollToTop() async {
-    if (!_scrollController.hasClients) return;
+    if (_scrollController.positions.length != 1) return;
     await _scrollController.animateTo(
       0,
       duration: const Duration(milliseconds: 360),
@@ -163,42 +176,166 @@ class _LibraryScrollSurfaceState extends State<_LibraryScrollSurface> {
         children: <Widget>[
           Scrollbar(
             controller: _scrollController,
-            thumbVisibility: true,
-            interactive: true,
+            thumbVisibility: false,
+            interactive: false,
             child: widget.child,
           ),
-          AnimatedBuilder(
-            animation: _scrollController,
+          _FastScrollThumb(controller: _scrollController),
+          Positioned(
+            right: 14,
+            bottom: 14,
+            child: IgnorePointer(
+              ignoring: !_showBackToTop,
+              child: AnimatedScale(
+                scale: _showBackToTop ? 1 : 0.72,
+                duration: MotionTokens.fast,
+                curve: MotionTokens.standard,
+                child: AnimatedOpacity(
+                  opacity: _showBackToTop ? 1 : 0,
+                  duration: MotionTokens.fast,
+                  child: FloatingActionButton.small(
+                    heroTag: null,
+                    tooltip: 'Back to top',
+                    onPressed: _scrollToTop,
+                    child: const Icon(Icons.vertical_align_top_rounded),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FastScrollThumb extends StatefulWidget {
+  const _FastScrollThumb({required this.controller});
+
+  final ScrollController controller;
+
+  @override
+  State<_FastScrollThumb> createState() => _FastScrollThumbState();
+}
+
+class _FastScrollThumbState extends State<_FastScrollThumb> {
+  late LibraryViewportEngine _viewportEngine;
+  double? _dragTop;
+  double _currentThumbTop = 0;
+  double _currentTravel = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewportEngine = LibraryViewportEngine(
+      scrollController: widget.controller,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _FastScrollThumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      _viewportEngine.dispose();
+      _viewportEngine = LibraryViewportEngine(
+        scrollController: widget.controller,
+      );
+    }
+  }
+
+  void _queueJumpFromTop(double top) {
+    _viewportEngine.queueThumbPosition(top: top, travel: _currentTravel);
+  }
+
+  void _flushPendingJump() => _viewportEngine.flushPendingJump();
+
+  @override
+  void dispose() {
+    _viewportEngine.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final thumb = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => _dragTop = _currentThumbTop,
+      onVerticalDragUpdate: (details) {
+        final next =
+            (_dragTop! + details.delta.dy)
+                .clamp(0.0, _currentTravel)
+                .toDouble();
+        _dragTop = next;
+        _queueJumpFromTop(next);
+      },
+      onVerticalDragEnd: (_) {
+        _flushPendingJump();
+        if (mounted) setState(() => _dragTop = null);
+      },
+      onVerticalDragCancel: () {
+        _flushPendingJump();
+        if (mounted) setState(() => _dragTop = null);
+      },
+      child: Container(
+        width: 42,
+        decoration: BoxDecoration(
+          color: colorScheme.onSurface.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.drag_handle_rounded,
+          size: 22,
+          color: colorScheme.onSurface.withValues(alpha: 0.64),
+        ),
+      ),
+    );
+
+    return Positioned(
+      top: 12,
+      right: 6,
+      bottom: 76,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return AnimatedBuilder(
+            animation: widget.controller,
+            child: thumb,
             builder: (context, child) {
-              final showButton =
-                  _scrollController.hasClients &&
-                  _scrollController.offset > 420;
-              return Positioned(
-                right: 14,
-                bottom: 14,
-                child: IgnorePointer(
-                  ignoring: !showButton,
-                  child: AnimatedScale(
-                    scale: showButton ? 1 : 0.72,
-                    duration: MotionTokens.fast,
-                    curve: MotionTokens.standard,
-                    child: AnimatedOpacity(
-                      opacity: showButton ? 1 : 0,
-                      duration: MotionTokens.fast,
-                      child: child,
-                    ),
+              if (widget.controller.positions.length != 1 ||
+                  widget.controller.position.maxScrollExtent <= 0) {
+                return const SizedBox.shrink();
+              }
+              final position = widget.controller.position;
+              final trackHeight = constraints.maxHeight;
+              final viewport = position.viewportDimension;
+              final content = viewport + position.maxScrollExtent;
+              final thumbHeight =
+                  (trackHeight * viewport / content)
+                      .clamp(58.0, 118.0)
+                      .toDouble();
+              final travel =
+                  (trackHeight - thumbHeight)
+                      .clamp(1.0, double.infinity)
+                      .toDouble();
+              final calculatedTop =
+                  position.pixels / position.maxScrollExtent * travel;
+              _currentThumbTop = calculatedTop;
+              _currentTravel = travel;
+              return Align(
+                alignment: Alignment.topCenter,
+                child: Transform.translate(
+                  offset: Offset(0, _dragTop ?? calculatedTop),
+                  child: SizedBox(
+                    width: 42,
+                    height: thumbHeight,
+                    child: child,
                   ),
                 ),
               );
             },
-            child: FloatingActionButton.small(
-              heroTag: null,
-              tooltip: 'Back to top',
-              onPressed: _scrollToTop,
-              child: const Icon(Icons.vertical_align_top_rounded),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -209,7 +346,7 @@ class _LocalMediaSnapshot {
     required this.isLoading,
     required this.permissionRequired,
     required this.visibleTracks,
-    required this.localSongs,
+    required this.folderCounts,
     required this.hiddenTracks,
     required this.artists,
     required this.albums,
@@ -219,26 +356,56 @@ class _LocalMediaSnapshot {
     required this.favorites,
   });
 
-  factory _LocalMediaSnapshot.from(HybridMusicController controller) {
+  factory _LocalMediaSnapshot.from(
+    HybridMusicController controller,
+    LibraryTab selectedTab,
+  ) {
+    final needsVisibleTracks =
+        selectedTab == LibraryTab.songs || selectedTab == LibraryTab.videos;
     return _LocalMediaSnapshot(
       isLoading: controller.isLoading,
       permissionRequired: controller.permissionRequired,
-      visibleTracks: controller.visibleTracks,
-      localSongs: controller.localSongs,
-      hiddenTracks: controller.hiddenTracks,
-      artists: controller.artists,
-      albums: controller.albums,
-      playlists: controller.playlists,
-      folders: controller.folders,
-      customPlaylists: controller.playlistManager.playlists,
-      favorites: controller.playlistManager.favorites,
+      visibleTracks:
+          needsVisibleTracks ? controller.visibleTracks : const <MediaTrack>[],
+      folderCounts:
+          selectedTab == LibraryTab.folders
+              ? controller.folderTrackCounts
+              : const <String, int>{},
+      hiddenTracks:
+          selectedTab == LibraryTab.hidden
+              ? controller.hiddenTracks
+              : const <MediaTrack>[],
+      artists:
+          selectedTab == LibraryTab.artists
+              ? controller.artists
+              : const <ArtistModel>[],
+      albums:
+          selectedTab == LibraryTab.albums
+              ? controller.albums
+              : const <AlbumModel>[],
+      playlists:
+          selectedTab == LibraryTab.playlists
+              ? controller.playlists
+              : const <PlaylistModel>[],
+      folders:
+          selectedTab == LibraryTab.folders
+              ? controller.folders
+              : const <String>[],
+      customPlaylists:
+          selectedTab == LibraryTab.playlists
+              ? controller.playlistManager.playlists
+              : const <EchoPlaylist>[],
+      favorites:
+          selectedTab == LibraryTab.playlists
+              ? controller.playlistManager.favorites
+              : const <MediaTrack>[],
     );
   }
 
   final bool isLoading;
   final bool permissionRequired;
   final List<MediaTrack> visibleTracks;
-  final List<MediaTrack> localSongs;
+  final Map<String, int> folderCounts;
   final List<MediaTrack> hiddenTracks;
   final List<ArtistModel> artists;
   final List<AlbumModel> albums;
@@ -253,7 +420,7 @@ class _LocalMediaSnapshot {
       other.isLoading == isLoading &&
       other.permissionRequired == permissionRequired &&
       identical(other.visibleTracks, visibleTracks) &&
-      identical(other.localSongs, localSongs) &&
+      identical(other.folderCounts, folderCounts) &&
       identical(other.hiddenTracks, hiddenTracks) &&
       identical(other.artists, artists) &&
       identical(other.albums, albums) &&
@@ -267,7 +434,7 @@ class _LocalMediaSnapshot {
     isLoading,
     permissionRequired,
     identityHashCode(visibleTracks),
-    identityHashCode(localSongs),
+    identityHashCode(folderCounts),
     identityHashCode(hiddenTracks),
     identityHashCode(artists),
     identityHashCode(albums),
@@ -294,21 +461,30 @@ class _HiddenFilesView extends StatelessWidget {
         subtitle: 'Songs hidden from YAZEN will appear here.',
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
-      itemCount: tracks.length,
-      itemBuilder: (context, index) {
-        final track = tracks[index];
-        return TrackListTile(
-          key: ValueKey<String>('hidden-${track.id}'),
-          track: track,
-          onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
-          trailing: IconButton(
-            tooltip: 'Restore to library',
-            onPressed:
-                () => manager.setHidden(<String>[track.id], hidden: false),
-            icon: const Icon(Icons.visibility_rounded),
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth - 24 < 470;
+        return LibraryTrackViewport(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+          itemExtent: compact ? 72 : 78,
+          itemCount: tracks.length,
+          cacheExtent: 220,
+          addAutomaticKeepAlives: false,
+          itemBuilder: (context, index) {
+            final track = tracks[index];
+            return TrackListTile(
+              key: ValueKey<String>('hidden-${track.id}'),
+              track: track,
+              compact: compact,
+              onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
+              trailing: IconButton(
+                tooltip: 'Restore to library',
+                onPressed:
+                    () => manager.setHidden(<String>[track.id], hidden: false),
+                icon: const Icon(Icons.visibility_rounded),
+              ),
+            );
+          },
         );
       },
     );
@@ -611,15 +787,7 @@ class _SongsViewState extends State<_SongsView> {
       animation: displaySettings,
       builder: (context, _) {
         final grid = displaySettings.layoutMode == LibraryLayoutMode.grid;
-        final availableWidth = (MediaQuery.sizeOf(context).width - 40).clamp(
-          1.0,
-          double.infinity,
-        );
-        final columnCount = (availableWidth / 230).ceil().clamp(1, 6).toInt();
-        final cellWidth =
-            (availableWidth - ((columnCount - 1) * 10)) / columnCount;
         final compact = displaySettings.density == LibraryDensity.compact;
-        final gridExtent = cellWidth - 16 + (compact ? 98 : 106);
         return Column(
           children: <Widget>[
             _LibraryViewToolbar(
@@ -666,8 +834,28 @@ class _SongsViewState extends State<_SongsView> {
                 onMore: _showSelectionActions,
               ),
             Expanded(
-              child:
-                  widget.tracks.isEmpty
+              child: LayoutBuilder(
+                builder: (context, viewportConstraints) {
+                  // The song list has 12px horizontal padding on each side.
+                  // Resolve the compact breakpoint once rather than creating
+                  // one LayoutBuilder for every visible TrackListTile.
+                  final compactRows =
+                      viewportConstraints.maxWidth - (ThemeSpacing.x3 * 2) <
+                      470;
+                  // Resolve grid cell geometry once for the whole viewport.
+                  // Individual song cards no longer need their own LayoutBuilder.
+                  final gridCrossAxisExtent =
+                      (viewportConstraints.maxWidth - (ThemeSpacing.x3 * 2))
+                          .clamp(1.0, double.infinity)
+                          .toDouble();
+                  final gridColumnCount = (gridCrossAxisExtent / 230).ceil();
+                  final gridCellWidth =
+                      (gridCrossAxisExtent - ((gridColumnCount - 1) * 10)) /
+                      gridColumnCount;
+                  final gridArtworkSize = gridCellWidth - 16;
+                  final gridExtent =
+                      gridArtworkSize + (compact ? 98 : 106);
+                  return widget.tracks.isEmpty
                       ? const _CategoryEmptyState(
                         icon: Icons.library_music_outlined,
                         title: 'No matching songs',
@@ -677,7 +865,7 @@ class _SongsViewState extends State<_SongsView> {
                       : _LibraryScrollSurface(
                         child:
                             grid
-                                ? GridView.builder(
+                                ? LibraryTrackViewport(
                                   padding: EdgeInsets.fromLTRB(
                                     ThemeSpacing.x3,
                                     0,
@@ -692,6 +880,7 @@ class _SongsViewState extends State<_SongsView> {
                                         mainAxisSpacing: 8,
                                       ),
                                   itemCount: widget.tracks.length,
+                                  addAutomaticKeepAlives: false,
                                   itemBuilder:
                                       (_, index) => _buildGridTrack(
                                         context,
@@ -699,19 +888,24 @@ class _SongsViewState extends State<_SongsView> {
                                         widget.tracks[index],
                                         index,
                                         displaySettings.density,
+                                        gridArtworkSize,
                                       ),
                                 )
-                                : ListView.builder(
+                                : LibraryTrackViewport(
                                   padding: EdgeInsets.fromLTRB(
                                     ThemeSpacing.x3,
                                     0,
                                     ThemeSpacing.x3,
                                     MediaQuery.paddingOf(context).bottom + 100,
                                   ),
-                                  scrollCacheExtent:
-                                      const ScrollCacheExtent.pixels(400),
                                   addAutomaticKeepAlives: false,
-                                  addRepaintBoundaries: true,
+                                  itemExtent:
+                                      displaySettings.density ==
+                                              LibraryDensity.compact
+                                          ? 70
+                                          : compactRows
+                                          ? 76
+                                          : 82,
                                   itemCount: widget.tracks.length,
                                   itemBuilder:
                                       (_, index) => _buildListTrack(
@@ -720,9 +914,12 @@ class _SongsViewState extends State<_SongsView> {
                                         widget.tracks[index],
                                         index,
                                         displaySettings.density,
+                                        compactRows,
                                       ),
                                 ),
-                      ),
+                      );
+                },
+              ),
             ),
           ],
         );
@@ -736,10 +933,12 @@ class _SongsViewState extends State<_SongsView> {
     MediaTrack track,
     int index,
     LibraryDensity density,
+    bool compact,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: TrackListTile(
+        compact: compact,
         key: ValueKey<String>('song-${track.id}'),
         track: track,
         selected: _selectedIds.contains(track.id),
@@ -769,12 +968,15 @@ class _SongsViewState extends State<_SongsView> {
     MediaTrack track,
     int index,
     LibraryDensity density,
+    double artworkSize,
   ) {
     return _TrackGridTile(
+      key: ValueKey<String>('song-grid-${track.id}'),
       track: track,
       selected: _selectedIds.contains(track.id),
       isFavorite: controller.isFavorite(track),
       density: density,
+      artworkSize: artworkSize,
       onTap: () {
         if (_selectionMode) {
           _toggleSelection(track);
@@ -795,10 +997,12 @@ enum _SelectionMoreAction { share, information, hide, deleteFiles }
 
 class _TrackGridTile extends StatelessWidget {
   const _TrackGridTile({
+    super.key,
     required this.track,
     required this.selected,
     required this.isFavorite,
     required this.density,
+    required this.artworkSize,
     required this.onTap,
     required this.onLongPress,
     required this.onFavorite,
@@ -809,6 +1013,7 @@ class _TrackGridTile extends StatelessWidget {
   final bool selected;
   final bool isFavorite;
   final LibraryDensity density;
+  final double artworkSize;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback? onFavorite;
@@ -816,161 +1021,110 @@ class _TrackGridTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.watch<ThemeProvider>().tokens;
+    final preset = context.select<ThemeProvider, EchoThemePreset>(
+      (provider) => provider.preset,
+    );
+    final tokens = ThemeTokens.fromPreset(preset);
     final nowPlaying = nowPlayingRowStateOf(context, track.id);
     final isCurrentTrack = nowPlaying?.isCurrent ?? false;
     final radius = BorderRadius.circular(ThemeRadii.large);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final artworkSize = constraints.maxWidth - 16;
-        return Material(
-          color: tokens.surface.withValues(alpha: 0.38),
-          borderRadius: radius,
-          child: InkWell(
-            borderRadius: radius,
-            onTap: onTap,
-            onLongPress: onLongPress,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+
+    return Material(
+      color: tokens.surface.withValues(alpha: 0.38),
+      borderRadius: radius,
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Stack(
                 children: <Widget>[
-                  Stack(
-                    children: <Widget>[
-                      YazenMediaArtwork(
-                        track: track,
-                        size: artworkSize,
-                        borderRadius: BorderRadius.circular(ThemeRadii.medium),
-                      ),
-                      if (isCurrentTrack)
-                        Positioned(
-                          right: 5,
-                          bottom: 5,
-                          child: Container(
-                            width: 24,
-                            height: 24,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: tokens.surface.withValues(alpha: 0.92),
-                              borderRadius: BorderRadius.circular(
-                                ThemeRadii.small,
-                              ),
-                              border: Border.all(
-                                color: tokens.accent.withValues(alpha: 0.5),
-                              ),
-                            ),
-                            child: NowPlayingIndicator(
-                              isCurrent: true,
-                              isPlaying: nowPlaying!.isPlaying,
-                              pulse: nowPlaying.pulse,
-                              color: tokens.accentStrong,
-                            ),
+                  YazenMediaArtwork(
+                    track: track,
+                    size: artworkSize,
+                    borderRadius: BorderRadius.circular(ThemeRadii.medium),
+                  ),
+                  if (isCurrentTrack)
+                    Positioned(
+                      right: 5,
+                      bottom: 5,
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: tokens.surface.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(ThemeRadii.small),
+                          border: Border.all(
+                            color: tokens.accent.withValues(alpha: 0.5),
                           ),
                         ),
-                      if (selected)
-                        Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: tokens.accent.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(
-                                ThemeRadii.medium,
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.check_rounded,
-                              color:
-                                  tokens.isLight ? Colors.white : Colors.black,
-                              size: 34,
-                            ),
+                        child: RepaintBoundary(
+                          child: NowPlayingIndicator(
+                            isCurrent: true,
+                            isPlaying: nowPlaying!.isPlaying,
+                            pulse: nowPlaying.pulse,
+                            color: tokens.accentStrong,
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: isCurrentTrack ? tokens.accent : null,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: density == LibraryDensity.compact ? 11 : 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      if (onAddToPlaylist != null)
-                        _GridAction(
-                          tooltip: 'Add to playlist',
-                          icon: Icons.playlist_add_rounded,
-                          color: tokens.textSecondary,
-                          onPressed: onAddToPlaylist!,
-                        ),
-                      if (onFavorite != null)
-                        _GridAction(
-                          tooltip:
-                              isFavorite
-                                  ? 'Remove from favorites'
-                                  : 'Add to favorites',
-                          icon:
-                              isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                          color:
-                              isFavorite ? tokens.accent : tokens.textSecondary,
-                          onPressed: onFavorite!,
-                        ),
-                      _GridAction(
-                        tooltip: 'Play ${track.title}',
-                        icon: Icons.play_arrow_rounded,
-                        color: tokens.accent,
-                        onPressed: onTap,
                       ),
-                    ],
-                  ),
+                    ),
+                  if (selected)
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: tokens.accent.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(ThemeRadii.medium),
+                        ),
+                        child: Icon(
+                          Icons.check_rounded,
+                          color: tokens.isLight ? Colors.white : Colors.black,
+                          size: 34,
+                        ),
+                      ),
+                    ),
                 ],
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: isCurrentTrack ? tokens.accent : null,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: density == LibraryDensity.compact ? 11 : 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              if (onFavorite != null || onAddToPlaylist != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TrackActionsMenu(
+                    isFavorite: isFavorite,
+                    onFavorite: onFavorite,
+                    onAddToPlaylist: onAddToPlaylist,
+                    accentColor: tokens.accent,
+                    secondaryColor: tokens.textSecondary,
+                  ),
+                ),
+            ],
           ),
-        );
-      },
-    );
-  }
-}
-
-class _GridAction extends StatelessWidget {
-  const _GridAction({
-    required this.tooltip,
-    required this.icon,
-    required this.color,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-      padding: EdgeInsets.zero,
-      onPressed: onPressed,
-      icon: Icon(icon, size: 21, color: color),
+        ),
+      ),
     );
   }
 }
@@ -1087,7 +1241,7 @@ class _ArtistsView extends StatelessWidget {
             'Artists are created automatically from your local music metadata.',
       );
     }
-    return GridView.builder(
+    return LibraryTrackViewport(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 190,
@@ -1096,10 +1250,13 @@ class _ArtistsView extends StatelessWidget {
         mainAxisSpacing: 14,
       ),
       itemCount: artists.length,
+      cacheExtent: 220,
+      addAutomaticKeepAlives: false,
       itemBuilder: (context, index) {
         final artist = artists[index];
         final controller = context.read<HybridMusicController>();
         return _ArtistCard(
+          key: ValueKey<int>(artist.id),
           artist: artist,
           onTap:
               () => Navigator.of(context).push(
@@ -1119,7 +1276,7 @@ class _ArtistsView extends StatelessWidget {
 }
 
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.artist, required this.onTap});
+  const _ArtistCard({super.key, required this.artist, required this.onTap});
 
   final ArtistModel artist;
   final VoidCallback onTap;
@@ -1185,7 +1342,7 @@ class _AlbumsView extends StatelessWidget {
         subtitle: 'Albums will appear once local audio metadata is available.',
       );
     }
-    return GridView.builder(
+    return LibraryTrackViewport(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 210,
@@ -1194,10 +1351,13 @@ class _AlbumsView extends StatelessWidget {
         mainAxisSpacing: 18,
       ),
       itemCount: albums.length,
+      cacheExtent: 220,
+      addAutomaticKeepAlives: false,
       itemBuilder: (context, index) {
         final album = albums[index];
         final controller = context.read<HybridMusicController>();
         return _AlbumCard(
+          key: ValueKey<int>(album.id),
           album: album,
           onTap:
               () => Navigator.of(context).push(
@@ -1217,7 +1377,7 @@ class _AlbumsView extends StatelessWidget {
 }
 
 class _AlbumCard extends StatelessWidget {
-  const _AlbumCard({required this.album, required this.onTap});
+  const _AlbumCard({super.key, required this.album, required this.onTap});
 
   final AlbumModel album;
   final VoidCallback onTap;
@@ -1270,10 +1430,10 @@ class _AlbumCard extends StatelessWidget {
 }
 
 class _FoldersView extends StatelessWidget {
-  const _FoldersView({required this.folders, required this.tracks});
+  const _FoldersView({required this.folders, required this.counts});
 
   final List<String> folders;
-  final List<MediaTrack> tracks;
+  final Map<String, int> counts;
 
   @override
   Widget build(BuildContext context) {
@@ -1284,16 +1444,11 @@ class _FoldersView extends StatelessWidget {
         subtitle: 'Folders containing local audio will appear here.',
       );
     }
-    final counts = <String, int>{};
-    for (final track in tracks) {
-      final folder = track.folder;
-      if (folder == null) continue;
-      final identity = normalizeFolderIdentity(folder);
-      counts.update(identity, (count) => count + 1, ifAbsent: () => 1);
-    }
-    return ListView.separated(
+    return LibraryTrackViewport(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
       itemCount: folders.length,
+      cacheExtent: 220,
+      addAutomaticKeepAlives: false,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final folder = folders[index];
@@ -1430,7 +1585,7 @@ class _VideosView extends StatelessWidget {
                       : _LibraryScrollSurface(
                         child:
                             grid
-                                ? GridView.builder(
+                                ? LibraryTrackViewport(
                                   padding: const EdgeInsets.fromLTRB(
                                     20,
                                     0,
@@ -1445,6 +1600,8 @@ class _VideosView extends StatelessWidget {
                                         mainAxisSpacing: 12,
                                       ),
                                   itemCount: tracks.length,
+                                  addAutomaticKeepAlives: false,
+                                  cacheExtent: 220,
                                   itemBuilder:
                                       (context, index) => _videoCard(
                                         context,
@@ -1452,7 +1609,7 @@ class _VideosView extends StatelessWidget {
                                         compact,
                                       ),
                                 )
-                                : ListView.separated(
+                                : LibraryTrackViewport(
                                   padding: const EdgeInsets.fromLTRB(
                                     20,
                                     0,
@@ -1460,6 +1617,8 @@ class _VideosView extends StatelessWidget {
                                     30,
                                   ),
                                   itemCount: tracks.length,
+                                  addAutomaticKeepAlives: false,
+                                  cacheExtent: 220,
                                   separatorBuilder:
                                       (_, _) =>
                                           SizedBox(height: compact ? 12 : 24),
@@ -1480,6 +1639,7 @@ class _VideosView extends StatelessWidget {
 
   Widget _videoCard(BuildContext context, MediaTrack track, bool compact) =>
       _VideoPreviewCard(
+        key: ValueKey<String>(track.id),
         track: track,
         compact: compact,
         onPlay:
@@ -1607,6 +1767,7 @@ class _LibraryViewToolbarState extends State<_LibraryViewToolbar> {
 
 class _VideoPreviewCard extends StatelessWidget {
   const _VideoPreviewCard({
+    super.key,
     required this.track,
     required this.onPlay,
     this.compact = false,
@@ -1636,8 +1797,12 @@ class _VideoPreviewCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                     child:
                         track.isVideo
-                            ? VideoThumbnailWidget(track: track, size: 720)
-                            : YazenMediaArtwork(track: track, size: 720),
+                            ? VideoThumbnailWidget(track: track, size: 340)
+                            : YazenMediaArtwork(
+                              track: track,
+                              size: 340,
+                              cropContentBounds: false,
+                            ),
                   ),
                 ),
                 Positioned(
@@ -1762,8 +1927,9 @@ class _PlaylistsView extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
     final totalItems = 1 + customPlaylists.length + devicePlaylists.length;
-    return ListView.separated(
+    return LibraryTrackViewport(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+      addAutomaticKeepAlives: true,
       itemCount: totalItems + 1,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
@@ -1788,6 +1954,7 @@ class _PlaylistsView extends StatelessWidget {
         }
         if (index == 1) {
           return _CollectionCard(
+            key: const ValueKey<String>('collection:favorites'),
             icon: Icons.favorite_rounded,
             artworkTrack: favorites.isEmpty ? null : favorites.last,
             artwork:
@@ -1804,6 +1971,7 @@ class _PlaylistsView extends StatelessWidget {
         if (customIndex < customPlaylists.length) {
           final playlist = customPlaylists[customIndex];
           return _CollectionCard(
+            key: ValueKey<String>('collection:${playlist.id}'),
             icon: Icons.queue_music_rounded,
             artworkTrack: playlist.coverTrack,
             artwork:
@@ -1824,6 +1992,7 @@ class _PlaylistsView extends StatelessWidget {
         final deviceIndex = customIndex - customPlaylists.length;
         final playlist = devicePlaylists[deviceIndex];
         return _CollectionCard(
+          key: ValueKey<String>('device-playlist:${playlist.id}'),
           icon: Icons.library_music_rounded,
           title: playlist.playlist,
           subtitle: 'Device playlist',
@@ -1858,6 +2027,7 @@ class _PlaylistsView extends StatelessWidget {
 
 class _CollectionCard extends StatefulWidget {
   const _CollectionCard({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,

@@ -53,24 +53,35 @@ class FavoritesScreen extends StatelessWidget {
                 title: 'No favorites yet',
                 subtitle: 'Tap the heart on any local track to keep it here.',
               )
-              : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
-                itemCount: tracks.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 2),
-                itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  return TrackListTile(
-                    key: ValueKey<String>('favorite-${track.id}'),
-                    track: track,
-                    onTap:
-                        () => controller.playTrackQueue(
-                          tracks,
-                          initialIndex: index,
+              : LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth - 24 < 470;
+                  final tileExtent = compact ? 72.0 : 78.0;
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 30),
+                    // Preserve the former 2px separator after each fixed row.
+                    itemExtent: tileExtent + 2,
+                    itemCount: tracks.length,
+                    itemBuilder: (context, index) {
+                      final track = tracks[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: TrackListTile(
+                          key: ValueKey<String>('favorite-${track.id}'),
+                          track: track,
+                          compact: compact,
+                          onTap:
+                              () => controller.playTrackQueue(
+                                tracks,
+                                initialIndex: index,
+                              ),
+                          isFavorite: true,
+                          onFavorite: () => manager.toggleFavorite(track),
+                          onAddToPlaylist:
+                              () => showAddToPlaylistSheet(context, track),
                         ),
-                    isFavorite: true,
-                    onFavorite: () => manager.toggleFavorite(track),
-                    onAddToPlaylist:
-                        () => showAddToPlaylistSheet(context, track),
+                      );
+                    },
                   );
                 },
               ),

@@ -120,6 +120,7 @@ class LocalPlaylistManager extends ChangeNotifier {
   final Future<bool> Function(String key, String value)? _writeStringOverride;
   List<EchoPlaylist> _playlists = const <EchoPlaylist>[];
   List<MediaTrack> _favorites = const <MediaTrack>[];
+  Set<String>? _favoriteIdsCache;
   Map<String, int> _playCounts = <String, int>{};
   final Map<String, DateTime> _lastPlayed = <String, DateTime>{};
   Map<String, Map<String, String>> _metadata = <String, Map<String, String>>{};
@@ -134,8 +135,12 @@ class LocalPlaylistManager extends ChangeNotifier {
   List<MediaTrack> get favorites => _favorites;
   Set<String> get hiddenIds => Set<String>.unmodifiable(_hiddenIds);
 
-  bool isFavorite(MediaTrack track) =>
-      _favorites.any((item) => item.id == track.id);
+  bool isFavorite(MediaTrack track) => _favoriteIds.contains(track.id);
+
+  Set<String> get _favoriteIds =>
+      _favoriteIdsCache ??= _favorites.map((track) => track.id).toSet();
+
+  void _invalidateFavoriteIds() => _favoriteIdsCache = null;
 
   Future<void> initialize() async {
     if (_isReady) return;
@@ -151,14 +156,19 @@ class LocalPlaylistManager extends ChangeNotifier {
           savedFavorites == null
               ? const <MediaTrack>[]
               : _decodeTracks(savedFavorites);
+      _invalidateFavoriteIds();
       _playCounts = _decodeIntMap(_preferences!.getString(_historyKey));
       _metadata = _decodeMetadata(_preferences!.getString(_metadataKey));
       _hiddenIds = _decodeStringSet(_preferences!.getString(_hiddenKey));
     } on FormatException {
       _playlists = const <EchoPlaylist>[];
       _favorites = const <MediaTrack>[];
+      _invalidateFavoriteIds();
     }
     _isReady = true;
+    // The controller may have indexed songs before this async initialization;
+    // publish one overlay revision so metadata and hidden IDs are applied.
+    _libraryOverlayRevision++;
     notifyListeners();
   }
 
@@ -254,6 +264,7 @@ class LocalPlaylistManager extends ChangeNotifier {
       next.add(track);
     }
     _favorites = List<MediaTrack>.unmodifiable(next);
+    _invalidateFavoriteIds();
     notifyListeners();
     await _persist();
   }
@@ -360,6 +371,7 @@ class LocalPlaylistManager extends ChangeNotifier {
       if (!next.any((item) => item.id == track.id)) next.add(track);
     }
     _favorites = List<MediaTrack>.unmodifiable(next);
+    _invalidateFavoriteIds();
     notifyListeners();
     await _persist();
   }
@@ -500,6 +512,7 @@ class LocalPlaylistManager extends ChangeNotifier {
   Future<void> clearFavorites() async {
     _ensureReady();
     _favorites = const <MediaTrack>[];
+    _invalidateFavoriteIds();
     notifyListeners();
     await _persist();
   }

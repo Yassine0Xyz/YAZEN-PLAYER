@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -20,13 +22,15 @@ void main() {
 
   test('thumbnailData', () async {
     expect(
-        await VideoThumbnail.thumbnailFile(
-            video: 'video',
-            thumbnailPath: 'path',
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 123,
-            maxHeight: 123,
-            quality: 45),
-        'file=video:path:0:123:45');
+      await VideoThumbnail.thumbnailFile(
+        video: 'video',
+        thumbnailPath: 'path',
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 123,
+        maxHeight: 123,
+        quality: 45,
+      ),
+      'file=video:path:0:123:45',
+    );
   });
 }

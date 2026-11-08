@@ -19,6 +19,14 @@ class LibrarySearchFilters {
 class LibrarySearchService {
   const LibrarySearchService();
 
+  static final RegExp _arabicDiacritics = RegExp(r'[\u064B-\u065F\u0670]');
+  static final Expando<String> _searchTextCache = Expando<String>(
+    'YAZEN normalized media search text',
+  );
+  static final Expando<String> _folderCache = Expando<String>(
+    'YAZEN normalized media folder',
+  );
+
   List<MediaTrack> search(
     Iterable<MediaTrack> tracks,
     String query, {
@@ -40,21 +48,29 @@ class LibrarySearchService {
         (track.duration ?? Duration.zero) > filters.maxDuration!) {
       return false;
     }
-    if (filters.folder != null &&
-        !_normalize(track.folder ?? '').contains(_normalize(filters.folder!))) {
-      return false;
+    if (filters.folder != null) {
+      final normalizedFolder =
+          _folderCache[track] ?? _normalize(track.folder ?? '');
+      _folderCache[track] = normalizedFolder;
+      if (!normalizedFolder.contains(_normalize(filters.folder!))) {
+        return false;
+      }
     }
     if (query.isEmpty) return true;
-    final haystack = _normalize(
-      '${track.title} ${track.artist} ${track.album} ${track.folder ?? ''}',
-    );
+    final cachedText = _searchTextCache[track];
+    final haystack =
+        cachedText ??
+        _normalize(
+          '${track.title} ${track.artist} ${track.album} ${track.folder ?? ''}',
+        );
+    _searchTextCache[track] = haystack;
     return haystack.contains(query);
   }
 
   String _normalize(String value) =>
       value
           .toLowerCase()
-          .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+          .replaceAll(_arabicDiacritics, '')
           .replaceAll('أ', 'ا')
           .replaceAll('إ', 'ا')
           .replaceAll('آ', 'ا')

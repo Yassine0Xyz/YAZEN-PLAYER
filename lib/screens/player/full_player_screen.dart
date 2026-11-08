@@ -328,8 +328,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final saved = preferences.getString(_artworkStyleKey);
     if (!mounted ||
         saved == null ||
-        loadGeneration != _artworkStyleChangeGeneration)
+        loadGeneration != _artworkStyleChangeGeneration) {
       return;
+    }
     final style = AudioArtworkStyle.values.where(
       (value) => value.name == saved,
     );
@@ -919,6 +920,7 @@ class _LarkArtwork extends StatelessWidget {
             : YazenMediaArtwork(
               track: track,
               size: size,
+              cropContentBounds: true,
               borderRadius: BorderRadius.circular(size * 0.16),
             );
     return AnimatedContainer(
@@ -1023,6 +1025,7 @@ class _AnimatedVinylState extends State<_AnimatedVinyl>
                       : YazenMediaArtwork(
                         track: widget.track,
                         size: size,
+                        cropContentBounds: true,
                         circular: true,
                       ),
             ),
@@ -1105,7 +1108,12 @@ class _Artwork extends StatelessWidget {
       ),
     );
     if (uri == null) return fallback;
-    return YazenMediaArtwork(size: size, imageUri: uri, placeholder: fallback);
+    return YazenMediaArtwork(
+      size: size,
+      imageUri: uri,
+      placeholder: fallback,
+      cropContentBounds: true,
+    );
   }
 }
 
@@ -1868,7 +1876,7 @@ class _AudioControlsSheetState extends State<_AudioControlsSheet> {
                           setState(() => _equalizer = value);
                           final applied = await widget.handler
                               .setEqualizerEnabled(value);
-                          if (!mounted || applied) return;
+                          if (!context.mounted || applied) return;
                           setState(() => _equalizer = false);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -2119,38 +2127,41 @@ class _SheetSurface extends StatelessWidget {
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: tokens.textSecondary.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(99),
+        child: Material(
+          color: Colors.transparent,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: tokens.textSecondary.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: <Widget>[
-                Icon(icon, color: tokens.accent),
-                const SizedBox(width: 10),
-                Text(
-                  title,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            child,
-          ],
+              const SizedBox(height: 14),
+              Row(
+                children: <Widget>[
+                  Icon(icon, color: tokens.accent),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              child,
+            ],
+          ),
         ),
       ),
     );

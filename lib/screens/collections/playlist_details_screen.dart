@@ -162,109 +162,115 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                 title: 'Playlist is empty',
                 subtitle: 'Add tracks from the local library.',
               )
-              : ReorderableListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 118),
-                itemCount: tracks.length + 1,
-                onReorderItem:
-                    canReorder
-                        ? (oldIndex, newIndex) async {
-                          if (oldIndex == 0 || newIndex == 0) return;
-                          final oldTrackIndex = oldIndex - 1;
-                          await manager.moveWithinPlaylist(
-                            playlist.id,
-                            oldTrackIndex,
-                            newIndex - 1,
-                          );
-                        }
-                        : (_, _) {},
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return Padding(
-                      key: const ValueKey('playlist-header'),
-                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              '${playlist.tracks.length} songs',
-                              style: TextStyle(
-                                color: tokens.textSecondary,
-                                fontWeight: FontWeight.w700,
+              : LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth - 24 < 470;
+                  return ReorderableListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 118),
+                    itemCount: tracks.length + 1,
+                    onReorderItem:
+                        canReorder
+                            ? (oldIndex, newIndex) async {
+                              if (oldIndex == 0 || newIndex == 0) return;
+                              final oldTrackIndex = oldIndex - 1;
+                              await manager.moveWithinPlaylist(
+                                playlist.id,
+                                oldTrackIndex,
+                                newIndex - 1,
+                              );
+                            }
+                            : (_, _) {},
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return Padding(
+                          key: const ValueKey('playlist-header'),
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                          child: Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  '${playlist.tracks.length} songs',
+                                  style: TextStyle(
+                                    color: tokens.textSecondary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                          if (_manageMode)
-                            Text(
-                              '${_selectedIds.length} selected',
-                              style: TextStyle(color: tokens.accent),
-                            )
-                          else
-                            FilledButton.tonalIcon(
-                              onPressed:
-                                  () => controller.playTrackQueue(
-                                    playlist.tracks,
-                                  ),
-                              icon: const Icon(Icons.play_arrow_rounded),
-                              label: const Text('Play all'),
-                            ),
-                        ],
-                      ),
-                    );
-                  }
-                  final track = tracks[index - 1];
-                  final selected = _selectedIds.contains(track.id);
-                  return Dismissible(
-                    key: ValueKey('${playlist.id}-${track.id}'),
-                    direction:
-                        _manageMode
-                            ? DismissDirection.none
-                            : DismissDirection.endToStart,
-                    background: const _DeleteBackground(),
-                    onDismissed:
-                        (_) =>
-                            manager.removeFromPlaylist(playlist.id, track.id),
-                    child: TrackListTile(
-                      key: ValueKey('track-${playlist.id}-${track.id}'),
-                      track: track,
-                      selected: selected,
-                      trailing:
-                          _manageMode
-                              ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  IconButton(
-                                    tooltip: 'Edit metadata',
-                                    onPressed: () => _editMetadata(track),
-                                    icon: const Icon(Icons.edit_rounded),
-                                  ),
-                                  ReorderableDragStartListener(
-                                    index: index,
-                                    child: IconButton(
-                                      tooltip: 'Drag to arrange',
-                                      onPressed: () {},
-                                      icon: const Icon(
-                                        Icons.drag_handle_rounded,
+                              if (_manageMode)
+                                Text(
+                                  '${_selectedIds.length} selected',
+                                  style: TextStyle(color: tokens.accent),
+                                )
+                              else
+                                FilledButton.tonalIcon(
+                                  onPressed:
+                                      () => controller.playTrackQueue(
+                                        playlist.tracks,
                                       ),
-                                    ),
-                                  ),
-                                ],
-                              )
-                              : null,
-                      onLongPress: () => _toggleSelection(track),
-                      onTap: () {
-                        if (_manageMode) {
-                          _toggleSelection(track);
-                        } else {
-                          controller.playTrackQueue(
-                            playlist.tracks,
-                            initialIndex: playlist.tracks.indexOf(track),
-                          );
-                        }
-                      },
-                      isFavorite: controller.isFavorite(track),
-                      onFavorite: () => controller.toggleFavorite(track),
-                      onAddToPlaylist: () => _showTrackActions(context, track),
-                    ),
+                                  icon: const Icon(Icons.play_arrow_rounded),
+                                  label: const Text('Play all'),
+                                ),
+                            ],
+                          ),
+                        );
+                      }
+                      final track = tracks[index - 1];
+                      final selected = _selectedIds.contains(track.id);
+                      return Dismissible(
+                        key: ValueKey('${playlist.id}-${track.id}'),
+                        direction:
+                            _manageMode
+                                ? DismissDirection.none
+                                : DismissDirection.endToStart,
+                        background: const _DeleteBackground(),
+                        onDismissed:
+                            (_) =>
+                                manager.removeFromPlaylist(playlist.id, track.id),
+                        child: TrackListTile(
+                          key: ValueKey('track-${playlist.id}-${track.id}'),
+                          track: track,
+                          compact: compact,
+                          selected: selected,
+                          trailing:
+                              _manageMode
+                                  ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      IconButton(
+                                        tooltip: 'Edit metadata',
+                                        onPressed: () => _editMetadata(track),
+                                        icon: const Icon(Icons.edit_rounded),
+                                      ),
+                                      ReorderableDragStartListener(
+                                        index: index,
+                                        child: IconButton(
+                                          tooltip: 'Drag to arrange',
+                                          onPressed: () {},
+                                          icon: const Icon(
+                                            Icons.drag_handle_rounded,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                  : null,
+                          onLongPress: () => _toggleSelection(track),
+                          onTap: () {
+                            if (_manageMode) {
+                              _toggleSelection(track);
+                            } else {
+                              controller.playTrackQueue(
+                                playlist.tracks,
+                                initialIndex: playlist.tracks.indexOf(track),
+                              );
+                            }
+                          },
+                          isFavorite: controller.isFavorite(track),
+                          onFavorite: () => controller.toggleFavorite(track),
+                          onAddToPlaylist: () => _showTrackActions(context, track),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -450,27 +456,36 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                         ),
                       ),
                       Expanded(
-                        child: ListView.builder(
-                          itemCount: available.length,
-                          itemBuilder: (context, index) {
-                            final track = available[index];
-                            final isSelected = selected.contains(track.id);
-                            return TrackListTile(
-                              key: ValueKey<String>('playlist-add-${track.id}'),
-                              track: track,
-                              selected: isSelected,
-                              onTap:
-                                  () => setSheetState(() {
-                                    if (!selected.add(track.id)) {
-                                      selected.remove(track.id);
-                                    }
-                                  }),
-                              onLongPress:
-                                  () => setSheetState(() {
-                                    if (!selected.add(track.id)) {
-                                      selected.remove(track.id);
-                                    }
-                                  }),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = constraints.maxWidth < 470;
+                            return ListView.builder(
+                              itemExtent: compact ? 72 : 78,
+                              itemCount: available.length,
+                              itemBuilder: (context, index) {
+                                final track = available[index];
+                                final isSelected = selected.contains(track.id);
+                                return TrackListTile(
+                                  key: ValueKey<String>(
+                                    'playlist-add-${track.id}',
+                                  ),
+                                  track: track,
+                                  compact: compact,
+                                  selected: isSelected,
+                                  onTap:
+                                      () => setSheetState(() {
+                                        if (!selected.add(track.id)) {
+                                          selected.remove(track.id);
+                                        }
+                                      }),
+                                  onLongPress:
+                                      () => setSheetState(() {
+                                        if (!selected.add(track.id)) {
+                                          selected.remove(track.id);
+                                        }
+                                      }),
+                                );
+                              },
                             );
                           },
                         ),

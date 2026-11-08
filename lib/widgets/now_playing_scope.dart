@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/hybrid_music_controller.dart';
 import '../core/theme/motion_tokens.dart';
+import '../services/scroll_performance_mode.dart';
 
 class NowPlayingScope extends StatefulWidget {
   const NowPlayingScope({required this.child, super.key});
@@ -25,25 +26,49 @@ class _NowPlayingScopeState extends State<NowPlayingScope>
     duration: MotionTokens.hero,
   );
   bool _pulseScheduled = false;
+  bool _isPlaying = false;
+  bool _reduceMotion = false;
+  bool _isScrolling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isScrolling = ScrollPerformanceMode.isScrolling.value;
+    ScrollPerformanceMode.isScrolling.addListener(_onScrollModeChanged);
+  }
+
+  void _onScrollModeChanged() {
+    _isScrolling = ScrollPerformanceMode.isScrolling.value;
+    _syncPulse(_isPlaying, _reduceMotion);
+  }
 
   void _syncPulse(bool playing, bool reduceMotion) {
-    if (_pulseScheduled) return;
+    _isPlaying = playing;
+    _reduceMotion = reduceMotion;
+    final shouldAnimate = _isPlaying && !_reduceMotion && !_isScrolling;
+    if (shouldAnimate == _pulse.isAnimating || _pulseScheduled) return;
+
     _pulseScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pulseScheduled = false;
       if (!mounted) return;
-      if (playing && !reduceMotion) {
+      final animate = _isPlaying && !_reduceMotion && !_isScrolling;
+      if (animate) {
         if (!_pulse.isAnimating) _pulse.repeat(reverse: true);
       } else if (_pulse.isAnimating) {
         _pulse.stop(canceled: false);
       }
     });
+    // Scroll-end can occur after the last frame. Ensure the post-frame callback
+    // is delivered so the indicator resumes without waiting for another event.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override
   Widget build(BuildContext context) {
     final handler = context.read<HybridMusicController>().audioHandler;
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    _reduceMotion = reducedMotion;
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
       initialData: handler.activeTrack?.toMediaItem(),
@@ -55,6 +80,7 @@ class _NowPlayingScopeState extends State<NowPlayingScope>
           builder: (context, playbackSnapshot) {
             final playing =
                 playbackSnapshot.data?.playing ?? handler.player.playing;
+            _isPlaying = playing;
             _syncPulse(playing, reducedMotion);
             return _NowPlayingModel(
               trackId: trackId,
@@ -70,6 +96,7 @@ class _NowPlayingScopeState extends State<NowPlayingScope>
 
   @override
   void dispose() {
+    ScrollPerformanceMode.isScrolling.removeListener(_onScrollModeChanged);
     _pulse.dispose();
     super.dispose();
   }

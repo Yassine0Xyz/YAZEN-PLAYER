@@ -294,6 +294,40 @@ void main() {
     await player.close();
   });
 
+  test('library refresh keeps the current list visible until replacement is ready', () async {
+    final songs = <MediaTrack>[_folderTrack(1, '/Music/Old')];
+    final library = _FakeMediaLibrary(songs: songs);
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    final controller = HybridMusicController(
+      library: library,
+      audioHandler: handler,
+      playlistManager: manager,
+    );
+
+    await controller.loadLibrary();
+    final replacement = Completer<List<MediaTrack>>();
+    library.songQueryCompleter = replacement;
+    final refresh = controller.refreshLibrary();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.isLoading, isFalse);
+    expect(controller.localSongs.single.id, 'queue-1');
+
+    replacement.complete(<MediaTrack>[_folderTrack(2, '/Music/New')]);
+    await refresh;
+    expect(controller.localSongs.single.id, 'queue-2');
+
+    controller.dispose();
+    await handler.dispose();
+    await player.close();
+  });
+
   test('folder queries use the refreshed library snapshot', () async {
     final songs = <MediaTrack>[_folderTrack(1, '/Music/Old')];
     final library = _FakeMediaLibrary(songs: songs);
@@ -1091,6 +1125,7 @@ class _FakeMediaLibrary extends MediaLibraryService {
   int settingsOpens = 0;
   int permissionRequests = 0;
   int songQueries = 0;
+  Completer<List<MediaTrack>>? songQueryCompleter;
 
   @override
   Future<bool> ensurePermission({bool requestIfDenied = true}) async => granted;
@@ -1113,6 +1148,8 @@ class _FakeMediaLibrary extends MediaLibraryService {
   @override
   Future<List<MediaTrack>> querySongs() async {
     songQueries++;
+    final pending = songQueryCompleter;
+    if (pending != null) return pending.future;
     return songs;
   }
 

@@ -57,4 +57,33 @@ void main() {
     );
     expect(result.map((item) => item.id), <String>['long']);
   });
+
+  test('normalizes folders and keeps metadata caches instance-specific', () {
+    const service = LibrarySearchService();
+    final arabicFolder = const MediaTrack(
+      id: 'arabic-folder',
+      title: 'Old title',
+      artist: 'Artist',
+      album: 'Album',
+      source: TrackSource.local,
+      folder: '/مُوسيقى/ألبوم',
+    );
+    final updatedMetadata = track(
+      id: 'arabic-folder',
+      title: 'New title',
+      artist: 'Artist',
+    );
+
+    expect(
+      service.search(
+        <MediaTrack>[arabicFolder],
+        '',
+        filters: const LibrarySearchFilters(folder: '/موسيقى/ألبوم'),
+      ),
+      hasLength(1),
+    );
+    expect(service.search(<MediaTrack>[arabicFolder], 'old'), hasLength(1));
+    expect(service.search(<MediaTrack>[updatedMetadata], 'new'), hasLength(1));
+    expect(service.search(<MediaTrack>[updatedMetadata], 'old'), isEmpty);
+  });
 }

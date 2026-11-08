@@ -16,10 +16,13 @@ import 'services/local_playlist_manager.dart';
 import 'services/ambient_color_flow_settings.dart';
 import 'services/startup_restore.dart';
 import 'services/app_route_observer.dart';
+import 'services/scroll_performance_mode.dart';
 import 'widgets/now_playing_scope.dart';
+import 'diagnostics/core/diagnostics_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  DiagnosticsService.instance.start();
   late final HybridAudioHandler audioHandler;
   try {
     audioHandler = await AudioService.init<HybridAudioHandler>(
@@ -51,18 +54,8 @@ Future<void> main() async {
   }
 
   final themeProvider = ThemeProvider();
-  try {
-    await themeProvider.load();
-  } catch (_) {
-    // Use the default theme when first-run preferences are unavailable.
-  }
   unawaited(AmbientColorFlowSettings.instance.load());
   final playlistManager = LocalPlaylistManager();
-  try {
-    await playlistManager.initialize();
-  } catch (_) {
-    // Start with empty local collections when persisted data is unreadable.
-  }
   runApp(
     HybridMusicApp(
       audioHandler: audioHandler,
@@ -70,6 +63,11 @@ Future<void> main() async {
       playlistManager: playlistManager,
     ),
   );
+  // Preferences and local overlays are not required to paint the first frame.
+  // Load them after the shell is visible; their ChangeNotifier updates will
+  // refresh the relevant selectors when ready.
+  unawaited(themeProvider.load().catchError((_) {}));
+  unawaited(playlistManager.initialize().catchError((_) {}));
   schedulePlaybackRestoreAfterFirstFrame(audioHandler.restoreLastPlayback);
 }
 
@@ -111,7 +109,51 @@ class HybridMusicApp extends StatelessWidget {
             theme: themeState.theme,
             builder:
                 (context, child) => NowPlayingScope(
-                  child: ThemeBackdrop(child: child ?? const SizedBox.shrink()),
+                  child: ThemeBackdrop(
+                    child: Listener(
+                      behavior: HitTestBehavior.deferToChild,
+                      onPointerDown: DiagnosticsService.instance.pointerDown,
+                      onPointerMove: DiagnosticsService.instance.pointerMove,
+                      onPointerUp: DiagnosticsService.instance.pointerUp,
+                      onPointerCancel: DiagnosticsService.instance.pointerCancel,
+                      onPointerSignal: DiagnosticsService.instance.pointerSignal,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          final metrics = notification.metrics;
+                          if (notification is ScrollStartNotification) {
+                            ScrollPerformanceMode.noteScrollActivity();
+                            DiagnosticsService.instance.scrollStarted(
+                              axis: metrics.axis.name,
+                              pixels: metrics.pixels,
+                              depth: notification.depth,
+                              sourceTimeStamp:
+                                  notification.dragDetails?.sourceTimeStamp,
+                            );
+                          } else if (notification is ScrollUpdateNotification) {
+                            DiagnosticsService.instance.scrollUpdated(
+                              axis: metrics.axis.name,
+                              depth: notification.depth,
+                              delta: notification.scrollDelta,
+                              pixels: metrics.pixels,
+                              maxExtent: metrics.maxScrollExtent,
+                              sourceTimeStamp:
+                                  notification.dragDetails?.sourceTimeStamp,
+                            );
+                          } else if (notification is ScrollEndNotification) {
+                            ScrollPerformanceMode.noteScrollEnd();
+                            DiagnosticsService.instance.scrollEnded(
+                              axis: metrics.axis.name,
+                              depth: notification.depth,
+                              pixels: metrics.pixels,
+                              maxExtent: metrics.maxScrollExtent,
+                            );
+                          }
+                          return false;
+                        },
+                        child: child ?? const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
                 ),
             home: const HomeScreen(),
           );

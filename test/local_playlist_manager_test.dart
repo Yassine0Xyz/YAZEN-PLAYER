@@ -136,6 +136,32 @@ void main() {
     expect(restored.playlists.single.coverTrack?.id, 'local-song-2');
   });
 
+  test(
+    'favorite membership stays current after toggle and bulk changes',
+    () async {
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final first = track(id: 'favorite-first');
+      final second = track(id: 'favorite-second');
+
+      expect(manager.isFavorite(first), isFalse);
+      await manager.toggleFavorite(first);
+      expect(manager.isFavorite(first), isTrue);
+      await manager.toggleFavorite(first);
+      expect(manager.isFavorite(first), isFalse);
+
+      await manager.addToFavorites(<MediaTrack>[first, second]);
+      expect(manager.isFavorite(first), isTrue);
+      expect(manager.isFavorite(second), isTrue);
+      await manager.toggleFavorite(second);
+      expect(manager.isFavorite(second), isFalse);
+
+      await manager.clearFavorites();
+      expect(manager.isFavorite(first), isFalse);
+      expect(manager.isFavorite(second), isFalse);
+    },
+  );
+
   test('renames a playlist, trims its name, and persists the change', () async {
     final manager = LocalPlaylistManager();
     await manager.initialize();
