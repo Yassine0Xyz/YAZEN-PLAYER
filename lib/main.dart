@@ -110,48 +110,40 @@ class HybridMusicApp extends StatelessWidget {
             builder:
                 (context, child) => NowPlayingScope(
                   child: ThemeBackdrop(
-                    child: Listener(
-                      behavior: HitTestBehavior.deferToChild,
-                      onPointerDown: DiagnosticsService.instance.pointerDown,
-                      onPointerMove: DiagnosticsService.instance.pointerMove,
-                      onPointerUp: DiagnosticsService.instance.pointerUp,
-                      onPointerCancel: DiagnosticsService.instance.pointerCancel,
-                      onPointerSignal: DiagnosticsService.instance.pointerSignal,
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: (notification) {
-                          final metrics = notification.metrics;
-                          if (notification is ScrollStartNotification) {
-                            ScrollPerformanceMode.noteScrollActivity();
-                            DiagnosticsService.instance.scrollStarted(
-                              axis: metrics.axis.name,
-                              pixels: metrics.pixels,
-                              depth: notification.depth,
-                              sourceTimeStamp:
-                                  notification.dragDetails?.sourceTimeStamp,
-                            );
-                          } else if (notification is ScrollUpdateNotification) {
-                            DiagnosticsService.instance.scrollUpdated(
-                              axis: metrics.axis.name,
-                              depth: notification.depth,
-                              delta: notification.scrollDelta,
-                              pixels: metrics.pixels,
-                              maxExtent: metrics.maxScrollExtent,
-                              sourceTimeStamp:
-                                  notification.dragDetails?.sourceTimeStamp,
-                            );
-                          } else if (notification is ScrollEndNotification) {
-                            ScrollPerformanceMode.noteScrollEnd();
-                            DiagnosticsService.instance.scrollEnded(
-                              axis: metrics.axis.name,
-                              depth: notification.depth,
-                              pixels: metrics.pixels,
-                              maxExtent: metrics.maxScrollExtent,
-                            );
-                          }
-                          return false;
-                        },
-                        child: child ?? const SizedBox.shrink(),
-                      ),
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        final metrics = notification.metrics;
+                        if (notification is ScrollStartNotification) {
+                          ScrollPerformanceMode.noteScrollActivity();
+                          DiagnosticsService.instance.scrollStarted(
+                            axis: metrics.axis.name,
+                            pixels: metrics.pixels,
+                            depth: notification.depth,
+                            sourceTimeStamp:
+                                notification.dragDetails?.sourceTimeStamp,
+                          );
+                        } else if (notification is ScrollUpdateNotification) {
+                          DiagnosticsService.instance.scrollUpdated(
+                            axis: metrics.axis.name,
+                            depth: notification.depth,
+                            delta: notification.scrollDelta,
+                            pixels: metrics.pixels,
+                            maxExtent: metrics.maxScrollExtent,
+                            sourceTimeStamp:
+                                notification.dragDetails?.sourceTimeStamp,
+                          );
+                        } else if (notification is ScrollEndNotification) {
+                          ScrollPerformanceMode.noteScrollEnd();
+                          DiagnosticsService.instance.scrollEnded(
+                            axis: metrics.axis.name,
+                            depth: notification.depth,
+                            pixels: metrics.pixels,
+                            maxExtent: metrics.maxScrollExtent,
+                          );
+                        }
+                        return false;
+                      },
+                      child: child ?? const SizedBox.shrink(),
                     ),
                   ),
                 ),

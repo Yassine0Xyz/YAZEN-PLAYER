@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'dart:ui' show FramePhase, FrameTiming, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -250,6 +251,7 @@ class DiagnosticsService {
     _started = true;
     _sessionId = 'yazen-${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}';
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointerEvent);
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
     _lifecycleObserver.onState = lifecycleChanged;
 
@@ -306,6 +308,20 @@ class DiagnosticsService {
     _journalTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       unawaited(_drainJournal());
     });
+  }
+
+  void _onGlobalPointerEvent(PointerEvent event) {
+    if (event is PointerDownEvent) {
+      pointerDown(event);
+    } else if (event is PointerMoveEvent) {
+      pointerMove(event);
+    } else if (event is PointerUpEvent) {
+      pointerUp(event);
+    } else if (event is PointerCancelEvent) {
+      pointerCancel(event);
+    } else if (event is PointerSignalEvent) {
+      pointerSignal(event);
+    }
   }
 
   void _startResourceTimer() {
@@ -1729,6 +1745,7 @@ class DiagnosticsService {
   }
 
   Future<void> dispose() async {
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onGlobalPointerEvent);
     _resourceTimer?.cancel();
     _journalTimer?.cancel();
     record('session_end', <String, Object?>{'reason': 'service_dispose'});
@@ -1800,4 +1817,3 @@ class _DiagnosticsLifecycleObserver with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => onState?.call(state);
 }
-
