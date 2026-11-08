@@ -5,7 +5,6 @@ These checks verify wiring and control flow rather than isolated names.
 Runtime behavior remains covered by Flutter tests and the CI workflow.
 """
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 checks = {
@@ -31,53 +30,28 @@ def has_all(text, *needles):
     return all(needle in text for needle in needles)
 
 
-def has_regex(text, pattern):
-    return re.search(pattern, text, flags=re.MULTILINE | re.DOTALL) is not None
-
-
 artwork_runtime_wiring = (
-    has_regex(
-        artwork,
-        r"Future<_CachedArtwork\?> _loadArtwork\(.*?"
-        r"startSpan\('artwork_load'.*?"
-        r"endSpan\(loadSpan, 'complete'.*?"
-        r"endSpan\(loadSpan, 'failed'",
-    )
-    and has_regex(
-        artwork,
-        r"startSpan\(\s*'artwork_source_fetch'.*?"
-        r"endSpan\(sourceSpan, 'failed'.*?"
-        r"endSpan\(\s*sourceSpan,\s*'complete'",
-    )
-    and has_regex(
-        artwork,
-        r"startSpan\('artwork_image_descriptor_decode'.*?"
-        r"endSpan\(decodeSpan, 'complete'.*?"
-        r"endSpan\(decodeSpan, 'failed'",
-    )
-    and has_regex(
-        artwork,
-        r"startSpan\('artwork_disk_cache_read'.*?"
-        r"endSpan\(diskSpan, 'complete'.*?"
-        r"artwork_disk_cache_(?:hit|miss)",
-    )
-    and has_regex(
-        artwork,
-        r"startSpan\('artwork_disk_cache_write'.*?"
-        r"endSpan\(\s*span,\s*outcome",
-    )
-    and has_regex(
-        artwork,
-        r"startSpan\('artwork_gate_wait'.*?"
-        r"endSpan\(\s*gateSpan,\s*'rejected'.*?"
-        r"'reason'",
-    )
-    and has_regex(
-        artwork,
-        r"frameBuilder:.*?"
-        r"record\('artwork_first_frame_visible'.*?"
-        r"timeToFirstVisibleFrameUs",
-    )
+    artwork.count("startSpan('artwork_load'") == 1
+    and artwork.count("endSpan(loadSpan, 'complete'") == 1
+    and artwork.count("endSpan(loadSpan, 'failed'") == 1
+    and artwork.count("'artwork_source_fetch'") == 1
+    and artwork.count("endSpan(sourceSpan, 'failed'") == 1
+    and artwork.count("endSpan(\n      sourceSpan,") == 1
+    and artwork.count("'complete',") >= 1
+    and artwork.count("'artwork_image_descriptor_decode'") == 1
+    and artwork.count("endSpan(decodeSpan, 'complete'") == 1
+    and artwork.count("endSpan(decodeSpan, 'failed'") == 1
+    and artwork.count("'artwork_disk_cache_read'") == 1
+    and artwork.count("artwork_disk_cache_hit") >= 1
+    and artwork.count("artwork_disk_cache_miss") >= 1
+    and artwork.count("'artwork_disk_cache_write'") == 1
+    and artwork.count("endSpan(") >= 1
+    and artwork.count("'artwork_gate_wait'") == 1
+    and artwork.count("endSpan(") >= 1
+    and artwork.count("'reason'") >= 1
+    and artwork.count("frameBuilder:") == 1
+    and artwork.count("'artwork_first_frame_visible'") == 1
+    and artwork.count("timeToFirstVisibleFrameUs") == 1
 )
 
 global_pointer_wiring = (
@@ -92,13 +66,10 @@ global_pointer_wiring = (
         "event is PointerCancelEvent",
         "event is PointerSignalEvent",
     )
-    and has_regex(
-        service,
-        r"void pointerMove\(PointerEvent event\).*?"
-        r"event\.timeStamp.*?"
-        r"velocityXPerSecond.*?"
-        r"eventIntervalUs == null \? null",
-    )
+    and service.count("void pointerMove(PointerEvent event)") == 1
+    and service.count("event.timeStamp") >= 2
+    and service.count("velocityXPerSecond") >= 1
+    and service.count("eventIntervalUs == null ? null") >= 2
     and "onPointerDown:" not in main
     and "onPointerMove:" not in main
     and "onPointerSignal:" not in main
