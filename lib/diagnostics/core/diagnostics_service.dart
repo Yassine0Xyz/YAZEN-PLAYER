@@ -731,10 +731,10 @@ class DiagnosticsService {
           );
     final pixelDelta = session == null ? null : pixels - session.lastPixels;
     final velocity = pixelDelta == null
-        ? null
-        : calculateEventVelocity(
+          ? null
+          : calculateEventVelocity(
             delta: pixelDelta,
-            previousTimestamp: session.lastEventTimestamp,
+            previousTimestamp: session?.lastEventTimestamp,
             currentTimestamp: sourceTimeStamp,
           );
     if (session != null) {
