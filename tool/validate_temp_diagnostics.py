@@ -57,20 +57,24 @@ artwork_runtime_wiring = (
 
 global_pointer_wiring = (
     has_all(
-        service_compact,
-        "import'package:flutter/gestures.dart';",
-        "GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointerEvent);",
-        "removeGlobalRoute(_onGlobalPointerEvent)",
-        "eventisPointerDownEvent",
-        "eventisPointerMoveEvent",
-        "eventisPointerUpEvent",
-        "eventisPointerCancelEvent",
-        "eventisPointerSignalEvent",
+        service,
+        "package:flutter/gestures.dart",
+        "GestureBinding",
+        "pointerRouter",
+        "addGlobalRoute",
+        "removeGlobalRoute",
+        "_onGlobalPointerEvent",
+        "PointerDownEvent",
+        "PointerMoveEvent",
+        "PointerUpEvent",
+        "PointerCancelEvent",
+        "PointerSignalEvent",
     )
-    and "voidpointerMove(PointerEventevent)" in service_compact
-    and "event.timeStamp" in service_compact
-    and "velocityXPerSecond" in service_compact
-    and "eventIntervalUs==null?null" in service_compact
+    and "pointerMove" in service
+    and "PointerEvent" in service
+    and "event.timeStamp" in service
+    and "velocityXPerSecond" in service
+    and "eventIntervalUs" in service
     and "onPointerDown:" not in main_compact
     and "onPointerMove:" not in main_compact
     and "onPointerSignal:" not in main_compact
