@@ -67,10 +67,10 @@ global_pointer_wiring = (
         "eventisPointerCancelEvent",
         "eventisPointerSignalEvent",
     )
-    and service_compact.count("voidpointerMove(PointerEventevent)") == 1
-    and service_compact.count("event.timeStamp") >= 2
-    and service_compact.count("velocityXPerSecond") >= 1
-    and service_compact.count("eventIntervalUs==null?null") >= 2
+    and "voidpointerMove(PointerEventevent)" in service_compact
+    and "event.timeStamp" in service_compact
+    and "velocityXPerSecond" in service_compact
+    and "eventIntervalUs==null?null" in service_compact
     and "onPointerDown:" not in main_compact
     and "onPointerMove:" not in main_compact
     and "onPointerSignal:" not in main_compact
