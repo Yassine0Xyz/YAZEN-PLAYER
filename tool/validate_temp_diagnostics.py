@@ -24,6 +24,9 @@ artwork = (ROOT / "lib/widgets/media_artwork.dart").read_text()
 media_library = (ROOT / "lib/services/media_library_service.dart").read_text()
 native = (ROOT / "android/app/src/main/kotlin/com/yassine/yazen/MainActivity.kt").read_text()
 workflow = (ROOT / ".github/workflows/flutter-ci.yml").read_text()
+service_compact = "".join(service.split())
+main_compact = "".join(main.split())
+artwork_compact = "".join(artwork.split())
 
 
 def has_all(text, *needles):
@@ -31,48 +34,46 @@ def has_all(text, *needles):
 
 
 artwork_runtime_wiring = (
-    artwork.count("startSpan('artwork_load'") == 1
-    and artwork.count("endSpan(loadSpan, 'complete'") == 1
-    and artwork.count("endSpan(loadSpan, 'failed'") == 1
-    and artwork.count("'artwork_source_fetch'") == 1
-    and artwork.count("endSpan(sourceSpan, 'failed'") == 1
-    and artwork.count("endSpan(\n      sourceSpan,") == 1
-    and artwork.count("'complete',") >= 1
-    and artwork.count("'artwork_image_descriptor_decode'") == 1
-    and artwork.count("endSpan(decodeSpan, 'complete'") == 1
-    and artwork.count("endSpan(decodeSpan, 'failed'") == 1
-    and artwork.count("'artwork_disk_cache_read'") == 1
-    and artwork.count("artwork_disk_cache_hit") >= 1
-    and artwork.count("artwork_disk_cache_miss") >= 1
-    and artwork.count("'artwork_disk_cache_write'") == 1
-    and artwork.count("endSpan(") >= 1
-    and artwork.count("'artwork_gate_wait'") == 1
-    and artwork.count("endSpan(") >= 1
-    and artwork.count("'reason'") >= 1
-    and artwork.count("frameBuilder:") == 1
-    and artwork.count("'artwork_first_frame_visible'") == 1
-    and artwork.count("timeToFirstVisibleFrameUs") == 1
+    artwork_compact.count("startSpan('artwork_load'") == 1
+    and artwork_compact.count("endSpan(loadSpan,'complete'") == 1
+    and artwork_compact.count("endSpan(loadSpan,'failed'") == 1
+    and artwork_compact.count("'artwork_source_fetch'") == 1
+    and artwork_compact.count("endSpan(sourceSpan,'failed'") == 1
+    and artwork_compact.count("endSpan(sourceSpan,'complete'") == 1
+    and artwork_compact.count("'artwork_image_descriptor_decode'") == 1
+    and artwork_compact.count("endSpan(decodeSpan,'complete'") == 1
+    and artwork_compact.count("endSpan(decodeSpan,'failed'") == 1
+    and artwork_compact.count("'artwork_disk_cache_read'") == 1
+    and artwork_compact.count("artwork_disk_cache_hit") >= 1
+    and artwork_compact.count("artwork_disk_cache_miss") >= 1
+    and artwork_compact.count("'artwork_disk_cache_write'") == 1
+    and artwork_compact.count("'artwork_gate_wait'") == 1
+    and artwork_compact.count("gateSpan,'rejected'") >= 1
+    and artwork_compact.count("'reason'") >= 1
+    and artwork_compact.count("frameBuilder:") == 1
+    and artwork_compact.count("'artwork_first_frame_visible'") == 1
+    and artwork_compact.count("timeToFirstVisibleFrameUs") == 1
 )
 
 global_pointer_wiring = (
     has_all(
-        service,
-        "import 'package:flutter/gestures.dart';",
+        service_compact,
+        "import'package:flutter/gestures.dart';",
         "GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointerEvent);",
         "removeGlobalRoute(_onGlobalPointerEvent)",
-        "event is PointerDownEvent",
-        "event is PointerMoveEvent",
-        "event is PointerUpEvent",
-        "event is PointerCancelEvent",
-        "event is PointerSignalEvent",
+        "eventisPointerDownEvent",
+        "eventisPointerMoveEvent",
+        "eventisPointerUpEvent",
+        "eventisPointerCancelEvent",
+        "eventisPointerSignalEvent",
     )
-    and service.count("void pointerMove(PointerEvent event)") == 1
-    and service.count("event.timeStamp") >= 2
-    and service.count("velocityXPerSecond") >= 1
-    and service.count("eventIntervalUs == null ? null") >= 2
-    and "onPointerDown:" not in main
-    and "onPointerMove:" not in main
-    and "onPointerSignal:" not in main
+    and service_compact.count("voidpointerMove(PointerEventevent)") == 1
+    and service_compact.count("event.timeStamp") >= 2
+    and service_compact.count("velocityXPerSecond") >= 1
+    and service_compact.count("eventIntervalUs==null?null") >= 2
+    and "onPointerDown:" not in main_compact
+    and "onPointerMove:" not in main_compact
+    and "onPointerSignal:" not in main_compact
 )
 
 required = [
