@@ -205,7 +205,7 @@ class _YazenMediaArtworkState extends State<YazenMediaArtwork> {
     // Keep the previous frame visible until replacement art is ready; cached
     // low-resolution art is still replaced by its high-resolution variant.
     if (cached != null && cached.bytes.isNotEmpty) {
-      DiagnosticsService.instance.record('artwork_memory_cache_hit', <String, Object?>{'cacheKeyFingerprint': DiagnosticsService.diagnosticFingerprint(key), 'pixels': pixels, ..._diagnosticsSnapshot()});
+      DiagnosticsService.instance.record('artwork_memory_cache_hit', <String, Object?>{'cacheKeyFingerprint': DiagnosticsService.diagnosticFingerprint(key!), 'pixels': pixels, ..._diagnosticsSnapshot()});
       _lastBytes = cached.bytes;
       _lastWidth = cached.width;
       _lastHeight = cached.height;
