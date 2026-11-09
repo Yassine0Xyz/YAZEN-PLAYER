@@ -1207,6 +1207,8 @@ class DiagnosticsService {
     var snapshotObservedCount = 0;
     var snapshotQueuedCount = 0;
     var snapshotPendingCount = 0;
+    var snapshotPersistedBeforeFlush = 0;
+    var snapshotDroppedBeforeFlush = 0;
     var snapshotDroppedCount = 0;
     var snapshotSequence = 0;
     var snapshotPauseCount = 0;
@@ -1227,6 +1229,8 @@ class DiagnosticsService {
       snapshotObservedCount = _journalEventCount;
       snapshotQueuedCount = _journalQueuedCount;
       snapshotPendingCount = _pendingJournalLines.length;
+      snapshotPersistedBeforeFlush = _journalPersistedCount;
+      snapshotDroppedBeforeFlush = _journalDroppedCount;
       snapshotPauseCount = _recordingPauseCount;
       var pendingAtBoundary = snapshotPendingCount;
       summaryAtBoundary = _summary();
@@ -1269,6 +1273,39 @@ class DiagnosticsService {
       summary['journalPendingAtExportBoundary'] = snapshotPendingCount;
       summary['journalError'] = snapshotJournalError;
       summary['exportBoundarySequence'] = snapshotSequence;
+
+      // _summary() is captured before pending lines are flushed so its nested
+      // integrity snapshot is intentionally pre-flush. Replace it here with
+      // boundary-consistent values after the immutable journal copy is ready.
+      final integrity = (summary['journalIntegrity'] as Map?)
+              ?.cast<String, Object?>() ??
+          <String, Object?>{};
+      integrity
+        ..['status'] = snapshotDroppedCount == 0 &&
+                snapshotJournalError == null &&
+                snapshotEventCount == snapshotObservedCount
+            ? (snapshotPauseCount == 0
+                ? 'complete_at_export_boundary'
+                : 'complete_at_export_boundary_with_known_recording_pauses')
+            : 'incomplete_or_uncertain'
+        ..['observed'] = snapshotObservedCount
+        ..['queued'] = snapshotQueuedCount
+        ..['persisted'] = snapshotEventCount
+        ..['droppedOrUncertain'] = snapshotDroppedCount
+        ..['pendingAtSnapshot'] = snapshotPendingCount
+        // Validate the queue accounting as it stood at the frozen boundary:
+        // persisted-before-flush + pending + already-dropped must equal observed.
+        ..['persistedBeforeBoundaryFlush'] = snapshotPersistedBeforeFlush
+        ..['droppedBeforeBoundaryFlush'] = snapshotDroppedBeforeFlush
+        ..['accountingMatches'] = snapshotObservedCount ==
+            snapshotPersistedBeforeFlush +
+                snapshotPendingCount +
+                snapshotDroppedBeforeFlush
+        ..['exportBoundarySequence'] = snapshotSequence
+        ..['journalError'] = snapshotJournalError
+        ..['recordingPauseCount'] = snapshotPauseCount
+        ..['note'] = 'Integrity is evaluated at the immutable export boundary after pending lines have been flushed; post-boundary events are excluded.';
+      summary['journalIntegrity'] = integrity;
       final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
       final analysis = snapshotFile == null
           ? <String, Object?>{'status': 'journal_snapshot_unavailable', 'error': _journalError ?? 'No journal file was created.'}
@@ -1368,6 +1405,7 @@ class DiagnosticsService {
     final eventTypeCounts = <String, int>{};
     final overBudgetByRoute = <String, int>{};
     final activeSpanFrameCounts = <String, int>{};
+    final activeSpanFrameOverlapCounts = <String, int>{};
     final operationDurations = <String, List<int>>{};
     final frameDurations = <int>[];
     final frameStartIntervalsUs = <int>[];
@@ -1489,9 +1527,18 @@ class DiagnosticsService {
                 overBudgetByRoute[route] = (overBudgetByRoute[route] ?? 0) + 1;
                 final active = data['activeSpans'];
                 if (active is List) {
+                  final uniqueOperationsInFrame = <String>{};
                   for (final span in active.whereType<Map>()) {
                     final operation = span['operation']?.toString() ?? 'unknown';
-                    activeSpanFrameCounts[operation] = (activeSpanFrameCounts[operation] ?? 0) + 1;
+                    activeSpanFrameOverlapCounts[operation] =
+                        (activeSpanFrameOverlapCounts[operation] ?? 0) + 1;
+                    uniqueOperationsInFrame.add(operation);
+                  }
+                  // Count a frame once per operation, even when multiple spans
+                  // with the same operation overlap that frame.
+                  for (final operation in uniqueOperationsInFrame) {
+                    activeSpanFrameCounts[operation] =
+                        (activeSpanFrameCounts[operation] ?? 0) + 1;
                   }
                 }
               }
@@ -1559,6 +1606,11 @@ class DiagnosticsService {
     final correlated = activeSpanFrameCounts.entries
         .map((entry) => <String, Object?>{
               'operation': entry.key,
+              'uniqueOverBudgetFramesDuringOperation': entry.value,
+              'overBudgetFrameSpanOverlapCount':
+                  activeSpanFrameOverlapCounts[entry.key] ?? entry.value,
+              // Keep the legacy field as an alias, but its semantics are now
+              // unique frames rather than raw span/frame overlap pairs.
               'overBudgetFramesDuringOperation': entry.value,
               'classification': 'correlated_only',
               'confidence': 'medium',
