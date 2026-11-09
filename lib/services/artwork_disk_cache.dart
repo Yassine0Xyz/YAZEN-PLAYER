@@ -57,21 +57,22 @@ class ArtworkDiskCache {
   int _knownCacheBytes = 0;
   int _bytesWrittenSinceTrim = 0;
 
-  Future<Directory> _directory() => _directoryFuture ??= getApplicationSupportDirectory().then((root) async {
-    final directory = Directory('${root.path}/artwork-thumbnails-v2');
-    await directory.create(recursive: true);
-    // Index construction is intentionally deferred from the first read/write.
-    // It must not compete with the first visible artwork requests.
-    if (!_cacheIndexScheduled && !_cacheIndexReady) {
-      _cacheIndexScheduled = true;
-      unawaited(
-        Future<void>.delayed(const Duration(seconds: 2))
-            .then((_) => _ensureCacheIndex(directory))
-            .whenComplete(() => _cacheIndexScheduled = false),
-      );
-    }
-    return directory;
-  });
+  Future<Directory> _directory() =>
+      _directoryFuture ??= getApplicationSupportDirectory().then((root) async {
+        final directory = Directory('${root.path}/artwork-thumbnails-v2');
+        await directory.create(recursive: true);
+        // Index construction is intentionally deferred from the first read/write.
+        // It must not compete with the first visible artwork requests.
+        if (!_cacheIndexScheduled && !_cacheIndexReady) {
+          _cacheIndexScheduled = true;
+          unawaited(
+            Future<void>.delayed(const Duration(seconds: 2))
+                .then((_) => _ensureCacheIndex(directory))
+                .whenComplete(() => _cacheIndexScheduled = false),
+          );
+        }
+        return directory;
+      });
 
   String _fileName(String key) {
     var hash = 0xcbf29ce484222325;
@@ -103,64 +104,49 @@ class ArtworkDiskCache {
     try {
       final file = File('${(await _directory()).path}/${_fileName(key)}.art');
       if (!await file.exists()) {
-        DiagnosticsService.instance.endSpan(
-          span,
-          'complete',
-          <String, Object?>{'hit': false, 'reason': 'file_missing'},
-        );
+        DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+          'hit': false,
+          'reason': 'file_missing',
+        });
         return null;
       }
       final data = await file.readAsBytes();
       if (data.length < 8) {
-        DiagnosticsService.instance.endSpan(
-          span,
-          'complete',
-          <String, Object?>{
-            'hit': false,
-            'reason': 'invalid_header',
-            'bytes': data.length,
-          },
-        );
+        DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+          'hit': false,
+          'reason': 'invalid_header',
+          'bytes': data.length,
+        });
         return null;
       }
       final header = ByteData.sublistView(data, 0, 8);
       final width = header.getUint32(0);
       final height = header.getUint32(4);
       if (width == 0 || height == 0 || data.length == 8) {
-        DiagnosticsService.instance.endSpan(
-          span,
-          'complete',
-          <String, Object?>{
-            'hit': false,
-            'reason': 'invalid_dimensions_or_empty_payload',
-            'bytes': data.length,
-          },
-        );
+        DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+          'hit': false,
+          'reason': 'invalid_dimensions_or_empty_payload',
+          'bytes': data.length,
+        });
         return null;
       }
       // Do not touch the file timestamp on every cache hit. This keeps reads
       // read-only; eviction uses the last successful write time instead.
-      DiagnosticsService.instance.endSpan(
-        span,
-        'complete',
-        <String, Object?>{
-          'hit': true,
-          'bytes': data.length,
-          'width': width,
-          'height': height,
-        },
-      );
+      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+        'hit': true,
+        'bytes': data.length,
+        'width': width,
+        'height': height,
+      });
       return DiskArtwork(
         bytes: Uint8List.sublistView(data, 8),
         width: width,
         height: height,
       );
     } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        span,
-        'failed',
-        <String, Object?>{'errorType': error.runtimeType.toString()},
-      );
+      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+      });
       return null;
     } finally {
       _activeReads--;
@@ -197,33 +183,27 @@ class ArtworkDiskCache {
     );
     final permitResult = await _writeGate.acquireWithResult();
     if (permitResult != LoadPermitResult.acquired) {
-      DiagnosticsService.instance.endSpan(
-        gateSpan,
-        'rejected',
-        <String, Object?>{
-          'reason': permitResult == LoadPermitResult.queueEvicted
-              ? 'queue_evicted_oldest_write'
-              : 'queue_capacity_unavailable',
-          'activeWrites': _writeGate.activeLoads,
-          'queuedWrites': _writeGate.queuedLoads,
-          'rejectedWrites': _writeGate.rejectedLoads,
-          'queueEvictions': _writeGate.queueEvictions,
-          'queueFullRejections': _writeGate.queueFullRejections,
-        },
-      );
+      DiagnosticsService.instance
+          .endSpan(gateSpan, 'rejected', <String, Object?>{
+            'reason':
+                permitResult == LoadPermitResult.queueEvicted
+                    ? 'queue_evicted_oldest_write'
+                    : 'queue_capacity_unavailable',
+            'activeWrites': _writeGate.activeLoads,
+            'queuedWrites': _writeGate.queuedLoads,
+            'rejectedWrites': _writeGate.rejectedLoads,
+            'queueEvictions': _writeGate.queueEvictions,
+            'queueFullRejections': _writeGate.queueFullRejections,
+          });
       return ArtworkDiskWriteResult.rejectedByGate;
     }
-    DiagnosticsService.instance.endSpan(
-      gateSpan,
-      'complete',
-      <String, Object?>{
-        'activeWrites': _writeGate.activeLoads,
-        'queuedWrites': _writeGate.queuedLoads,
-        'rejectedWrites': _writeGate.rejectedLoads,
-        'queueEvictions': _writeGate.queueEvictions,
-        'queueFullRejections': _writeGate.queueFullRejections,
-      },
-    );
+    DiagnosticsService.instance.endSpan(gateSpan, 'complete', <String, Object?>{
+      'activeWrites': _writeGate.activeLoads,
+      'queuedWrites': _writeGate.queuedLoads,
+      'rejectedWrites': _writeGate.rejectedLoads,
+      'queueEvictions': _writeGate.queueEvictions,
+      'queueFullRejections': _writeGate.queueFullRejections,
+    });
 
     final ioSpan = DiagnosticsService.instance.startSpan(
       'artwork_disk_write_io',
@@ -248,12 +228,14 @@ class ArtworkDiskCache {
       }
       final directory = await _directory();
       final file = File('${directory.path}/${_fileName(key)}.art');
-      final header = ByteData(8)
-        ..setUint32(0, width)
-        ..setUint32(4, height);
-      final data = Uint8List(8 + bytes.length)
-        ..setRange(0, 8, header.buffer.asUint8List())
-        ..setRange(8, 8 + bytes.length, bytes);
+      final header =
+          ByteData(8)
+            ..setUint32(0, width)
+            ..setUint32(4, height);
+      final data =
+          Uint8List(8 + bytes.length)
+            ..setRange(0, 8, header.buffer.asUint8List())
+            ..setRange(8, 8 + bytes.length, bytes);
 
       // Publish atomically so an interrupted write cannot look like a valid hit.
       final temporary = File('${file.path}.tmp');
@@ -271,30 +253,25 @@ class ArtworkDiskCache {
       );
       _updateCacheIndex(entry);
       _bytesWrittenSinceTrim += data.length;
-      final shouldScheduleTrim = _cacheIndexReady
-          ? _knownCacheBytes > _maxBytes
-          : _bytesWrittenSinceTrim >= _trimWriteBudgetBytes;
+      final shouldScheduleTrim =
+          _cacheIndexReady
+              ? _knownCacheBytes > _maxBytes
+              : _bytesWrittenSinceTrim >= _trimWriteBudgetBytes;
       if (shouldScheduleTrim) _bytesWrittenSinceTrim = 0;
 
-      DiagnosticsService.instance.endSpan(
-        ioSpan,
-        'complete',
-        <String, Object?>{
-          'writtenBytes': data.length,
-          'cacheIndexReady': _cacheIndexReady,
-          'indexedCacheBytes': _cacheIndexReady ? _knownCacheBytes : null,
-          'bytesWrittenSinceLastTrim': _bytesWrittenSinceTrim,
-          'trimScheduled': shouldScheduleTrim,
-        },
-      );
+      DiagnosticsService.instance.endSpan(ioSpan, 'complete', <String, Object?>{
+        'writtenBytes': data.length,
+        'cacheIndexReady': _cacheIndexReady,
+        'indexedCacheBytes': _cacheIndexReady ? _knownCacheBytes : null,
+        'bytesWrittenSinceLastTrim': _bytesWrittenSinceTrim,
+        'trimScheduled': shouldScheduleTrim,
+      });
       if (shouldScheduleTrim) _scheduleTrim(directory);
       return ArtworkDiskWriteResult.written;
     } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        ioSpan,
-        'failed',
-        <String, Object?>{'errorType': error.runtimeType.toString()},
-      );
+      DiagnosticsService.instance.endSpan(ioSpan, 'failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+      });
       return ArtworkDiskWriteResult.failed;
     } finally {
       _writeGate.release();
@@ -338,11 +315,12 @@ class ArtworkDiskCache {
     var indexedBytes = 0;
     try {
       final listClock = Stopwatch()..start();
-      final files = await directory
-          .list()
-          .where((entity) => entity is File && entity.path.endsWith('.art'))
-          .cast<File>()
-          .toList();
+      final files =
+          await directory
+              .list()
+              .where((entity) => entity is File && entity.path.endsWith('.art'))
+              .cast<File>()
+              .toList();
       listClock.stop();
       listDurationUs = listClock.elapsedMicroseconds;
       fileCount = files.length;
@@ -382,34 +360,26 @@ class ArtworkDiskCache {
       _cacheIndexReady = true;
       _bytesWrittenSinceTrim = 0;
       clock.stop();
-      DiagnosticsService.instance.endSpan(
-        span,
-        'complete',
-        <String, Object?>{
-          'fileCount': fileCount,
-          'indexedBytes': _knownCacheBytes,
-          'statFailures': statFailures,
-          'totalDurationUs': clock.elapsedMicroseconds,
-          'listDurationUs': listDurationUs,
-          'statDurationUs': statDurationUs,
-          'pendingWriteUpdatesApplied': pendingUpdatesApplied,
-        },
-      );
+      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+        'fileCount': fileCount,
+        'indexedBytes': _knownCacheBytes,
+        'statFailures': statFailures,
+        'totalDurationUs': clock.elapsedMicroseconds,
+        'listDurationUs': listDurationUs,
+        'statDurationUs': statDurationUs,
+        'pendingWriteUpdatesApplied': pendingUpdatesApplied,
+      });
     } catch (error) {
       if (clock.isRunning) clock.stop();
-      DiagnosticsService.instance.endSpan(
-        span,
-        'failed',
-        <String, Object?>{
-          'errorType': error.runtimeType.toString(),
-          'fileCount': fileCount,
-          'indexedBytes': indexedBytes,
-          'statFailures': statFailures,
-          'totalDurationUs': clock.elapsedMicroseconds,
-          'listDurationUs': listDurationUs,
-          'statDurationUs': statDurationUs,
-        },
-      );
+      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+        'fileCount': fileCount,
+        'indexedBytes': indexedBytes,
+        'statFailures': statFailures,
+        'totalDurationUs': clock.elapsedMicroseconds,
+        'listDurationUs': listDurationUs,
+        'statDurationUs': statDurationUs,
+      });
     }
   }
 
@@ -439,16 +409,14 @@ class ArtworkDiskCache {
       }
       if (!idle) {
         _bytesWrittenSinceTrim = _trimWriteBudgetBytes;
-        DiagnosticsService.instance.record(
-          'artwork_disk_cache_trim_deferred',
-          <String, Object?>{
-            'reason': 'artwork_cache_io_never_idle',
-            'activeWrites': _writeGate.activeLoads,
-            'queuedWrites': _writeGate.queuedLoads,
-            'activeReads': _activeReads,
-            'retryCount': 4,
-          },
-        );
+        DiagnosticsService.instance
+            .record('artwork_disk_cache_trim_deferred', <String, Object?>{
+              'reason': 'artwork_cache_io_never_idle',
+              'activeWrites': _writeGate.activeLoads,
+              'queuedWrites': _writeGate.queuedLoads,
+              'activeReads': _activeReads,
+              'retryCount': 4,
+            });
         return;
       }
       await _trim();
@@ -472,36 +440,31 @@ class ArtworkDiskCache {
     _trimCompleter = maintenanceCompleter;
     try {
       if (!_cacheIndexReady) {
-        DiagnosticsService.instance.endSpan(
-          span,
-          'skipped',
-          <String, Object?>{'reason': 'cache_index_unavailable'},
-        );
+        DiagnosticsService.instance.endSpan(span, 'skipped', <String, Object?>{
+          'reason': 'cache_index_unavailable',
+        });
         return;
       }
 
       final bytesBeforeTrim = _knownCacheBytes;
       if (bytesBeforeTrim <= _maxBytes) {
-        DiagnosticsService.instance.endSpan(
-          span,
-          'complete',
-          <String, Object?>{
-            'indexedFileCountBeforeTrim': _cacheIndex.length,
-            'indexedBytesBeforeTrim': bytesBeforeTrim,
-            'indexedBytesAfterTrim': bytesBeforeTrim,
-            'deletedFiles': 0,
-            'deleteFailures': 0,
-            'sortDurationUs': 0,
-            'deleteDurationUs': 0,
-            'trimReason': 'under_size_limit',
-          },
-        );
+        DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+          'indexedFileCountBeforeTrim': _cacheIndex.length,
+          'indexedBytesBeforeTrim': bytesBeforeTrim,
+          'indexedBytesAfterTrim': bytesBeforeTrim,
+          'deletedFiles': 0,
+          'deleteFailures': 0,
+          'sortDurationUs': 0,
+          'deleteDurationUs': 0,
+          'trimReason': 'under_size_limit',
+        });
         return;
       }
 
       final sortClock = Stopwatch()..start();
-      final entries = _cacheIndex.values.toList()
-        ..sort((a, b) => a.modifiedAt.compareTo(b.modifiedAt));
+      final entries =
+          _cacheIndex.values.toList()
+            ..sort((a, b) => a.modifiedAt.compareTo(b.modifiedAt));
       sortClock.stop();
       final deleteClock = Stopwatch()..start();
       var deletedFiles = 0;
@@ -518,31 +481,28 @@ class ArtworkDiskCache {
         }
       }
       deleteClock.stop();
-      DiagnosticsService.instance.endSpan(
-        span,
-        'complete',
-        <String, Object?>{
-          'indexedFileCountBeforeTrim': entries.length,
-          'indexedBytesBeforeTrim': bytesBeforeTrim,
-          'indexedBytesAfterTrim': _knownCacheBytes,
-          'deletedFiles': deletedFiles,
-          'deleteFailures': deleteFailures,
-          'sortDurationUs': sortClock.elapsedMicroseconds,
-          'deleteDurationUs': deleteClock.elapsedMicroseconds,
-          'limitExceededBeforeTrim': bytesBeforeTrim > _maxBytes,
-          'remainingOverLimitBytes':
-              (_knownCacheBytes - _maxBytes).clamp(0, _knownCacheBytes),
-          'trimReason': _knownCacheBytes > _maxBytes
-              ? 'delete_failed_remaining_over_limit'
-              : 'size_limit_enforced',
-        },
-      );
+      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
+        'indexedFileCountBeforeTrim': entries.length,
+        'indexedBytesBeforeTrim': bytesBeforeTrim,
+        'indexedBytesAfterTrim': _knownCacheBytes,
+        'deletedFiles': deletedFiles,
+        'deleteFailures': deleteFailures,
+        'sortDurationUs': sortClock.elapsedMicroseconds,
+        'deleteDurationUs': deleteClock.elapsedMicroseconds,
+        'limitExceededBeforeTrim': bytesBeforeTrim > _maxBytes,
+        'remainingOverLimitBytes': (_knownCacheBytes - _maxBytes).clamp(
+          0,
+          _knownCacheBytes,
+        ),
+        'trimReason':
+            _knownCacheBytes > _maxBytes
+                ? 'delete_failed_remaining_over_limit'
+                : 'size_limit_enforced',
+      });
     } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        span,
-        'failed',
-        <String, Object?>{'errorType': error.runtimeType.toString()},
-      );
+      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+      });
     } finally {
       _trimInProgress = false;
       if (identical(_trimCompleter, maintenanceCompleter)) {
@@ -551,7 +511,6 @@ class ArtworkDiskCache {
       if (!maintenanceCompleter.isCompleted) maintenanceCompleter.complete();
     }
   }
-
 }
 
 class _ArtworkCacheEntry {

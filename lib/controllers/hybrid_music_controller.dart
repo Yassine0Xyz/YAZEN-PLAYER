@@ -160,8 +160,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     return _libraryDataEngine.queryTracks(
       source: tracks,
       sort: librarySort,
-      filters:
-          _libraryFiltersByTab[_selectedTab] ?? const <LibraryFilter>{},
+      filters: _libraryFiltersByTab[_selectedTab] ?? const <LibraryFilter>{},
       query: searchQuery,
       isFavorite: _playlistManager.isFavorite,
       playCount: _playlistManager.playCount,
@@ -172,7 +171,10 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   void setLibrarySort(LibrarySort sort) {
     if (librarySort == sort) return;
-    DiagnosticsService.instance.record('library_sort_changed', <String, Object?>{'tab': _selectedTab.name, 'sort': sort.name});
+    DiagnosticsService.instance.record(
+      'library_sort_changed',
+      <String, Object?>{'tab': _selectedTab.name, 'sort': sort.name},
+    );
     _librarySortByTab[_selectedTab] = sort;
     _libraryDataEngine.invalidateQueries();
     notifyListeners();
@@ -182,7 +184,11 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     final next = filters.toSet()..remove(LibraryFilter.all);
     final current = _libraryFiltersByTab[_selectedTab] ?? <LibraryFilter>{};
     if (current.length == next.length && current.containsAll(next)) return;
-    DiagnosticsService.instance.record('library_filters_changed', <String, Object?>{'tab': _selectedTab.name, 'filters': next.map((filter) => filter.name).toList(growable: false)});
+    DiagnosticsService.instance
+        .record('library_filters_changed', <String, Object?>{
+          'tab': _selectedTab.name,
+          'filters': next.map((filter) => filter.name).toList(growable: false),
+        });
     _libraryFiltersByTab[_selectedTab] = next;
     _libraryDataEngine.invalidateQueries();
     notifyListeners();
@@ -191,7 +197,13 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   void setSearchQuery(String query) {
     final normalized = query.trim();
     if (searchQuery == normalized) return;
-    DiagnosticsService.instance.record('library_search_changed', <String, Object?>{'tab': _selectedTab.name, 'queryLength': normalized.length});
+    DiagnosticsService.instance.record(
+      'library_search_changed',
+      <String, Object?>{
+        'tab': _selectedTab.name,
+        'queryLength': normalized.length,
+      },
+    );
     _searchQueryByTab[_selectedTab] = normalized;
     // The engine's ordered/filter cache is independent of search text, so a
     // keystroke only invalidates the final text-match cache by query key.
@@ -291,10 +303,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     if (_usesLinuxImportedFileMode) {
-      await loadLibrary(
-        requestPermission: false,
-        preserveCurrentLibrary: true,
-      );
+      await loadLibrary(requestPermission: false, preserveCurrentLibrary: true);
       return;
     }
     if (!await _library.recheckPermission()) {
@@ -302,10 +311,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return;
     }
-    await loadLibrary(
-      requestPermission: false,
-      preserveCurrentLibrary: true,
-    );
+    await loadLibrary(requestPermission: false, preserveCurrentLibrary: true);
   }
 
   Future<void> _yieldForCatalogFrame({int fallbackMilliseconds = 100}) =>
@@ -342,7 +348,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
         DiagnosticsService.instance.endSpan(
           catalogSpan,
           'superseded',
-          <String, Object?>{'reason': 'library_generation_changed_or_initial_load_active'},
+          <String, Object?>{
+            'reason': 'library_generation_changed_or_initial_load_active',
+          },
         );
         return;
       }
@@ -351,14 +359,19 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       // Loading and publishing one catalog at a time lowers peak decode and
       // allocation pressure while keeping each catalog independently usable.
       final order = <LibraryTab>[
-        _selectedTab,
-        LibraryTab.artists,
-        LibraryTab.albums,
-        LibraryTab.playlists,
-      ].where((tab) =>
-          tab == LibraryTab.artists ||
-          tab == LibraryTab.albums ||
-          tab == LibraryTab.playlists).toSet().toList(growable: false);
+            _selectedTab,
+            LibraryTab.artists,
+            LibraryTab.albums,
+            LibraryTab.playlists,
+          ]
+          .where(
+            (tab) =>
+                tab == LibraryTab.artists ||
+                tab == LibraryTab.albums ||
+                tab == LibraryTab.playlists,
+          )
+          .toSet()
+          .toList(growable: false);
 
       for (final catalog in order) {
         if (_disposed ||
@@ -404,19 +417,17 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
             continue;
         }
         completedCatalogs++;
-        DiagnosticsService.instance.record(
-          'library_catalog_published',
-          <String, Object?>{
-            'catalog': catalog.name,
-            'itemCount': switch (catalog) {
-              LibraryTab.artists => _artists.length,
-              LibraryTab.albums => _albums.length,
-              LibraryTab.playlists => _playlists.length,
-              _ => 0,
-            },
-            'completedCatalogs': completedCatalogs,
-          },
-        );
+        DiagnosticsService.instance
+            .record('library_catalog_published', <String, Object?>{
+              'catalog': catalog.name,
+              'itemCount': switch (catalog) {
+                LibraryTab.artists => _artists.length,
+                LibraryTab.albums => _albums.length,
+                LibraryTab.playlists => _playlists.length,
+                _ => 0,
+              },
+              'completedCatalogs': completedCatalogs,
+            });
         notifyListeners();
         // Give the UI a chance to paint between catalog payloads.
         await _yieldForCatalogFrame(fallbackMilliseconds: 60);
@@ -428,14 +439,11 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
         <String, Object?>{'completedCatalogs': completedCatalogs},
       );
     } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        catalogSpan,
-        'failed',
-        <String, Object?>{
-          'completedCatalogs': completedCatalogs,
-          'errorType': error.runtimeType.toString(),
-        },
-      );
+      DiagnosticsService.instance
+          .endSpan(catalogSpan, 'failed', <String, Object?>{
+            'completedCatalogs': completedCatalogs,
+            'errorType': error.runtimeType.toString(),
+          });
       // Secondary catalogs are optional; the Songs tab remains usable.
     } finally {
       _secondaryLibraryLoading = false;
@@ -557,7 +565,10 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _rebuildLibraryDerivedLists() {
-    final diagnosticsSpan = DiagnosticsService.instance.startSpan('library_snapshot_rebuild', data: <String, Object?>{'inputTrackCount': _baseLocalSongs.length});
+    final diagnosticsSpan = DiagnosticsService.instance.startSpan(
+      'library_snapshot_rebuild',
+      data: <String, Object?>{'inputTrackCount': _baseLocalSongs.length},
+    );
     final metadataTracks = _playlistManager.applyMetadata(_baseLocalSongs);
     final hiddenIds = <String>[];
     for (final track in metadataTracks) {
@@ -570,26 +581,42 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     _localSongs = snapshot.visibleAudioTracks;
     _folders = snapshot.folders;
     _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
-    DiagnosticsService.instance.endSpan(diagnosticsSpan, 'complete', <String, Object?>{'visibleTrackCount': _localSongs.length, 'hiddenTrackCount': hiddenIds.length, 'folderCount': _folders.length});
+    DiagnosticsService.instance
+        .endSpan(diagnosticsSpan, 'complete', <String, Object?>{
+          'visibleTrackCount': _localSongs.length,
+          'hiddenTrackCount': hiddenIds.length,
+          'folderCount': _folders.length,
+        });
   }
 
   Future<void> addToQueue(MediaTrack track) {
-    DiagnosticsService.instance.record('playback_queue_add', <String, Object?>{'trackId': track.id});
+    DiagnosticsService.instance.record('playback_queue_add', <String, Object?>{
+      'trackId': track.id,
+    });
     return _audioHandler.addToQueue(track);
   }
 
   Future<void> addTracksToQueue(Iterable<MediaTrack> tracks) {
-    DiagnosticsService.instance.record('playback_queue_add_many', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    DiagnosticsService.instance.record(
+      'playback_queue_add_many',
+      <String, Object?>{'trackCount': tracks is List ? tracks.length : null},
+    );
     return _audioHandler.addTracksToQueue(tracks);
   }
 
   Future<void> shareTracks(Iterable<MediaTrack> tracks) {
-    DiagnosticsService.instance.record('library_share_requested', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    DiagnosticsService.instance.record(
+      'library_share_requested',
+      <String, Object?>{'trackCount': tracks is List ? tracks.length : null},
+    );
     return _library.shareAudioTracks(tracks);
   }
 
   Future<int> deleteTracks(Iterable<MediaTrack> tracks) {
-    DiagnosticsService.instance.record('library_delete_requested', <String, Object?>{'trackCount': tracks is List ? tracks.length : null});
+    DiagnosticsService.instance.record(
+      'library_delete_requested',
+      <String, Object?>{'trackCount': tracks is List ? tracks.length : null},
+    );
     return _library.deleteAudioTracks(tracks);
   }
 
@@ -608,24 +635,39 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 
   Future<void> toggleFavorite(MediaTrack track) async {
-    DiagnosticsService.instance.record('playlist_favorite_toggled', <String, Object?>{'trackId': track.id, 'wasFavorite': _playlistManager.isFavorite(track)});
+    DiagnosticsService.instance.record(
+      'playlist_favorite_toggled',
+      <String, Object?>{
+        'trackId': track.id,
+        'wasFavorite': _playlistManager.isFavorite(track),
+      },
+    );
     await _playlistManager.toggleFavorite(track);
     notifyListeners();
   }
 
   Future<EchoPlaylist> createPlaylist(String name) {
-    DiagnosticsService.instance.record('playlist_create_requested', <String, Object?>{'nameLength': name.length});
+    DiagnosticsService.instance.record(
+      'playlist_create_requested',
+      <String, Object?>{'nameLength': name.length},
+    );
     return _playlistManager.createPlaylist(name);
   }
 
   Future<void> addToPlaylist(String playlistId, MediaTrack track) {
-    DiagnosticsService.instance.record('playlist_track_add_requested', <String, Object?>{'playlistId': playlistId, 'trackId': track.id});
+    DiagnosticsService.instance.record(
+      'playlist_track_add_requested',
+      <String, Object?>{'playlistId': playlistId, 'trackId': track.id},
+    );
     return _playlistManager.addToPlaylist(playlistId, track);
   }
 
   Future<void> playTrack(MediaTrack track) async {
     final request = ++_playbackSelectionRequest;
-    DiagnosticsService.instance.record('playback_track_requested', <String, Object?>{'trackId': track.id, 'titleLength': track.title.length});
+    DiagnosticsService.instance.record(
+      'playback_track_requested',
+      <String, Object?>{'trackId': track.id, 'titleLength': track.title.length},
+    );
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
@@ -635,12 +677,18 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       if (request != _playbackSelectionRequest) return;
       await _playlistManager.recordPlayed(track);
       if (request != _playbackSelectionRequest) return;
-      DiagnosticsService.instance.record('playback_track_started', <String, Object?>{'trackId': _audioHandler.activeTrack?.id});
+      DiagnosticsService.instance.record(
+        'playback_track_started',
+        <String, Object?>{'trackId': _audioHandler.activeTrack?.id},
+      );
       notifyListeners();
     } catch (error) {
       if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
-      DiagnosticsService.instance.record('playback_track_failed', <String, Object?>{'trackId': track.id, 'error': error.toString()});
+      DiagnosticsService.instance.record(
+        'playback_track_failed',
+        <String, Object?>{'trackId': track.id, 'error': error.toString()},
+      );
       notifyListeners();
     }
   }
@@ -650,7 +698,13 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
-    DiagnosticsService.instance.record('playback_queue_requested', <String, Object?>{'trackCount': tracks.length, 'initialIndex': initialIndex});
+    DiagnosticsService.instance.record(
+      'playback_queue_requested',
+      <String, Object?>{
+        'trackCount': tracks.length,
+        'initialIndex': initialIndex,
+      },
+    );
     final selectedTrack =
         tracks.isEmpty
             ? null
@@ -661,7 +715,13 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       await _audioHandler.playTrackQueue(tracks, initialIndex: initialIndex);
-      DiagnosticsService.instance.record('playback_queue_started', <String, Object?>{'trackCount': tracks.length, 'selectedTrackId': selectedTrack?.id});
+      DiagnosticsService.instance.record(
+        'playback_queue_started',
+        <String, Object?>{
+          'trackCount': tracks.length,
+          'selectedTrackId': selectedTrack?.id,
+        },
+      );
       if (request != _playbackSelectionRequest) return;
       if (selectedTrack != null) {
         await _playlistManager.recordPlayed(selectedTrack);
@@ -677,25 +737,44 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> togglePlayback() async {
     final wasPlaying = _audioHandler.player.playing;
-    DiagnosticsService.instance.record('playback_toggle_requested', <String, Object?>{'wasPlaying': wasPlaying, 'trackId': _audioHandler.activeTrack?.id});
+    DiagnosticsService.instance.record(
+      'playback_toggle_requested',
+      <String, Object?>{
+        'wasPlaying': wasPlaying,
+        'trackId': _audioHandler.activeTrack?.id,
+      },
+    );
     if (_audioHandler.player.playing) {
       await _audioHandler.pause();
     } else {
       await _audioHandler.play();
     }
-    DiagnosticsService.instance.record('playback_toggle_completed', <String, Object?>{'isPlaying': _audioHandler.player.playing, 'trackId': _audioHandler.activeTrack?.id});
+    DiagnosticsService.instance
+        .record('playback_toggle_completed', <String, Object?>{
+          'isPlaying': _audioHandler.player.playing,
+          'trackId': _audioHandler.activeTrack?.id,
+        });
   }
 
   Future<void> toggleRepeat() async {
     final next = nextRepeatMode(_audioHandler.repeatMode);
-    DiagnosticsService.instance.record('playback_repeat_mode_changed', <String, Object?>{'previous': _audioHandler.repeatMode.name, 'next': next.name});
+    DiagnosticsService.instance.record(
+      'playback_repeat_mode_changed',
+      <String, Object?>{
+        'previous': _audioHandler.repeatMode.name,
+        'next': next.name,
+      },
+    );
     await _audioHandler.setRepeatMode(next);
     notifyListeners();
   }
 
   void selectTab(LibraryTab tab) {
     if (_selectedTab == tab) return;
-    DiagnosticsService.instance.record('library_tab_selected', <String, Object?>{'previous': _selectedTab.name, 'next': tab.name});
+    DiagnosticsService.instance.record(
+      'library_tab_selected',
+      <String, Object?>{'previous': _selectedTab.name, 'next': tab.name},
+    );
     _selectedTab = tab;
     notifyListeners();
     if (!_libraryLoadInProgress &&

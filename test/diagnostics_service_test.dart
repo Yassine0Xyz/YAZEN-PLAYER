@@ -11,59 +11,66 @@ void main() {
     expect(diagnostics.retainedEventCount, before + 1);
   });
 
+  test(
+    'diagnostic media fingerprints are stable and do not expose source keys',
+    () {
+      const sourceKey = 'local-track:12345:/private/media/path';
+      final first = DiagnosticsService.diagnosticFingerprint(sourceKey);
+      final second = DiagnosticsService.diagnosticFingerprint(sourceKey);
 
-  test('diagnostic media fingerprints are stable and do not expose source keys', () {
-    const sourceKey = 'local-track:12345:/private/media/path';
-    final first = DiagnosticsService.diagnosticFingerprint(sourceKey);
-    final second = DiagnosticsService.diagnosticFingerprint(sourceKey);
-
-    expect(first, second);
-    expect(first, isNot(sourceKey));
-    expect(first, matches(RegExp(r'^[0-9a-f]{16}$')));
-  });
+      expect(first, second);
+      expect(first, isNot(sourceKey));
+      expect(first, matches(RegExp(r'^[0-9a-f]{16}$')));
+    },
+  );
 
   test('uses a 60 Hz fallback frame budget before native display sampling', () {
     final diagnostics = DiagnosticsService.instance;
     expect(diagnostics.frameBudgetMs, closeTo(16.6667, 0.01));
   });
 
-  test('calculates pointer velocity from event timestamps, not callback time', () {
-    final velocity = DiagnosticsService.calculateEventVelocity(
-      delta: -446.875,
-      previousTimestamp: const Duration(microseconds: 271446567000),
-      currentTimestamp: const Duration(microseconds: 271446666000),
-    );
+  test(
+    'calculates pointer velocity from event timestamps, not callback time',
+    () {
+      final velocity = DiagnosticsService.calculateEventVelocity(
+        delta: -446.875,
+        previousTimestamp: const Duration(microseconds: 271446567000),
+        currentTimestamp: const Duration(microseconds: 271446666000),
+      );
 
-    expect(velocity, closeTo(-4513.8889, 0.01));
-  });
+      expect(velocity, closeTo(-4513.8889, 0.01));
+    },
+  );
 
-  test('does not calculate velocity without a positive event timestamp interval', () {
-    expect(
-      DiagnosticsService.calculateEventVelocity(
-        delta: 100,
-        previousTimestamp: null,
-        currentTimestamp: const Duration(milliseconds: 10),
-      ),
-      isNull,
-    );
-    expect(
-      DiagnosticsService.calculateEventVelocity(
-        delta: 100,
-        previousTimestamp: const Duration(milliseconds: 10),
-        currentTimestamp: const Duration(milliseconds: 10),
-      ),
-      isNull,
-    );
-    expect(
-      DiagnosticsService.calculateEventVelocity(
-        delta: 100,
-        previousTimestamp: const Duration(milliseconds: 11),
-        currentTimestamp: const Duration(milliseconds: 10),
-      ),
-      isNull,
-    );
-  });
-
+  test(
+    'does not calculate velocity without a positive event timestamp interval',
+    () {
+      expect(
+        DiagnosticsService.calculateEventVelocity(
+          delta: 100,
+          previousTimestamp: null,
+          currentTimestamp: const Duration(milliseconds: 10),
+        ),
+        isNull,
+      );
+      expect(
+        DiagnosticsService.calculateEventVelocity(
+          delta: 100,
+          previousTimestamp: const Duration(milliseconds: 10),
+          currentTimestamp: const Duration(milliseconds: 10),
+        ),
+        isNull,
+      );
+      expect(
+        DiagnosticsService.calculateEventVelocity(
+          delta: 100,
+          previousTimestamp: const Duration(milliseconds: 11),
+          currentTimestamp: const Duration(milliseconds: 10),
+        ),
+        isNull,
+      );
+    },
+  );
 
   test('counts null artwork results as unsuccessful, not successful loads', () {
     final diagnostics = DiagnosticsService.instance;

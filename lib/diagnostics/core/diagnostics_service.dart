@@ -42,10 +42,12 @@ class DiagnosticsService {
   final Queue<Map<String, Object?>> _events = Queue<Map<String, Object?>>();
   final Queue<String> _pendingJournalLines = Queue<String>();
   final Stopwatch _sessionClock = Stopwatch()..start();
-  final List<Map<String, Object?>> _resourceSnapshots = <Map<String, Object?>>[];
+  final List<Map<String, Object?>> _resourceSnapshots =
+      <Map<String, Object?>>[];
   final Queue<int> _recentFrameMicros = Queue<int>();
   final Map<int, _PointerSession> _activePointers = <int, _PointerSession>{};
-  final _DiagnosticsLifecycleObserver _lifecycleObserver = _DiagnosticsLifecycleObserver();
+  final _DiagnosticsLifecycleObserver _lifecycleObserver =
+      _DiagnosticsLifecycleObserver();
 
   bool _started = false;
   bool _recording = true;
@@ -157,7 +159,8 @@ class DiagnosticsService {
   FlutterExceptionHandler? _previousFlutterErrorHandler;
   bool Function(Object, StackTrace)? _previousPlatformErrorHandler;
 
-  String get buildMode => kDebugMode ? 'debug' : (kProfileMode ? 'profile' : 'release');
+  String get buildMode =>
+      kDebugMode ? 'debug' : (kProfileMode ? 'profile' : 'release');
   bool get recording => _recording;
   bool get deepInvestigation => _deepInvestigation;
   bool get journalReady => _journalReady;
@@ -205,7 +208,8 @@ class DiagnosticsService {
   int get videoThumbnailLoadsFailed => _videoThumbnailLoadsFailed;
   int get videoThumbnailCacheHits => _videoThumbnailCacheHits;
   int get videoThumbnailCacheMisses => _videoThumbnailCacheMisses;
-  int get videoThumbnailRequestsDeduplicated => _videoThumbnailRequestsDeduplicated;
+  int get videoThumbnailRequestsDeduplicated =>
+      _videoThumbnailRequestsDeduplicated;
   int get videoThumbnailGateRejected => _videoThumbnailGateRejected;
   int get videoThumbnailGateQueueEvicted => _videoThumbnailGateQueueEvicted;
   int get videoThumbnailGateQueueFull => _videoThumbnailGateQueueFull;
@@ -214,8 +218,11 @@ class DiagnosticsService {
   double get averageVideoThumbnailTimeToVisibleMs =>
       _videoThumbnailVisibleTimeSamples == 0
           ? 0
-          : _videoThumbnailVisibleTotalUs / _videoThumbnailVisibleTimeSamples / 1000;
-  int get maxVideoThumbnailTimeToVisibleMs => _videoThumbnailVisibleMaxUs ~/ 1000;
+          : _videoThumbnailVisibleTotalUs /
+              _videoThumbnailVisibleTimeSamples /
+              1000;
+  int get maxVideoThumbnailTimeToVisibleMs =>
+      _videoThumbnailVisibleMaxUs ~/ 1000;
   int get failedSpanEvents => _failedSpanEvents;
   int get artworkFirstFramesVisible => _artworkFirstFramesVisible;
   double get averageArtworkTimeToVisibleMs =>
@@ -235,29 +242,44 @@ class DiagnosticsService {
   int get journalDroppedEvents => _journalDroppedCount;
   int get journalQueueHighWaterMark => _journalQueueHighWaterMark;
   int get journalPendingCount => _pendingJournalLines.length;
-  double get averageSampledRecordCostUs => _recordCostSamples == 0 ? 0 : _recordCostTotalUs / _recordCostSamples;
+  double get averageSampledRecordCostUs =>
+      _recordCostSamples == 0 ? 0 : _recordCostTotalUs / _recordCostSamples;
   int get maxSampledRecordCostUs => _recordCostMaxUs;
-  double get averageJournalDrainCostUs => _journalDrainBatches == 0 ? 0 : _journalDrainTotalUs / _journalDrainBatches;
+  double get averageJournalDrainCostUs =>
+      _journalDrainBatches == 0
+          ? 0
+          : _journalDrainTotalUs / _journalDrainBatches;
   int get maxJournalDrainCostUs => _journalDrainMaxUs;
   int get sessionMilliseconds => _sessionClock.elapsedMilliseconds;
   int get elapsedMicroseconds => _sessionClock.elapsedMicroseconds;
   double get refreshRateHz => _refreshRateHz;
-  double get frameBudgetMs => 1000 / (_refreshRateHz <= 0 ? 60 : _refreshRateHz);
-  double get averageFrameMs => _frameCount == 0 ? 0 : _totalFrameMicros / _frameCount / 1000;
-  double get averageBuildMs => _frameCount == 0 ? 0 : _totalBuildMicros / _frameCount / 1000;
-  double get averageRasterMs => _frameCount == 0 ? 0 : _totalRasterMicros / _frameCount / 1000;
-  double get averageVsyncMs => _frameCount == 0 ? 0 : _totalVsyncMicros / _frameCount / 1000;
+  double get frameBudgetMs =>
+      1000 / (_refreshRateHz <= 0 ? 60 : _refreshRateHz);
+  double get averageFrameMs =>
+      _frameCount == 0 ? 0 : _totalFrameMicros / _frameCount / 1000;
+  double get averageBuildMs =>
+      _frameCount == 0 ? 0 : _totalBuildMicros / _frameCount / 1000;
+  double get averageRasterMs =>
+      _frameCount == 0 ? 0 : _totalRasterMicros / _frameCount / 1000;
+  double get averageVsyncMs =>
+      _frameCount == 0 ? 0 : _totalVsyncMicros / _frameCount / 1000;
   double get estimatedFps => averageFrameMs <= 0 ? 0 : 1000 / averageFrameMs;
-  double get p50FrameMs => _percentile(_recentFrameMicros.toList(growable: false), .50) / 1000;
-  double get p90FrameMs => _percentile(_recentFrameMicros.toList(growable: false), .90) / 1000;
-  double get p95FrameMs => _percentile(_recentFrameMicros.toList(growable: false), .95) / 1000;
-  double get p99FrameMs => _percentile(_recentFrameMicros.toList(growable: false), .99) / 1000;
-  Map<String, Object?>? get latestResourceSnapshot => _resourceSnapshots.isEmpty ? null : _resourceSnapshots.last;
+  double get p50FrameMs =>
+      _percentile(_recentFrameMicros.toList(growable: false), .50) / 1000;
+  double get p90FrameMs =>
+      _percentile(_recentFrameMicros.toList(growable: false), .90) / 1000;
+  double get p95FrameMs =>
+      _percentile(_recentFrameMicros.toList(growable: false), .95) / 1000;
+  double get p99FrameMs =>
+      _percentile(_recentFrameMicros.toList(growable: false), .99) / 1000;
+  Map<String, Object?>? get latestResourceSnapshot =>
+      _resourceSnapshots.isEmpty ? null : _resourceSnapshots.last;
 
   void start() {
     if (_started) return;
     _started = true;
-    _sessionId = 'yazen-${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}';
+    _sessionId =
+        'yazen-${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}';
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointerEvent);
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
@@ -287,15 +309,22 @@ class DiagnosticsService {
         'silent': details.silent,
         'stack': (details.stack ?? StackTrace.current).toString(),
         'stackAvailable': details.stack != null,
-        'stackSource': details.stack == null ? 'handler_capture_fallback' : 'flutter_details',
+        'stackSource':
+            details.stack == null
+                ? 'handler_capture_fallback'
+                : 'flutter_details',
         'information': information,
       });
       _previousFlutterErrorHandler?.call(details);
-      if (_previousFlutterErrorHandler == null) FlutterError.presentError(details);
+      if (_previousFlutterErrorHandler == null)
+        FlutterError.presentError(details);
     };
     _previousPlatformErrorHandler = PlatformDispatcher.instance.onError;
     PlatformDispatcher.instance.onError = (error, stack) {
-      record('uncaught_async_error', <String, Object?>{'error': error.toString(), 'stack': stack.toString()});
+      record('uncaught_async_error', <String, Object?>{
+        'error': error.toString(),
+        'stack': stack.toString(),
+      });
       return _previousPlatformErrorHandler?.call(error, stack) ?? false;
     };
 
@@ -334,15 +363,20 @@ class DiagnosticsService {
 
   void _startResourceTimer() {
     _resourceTimer?.cancel();
-    _resourceTimer = Timer.periodic(Duration(seconds: _deepInvestigation ? 1 : 5), (_) {
-      if (_recording) unawaited(_capturePeriodicResourceSnapshot());
-    });
+    _resourceTimer = Timer.periodic(
+      Duration(seconds: _deepInvestigation ? 1 : 5),
+      (_) {
+        if (_recording) unawaited(_capturePeriodicResourceSnapshot());
+      },
+    );
   }
 
   Future<void> _initializeJournal() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final sessionDirectory = Directory('${directory.path}/yazen_performance_sessions');
+      final sessionDirectory = Directory(
+        '${directory.path}/yazen_performance_sessions',
+      );
       await sessionDirectory.create(recursive: true);
       final file = File('${sessionDirectory.path}/$_sessionId.jsonl');
       _journalSink = file.openWrite(mode: FileMode.append);
@@ -352,7 +386,10 @@ class DiagnosticsService {
       await _drainJournal();
     } catch (error, stack) {
       _journalError = '$error';
-      record('journal_initialization_failed', <String, Object?>{'error': '$error', 'stack': '$stack'});
+      record('journal_initialization_failed', <String, Object?>{
+        'error': '$error',
+        'stack': '$stack',
+      });
     }
   }
 
@@ -381,15 +418,25 @@ class DiagnosticsService {
       debugProfileLayoutsEnabled = value;
       debugProfilePaintsEnabled = value;
     }
-    record(value ? 'deep_investigation_started' : 'deep_investigation_stopped', <String, Object?>{
-      'mode': value ? 'maximum_investigation' : 'hybrid_lightweight',
-      'widgetBuildLayoutPaintTimelineProfiling': (kDebugMode || kProfileMode) && value,
-    });
+    record(
+      value ? 'deep_investigation_started' : 'deep_investigation_stopped',
+      <String, Object?>{
+        'mode': value ? 'maximum_investigation' : 'hybrid_lightweight',
+        'widgetBuildLayoutPaintTimelineProfiling':
+            (kDebugMode || kProfileMode) && value,
+      },
+    );
     _startResourceTimer();
     if (value) unawaited(_capturePeriodicResourceSnapshot());
   }
 
-  void record(String type, [Map<String, Object?> data = const <String, Object?>{}, String? traceId, String? spanId, String? parentSpanId]) {
+  void record(
+    String type, [
+    Map<String, Object?> data = const <String, Object?>{},
+    String? traceId,
+    String? spanId,
+    String? parentSpanId,
+  ]) {
     if (!_recording && type != 'recording_resumed') return;
     final sequence = ++_sequence;
     final costClock = sequence % 64 == 0 ? (Stopwatch()..start()) : null;
@@ -505,7 +552,8 @@ class DiagnosticsService {
         if (visibleUs is num) {
           _artworkVisibleTimeSamples++;
           _artworkVisibleTotalUs += visibleUs.toInt();
-          if (visibleUs > _artworkVisibleMaxUs) _artworkVisibleMaxUs = visibleUs.toInt();
+          if (visibleUs > _artworkVisibleMaxUs)
+            _artworkVisibleMaxUs = visibleUs.toInt();
         }
         break;
       case 'pointer_up':
@@ -542,9 +590,19 @@ class DiagnosticsService {
         _diagnosticErrorEvents++;
         break;
     }
-    if (type.startsWith('media_query_') && type.endsWith('_start')) _libraryQuerySpans++;
-    if ((type.startsWith('library_') || type.startsWith('media_song_model_mapping') || type.startsWith('media_video_dart_mapping')) && type.endsWith('_start')) _libraryTransformSpans++;
-    if (type.startsWith('playback_') || type.startsWith('audio_handler_') || type.startsWith('sleep_timer_') || type.startsWith('equalizer_') || type == 'audio_interruption') _playbackActionEvents++;
+    if (type.startsWith('media_query_') && type.endsWith('_start'))
+      _libraryQuerySpans++;
+    if ((type.startsWith('library_') ||
+            type.startsWith('media_song_model_mapping') ||
+            type.startsWith('media_video_dart_mapping')) &&
+        type.endsWith('_start'))
+      _libraryTransformSpans++;
+    if (type.startsWith('playback_') ||
+        type.startsWith('audio_handler_') ||
+        type.startsWith('sleep_timer_') ||
+        type.startsWith('equalizer_') ||
+        type == 'audio_interruption')
+      _playbackActionEvents++;
     if (type.endsWith('_failed') && type != 'artwork_load_failed') {
       _diagnosticErrorEvents++;
       _failedSpanEvents++;
@@ -571,13 +629,18 @@ class DiagnosticsService {
     if (_pendingJournalLines.length >= _pendingJournalLimit) {
       _journalDroppedCount++;
       _journalQueueOverflowCount++;
-      _journalFirstDroppedSequence = _journalFirstDroppedSequence == 0
-          ? sequence
-          : _journalFirstDroppedSequence;
+      _journalFirstDroppedSequence =
+          _journalFirstDroppedSequence == 0
+              ? sequence
+              : _journalFirstDroppedSequence;
       _journalLastDroppedSequence = sequence;
       // Event types are a finite, code-defined vocabulary. Keep per-type loss
       // attribution so an incomplete export identifies what was lost.
-      _journalDroppedByType.update(type, (count) => count + 1, ifAbsent: () => 1);
+      _journalDroppedByType.update(
+        type,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
     } else {
       try {
         _pendingJournalLines.addLast(jsonEncode(event));
@@ -587,11 +650,16 @@ class DiagnosticsService {
         }
       } catch (error) {
         _journalDroppedCount++;
-        _journalFirstDroppedSequence = _journalFirstDroppedSequence == 0
-            ? sequence
-            : _journalFirstDroppedSequence;
+        _journalFirstDroppedSequence =
+            _journalFirstDroppedSequence == 0
+                ? sequence
+                : _journalFirstDroppedSequence;
         _journalLastDroppedSequence = sequence;
-        _journalDroppedByType.update(type, (count) => count + 1, ifAbsent: () => 1);
+        _journalDroppedByType.update(
+          type,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
         _journalError ??= 'Event serialization failed: $error';
       }
     }
@@ -606,7 +674,11 @@ class DiagnosticsService {
   }
 
   Future<void> _drainJournal({bool force = false, int maxLines = 512}) async {
-    if (_journalDraining || (_journalSnapshotting && !force) || _journalSink == null || _pendingJournalLines.isEmpty) return;
+    if (_journalDraining ||
+        (_journalSnapshotting && !force) ||
+        _journalSink == null ||
+        _pendingJournalLines.isEmpty)
+      return;
     _journalDraining = true;
     final drainClock = Stopwatch()..start();
     var drained = 0;
@@ -624,18 +696,24 @@ class DiagnosticsService {
       // as uncertain rather than silently presenting the journal as complete.
       final uncertain = drained + _pendingJournalLines.length;
       _journalDroppedCount += uncertain;
-      _journalFirstDroppedSequence = _journalFirstDroppedSequence == 0
-          ? (_sequence - uncertain + 1).clamp(1, _sequence)
-          : _journalFirstDroppedSequence;
+      _journalFirstDroppedSequence =
+          _journalFirstDroppedSequence == 0
+              ? (_sequence - uncertain + 1).clamp(1, _sequence)
+              : _journalFirstDroppedSequence;
       _journalLastDroppedSequence = _sequence;
-      _journalDroppedByType.update('journal_io_uncertain', (count) => count + uncertain, ifAbsent: () => uncertain);
+      _journalDroppedByType.update(
+        'journal_io_uncertain',
+        (count) => count + uncertain,
+        ifAbsent: () => uncertain,
+      );
       _pendingJournalLines.clear();
     } finally {
       drainClock.stop();
       if (drained > 0) {
         _journalDrainBatches++;
         _journalDrainTotalUs += drainClock.elapsedMicroseconds;
-        if (drainClock.elapsedMicroseconds > _journalDrainMaxUs) _journalDrainMaxUs = drainClock.elapsedMicroseconds;
+        if (drainClock.elapsedMicroseconds > _journalDrainMaxUs)
+          _journalDrainMaxUs = drainClock.elapsedMicroseconds;
       }
       _journalDraining = false;
     }
@@ -650,14 +728,22 @@ class DiagnosticsService {
       }
       final pendingBeforeDrain = _pendingJournalLines.length;
       await _drainJournal(force: true);
-      if (_pendingJournalLines.length >= pendingBeforeDrain && _journalError != null) break;
+      if (_pendingJournalLines.length >= pendingBeforeDrain &&
+          _journalError != null)
+        break;
     }
     await _journalSink?.flush();
   }
 
-  DiagnosticSpan startSpan(String operation, {String? traceId, String? parentSpanId, Map<String, Object?> data = const <String, Object?>{}}) {
+  DiagnosticSpan startSpan(
+    String operation, {
+    String? traceId,
+    String? parentSpanId,
+    Map<String, Object?> data = const <String, Object?>{},
+  }) {
     _spanSequence++;
-    final resolvedTraceId = traceId ?? 'trace_${_spanSequence.toString().padLeft(8, '0')}';
+    final resolvedTraceId =
+        traceId ?? 'trace_${_spanSequence.toString().padLeft(8, '0')}';
     final span = DiagnosticSpan(
       traceId: resolvedTraceId,
       spanId: 'span_${_spanSequence.toString().padLeft(8, '0')}',
@@ -666,14 +752,34 @@ class DiagnosticsService {
       startUs: _sessionClock.elapsedMicroseconds,
     );
     _activeSpans[span.spanId] = span;
-    record('${operation}_start', data, span.traceId, span.spanId, span.parentSpanId);
+    record(
+      '${operation}_start',
+      data,
+      span.traceId,
+      span.spanId,
+      span.parentSpanId,
+    );
     return span;
   }
 
-  void endSpan(DiagnosticSpan span, String outcome, [Map<String, Object?> data = const <String, Object?>{}]) {
+  void endSpan(
+    DiagnosticSpan span,
+    String outcome, [
+    Map<String, Object?> data = const <String, Object?>{},
+  ]) {
     final durationUs = _sessionClock.elapsedMicroseconds - span.startUs;
     _activeSpans.remove(span.spanId);
-    record('${span.operation}_$outcome', <String, Object?>{...data, 'durationUs': durationUs, 'durationMs': durationUs / 1000}, span.traceId, span.spanId, span.parentSpanId);
+    record(
+      '${span.operation}_$outcome',
+      <String, Object?>{
+        ...data,
+        'durationUs': durationUs,
+        'durationMs': durationUs / 1000,
+      },
+      span.traceId,
+      span.spanId,
+      span.parentSpanId,
+    );
   }
 
   void routeChanged(String route, {required String action}) {
@@ -681,7 +787,10 @@ class DiagnosticsService {
     final previous = _currentRoute;
     _currentRoute = route;
     _routeChanges++;
-    record('navigation_$action', <String, Object?>{'routeName': route, 'previousRoute': previous});
+    record('navigation_$action', <String, Object?>{
+      'routeName': route,
+      'previousRoute': previous,
+    });
   }
 
   void scrollStarted({
@@ -693,7 +802,8 @@ class DiagnosticsService {
     if (!_recording) return;
     _scrollSessions++;
     final key = '$axis:$depth';
-    final traceId = 'trace_scroll_${_scrollSessions.toString().padLeft(6, '0')}';
+    final traceId =
+        'trace_scroll_${_scrollSessions.toString().padLeft(6, '0')}';
     final now = _sessionClock.elapsedMicroseconds;
     _activeScrolls[key] = _ScrollSession(
       traceId: traceId,
@@ -723,23 +833,26 @@ class DiagnosticsService {
     final now = _sessionClock.elapsedMicroseconds;
     final session = _activeScrolls['$axis:$depth'];
     final captureIntervalUs = session == null ? null : now - session.lastUs;
-    final eventIntervalUs = session == null
-        ? null
-        : _positiveTimestampDeltaUs(
-            session.lastEventTimestamp,
-            sourceTimeStamp,
-          );
+    final eventIntervalUs =
+        session == null
+            ? null
+            : _positiveTimestampDeltaUs(
+              session.lastEventTimestamp,
+              sourceTimeStamp,
+            );
     final pixelDelta = session == null ? null : pixels - session.lastPixels;
-    final canCalculateVelocity = pixelDelta != null &&
+    final canCalculateVelocity =
+        pixelDelta != null &&
         session?.lastEventTimestamp != null &&
         sourceTimeStamp != null;
-    final velocity = !canCalculateVelocity
-        ? null
-        : calculateEventVelocity(
-            delta: pixelDelta,
-            previousTimestamp: session?.lastEventTimestamp,
-            currentTimestamp: sourceTimeStamp,
-          );
+    final velocity =
+        !canCalculateVelocity
+            ? null
+            : calculateEventVelocity(
+              delta: pixelDelta,
+              previousTimestamp: session?.lastEventTimestamp,
+              currentTimestamp: sourceTimeStamp,
+            );
     if (session != null) {
       session.lastUs = now;
       session.lastPixels = pixels;
@@ -754,13 +867,17 @@ class DiagnosticsService {
       'pixels': pixels,
       'maxExtent': maxExtent,
       'velocityPixelsPerSecond': velocity,
-      'velocitySource': velocity == null ? 'unavailable' : 'scroll_drag_event_timestamp',
+      'velocitySource':
+          velocity == null ? 'unavailable' : 'scroll_drag_event_timestamp',
       // intervalUs now matches the timestamp used for velocity. The callback
       // clock is retained separately for diagnostics, not used as finger speed.
       'intervalUs': eventIntervalUs,
       'captureIntervalUs': captureIntervalUs,
       'sourceTimeStampUs': sourceTimeStamp?.inMicroseconds,
-      'startToFirstUpdateUs': session != null && session.moveCount == 0 ? now - session.startUs : null,
+      'startToFirstUpdateUs':
+          session != null && session.moveCount == 0
+              ? now - session.startUs
+              : null,
     }, session?.traceId);
     if (session != null) session.moveCount++;
   }
@@ -789,10 +906,25 @@ class DiagnosticsService {
     return intervalUs > 0 ? intervalUs : null;
   }
 
-  void scrollEnded({required String axis, required int depth, required double pixels, required double maxExtent}) {
+  void scrollEnded({
+    required String axis,
+    required int depth,
+    required double pixels,
+    required double maxExtent,
+  }) {
     if (!_recording) return;
     final session = _activeScrolls.remove('$axis:$depth');
-    record('scroll_end', <String, Object?>{'axis': axis, 'depth': depth, 'pixels': pixels, 'maxExtent': maxExtent, 'updateCount': session?.moveCount, 'durationUs': session == null ? null : _sessionClock.elapsedMicroseconds - session.startUs}, session?.traceId);
+    record('scroll_end', <String, Object?>{
+      'axis': axis,
+      'depth': depth,
+      'pixels': pixels,
+      'maxExtent': maxExtent,
+      'updateCount': session?.moveCount,
+      'durationUs':
+          session == null
+              ? null
+              : _sessionClock.elapsedMicroseconds - session.startUs,
+    }, session?.traceId);
   }
 
   void pointerDown(PointerEvent event) {
@@ -843,9 +975,12 @@ class DiagnosticsService {
       // which the app happened to process it. Android may batch/coalesce input.
       'intervalUs': eventIntervalUs,
       'captureIntervalUs': captureIntervalUs,
-      'velocitySource': eventIntervalUs == null ? 'unavailable' : 'pointer_event_timestamp',
-      'velocityXPerSecond': eventIntervalUs == null ? null : dx * 1000000 / eventIntervalUs,
-      'velocityYPerSecond': eventIntervalUs == null ? null : dy * 1000000 / eventIntervalUs,
+      'velocitySource':
+          eventIntervalUs == null ? 'unavailable' : 'pointer_event_timestamp',
+      'velocityXPerSecond':
+          eventIntervalUs == null ? null : dx * 1000000 / eventIntervalUs,
+      'velocityYPerSecond':
+          eventIntervalUs == null ? null : dy * 1000000 / eventIntervalUs,
       'totalDurationUs': now - session.startUs,
       'moveIndex': session.moveCount,
     }, session.traceId);
@@ -857,7 +992,11 @@ class DiagnosticsService {
 
   void pointerSignal(PointerSignalEvent event) {
     if (!_recording) return;
-    final data = <String, Object?>{'kind': event.runtimeType.toString(), 'x': event.position.dx, 'y': event.position.dy};
+    final data = <String, Object?>{
+      'kind': event.runtimeType.toString(),
+      'x': event.position.dx,
+      'y': event.position.dy,
+    };
     if (event is PointerScrollEvent) {
       data['scrollDeltaX'] = event.scrollDelta.dx;
       data['scrollDeltaY'] = event.scrollDelta.dy;
@@ -866,45 +1005,56 @@ class DiagnosticsService {
   }
 
   void pointerUp(PointerEvent event) => _finishPointer('pointer_up', event);
-  void pointerCancel(PointerEvent event) => _finishPointer('pointer_cancel', event);
+  void pointerCancel(PointerEvent event) =>
+      _finishPointer('pointer_cancel', event);
 
   void _finishPointer(String type, PointerEvent event) {
     if (!_recording) return;
     final session = _activePointers.remove(event.pointer);
     if (session == null) return;
-    final captureDurationUs = _sessionClock.elapsedMicroseconds - session.startUs;
-    final eventDurationUs = event.timeStamp.inMicroseconds -
-        session.startEventTimestampUs;
-    final durationUs = eventDurationUs > 0 ? eventDurationUs : captureDurationUs;
+    final captureDurationUs =
+        _sessionClock.elapsedMicroseconds - session.startUs;
+    final eventDurationUs =
+        event.timeStamp.inMicroseconds - session.startEventTimestampUs;
+    final durationUs =
+        eventDurationUs > 0 ? eventDurationUs : captureDurationUs;
     final totalDx = event.position.dx - session.startX;
     final totalDy = event.position.dy - session.startY;
     final finalDisplacement = math.sqrt(totalDx * totalDx + totalDy * totalDy);
     if (finalDisplacement > session.maxDisplacement) {
       session.maxDisplacement = finalDisplacement;
     }
-    final gestureKind = type == 'pointer_cancel'
-        ? 'cancelled'
-        : (session.maxDisplacement < 12
-            ? (durationUs < 500000 ? 'tap_candidate' : 'long_press_candidate')
-            : 'drag_candidate');
+    final gestureKind =
+        type == 'pointer_cancel'
+            ? 'cancelled'
+            : (session.maxDisplacement < 12
+                ? (durationUs < 500000
+                    ? 'tap_candidate'
+                    : 'long_press_candidate')
+                : 'drag_candidate');
     record(type, <String, Object?>{
       ..._pointerData(event, session),
       'moveCount': session.moveCount,
       'durationUs': durationUs,
       'eventDurationUs': eventDurationUs > 0 ? eventDurationUs : null,
       'captureDurationUs': captureDurationUs,
-      'durationClock': eventDurationUs > 0
-          ? 'flutter_pointer_event_timestamp'
-          : 'capture_stopwatch_fallback',
+      'durationClock':
+          eventDurationUs > 0
+              ? 'flutter_pointer_event_timestamp'
+              : 'capture_stopwatch_fallback',
       'totalDeltaX': totalDx,
       'totalDeltaY': totalDy,
       'maxDisplacement': session.maxDisplacement,
       'gestureKind': gestureKind,
-      'gestureClassification': 'coordinate_based_candidate_not_semantic_widget_identity',
+      'gestureClassification':
+          'coordinate_based_candidate_not_semantic_widget_identity',
     }, session.traceId);
   }
 
-  Map<String, Object?> _pointerData(PointerEvent event, _PointerSession session) => <String, Object?>{
+  Map<String, Object?> _pointerData(
+    PointerEvent event,
+    _PointerSession session,
+  ) => <String, Object?>{
     'pointer': event.pointer,
     'kind': event.kind.name,
     'x': event.position.dx,
@@ -931,37 +1081,31 @@ class DiagnosticsService {
       _lastFrameElapsedMicros = 0;
       for (final entry in _activePointers.entries.toList(growable: false)) {
         final session = entry.value;
-        record(
-          'pointer_interrupted',
-          <String, Object?>{
-            'pointer': entry.key,
-            'moveCount': session.moveCount,
-            'durationUs': _sessionClock.elapsedMicroseconds - session.startUs,
-            'reason': state.name,
-          },
-          session.traceId,
-        );
+        record('pointer_interrupted', <String, Object?>{
+          'pointer': entry.key,
+          'moveCount': session.moveCount,
+          'durationUs': _sessionClock.elapsedMicroseconds - session.startUs,
+          'reason': state.name,
+        }, session.traceId);
       }
       _activePointers.clear();
       for (final entry in _activeScrolls.entries.toList(growable: false)) {
         final session = entry.value;
-        record(
-          'scroll_interrupted',
-          <String, Object?>{
-            'scrollKey': entry.key,
-            'updateCount': session.moveCount,
-            'durationUs': _sessionClock.elapsedMicroseconds - session.startUs,
-            'reason': state.name,
-          },
-          session.traceId,
-        );
+        record('scroll_interrupted', <String, Object?>{
+          'scrollKey': entry.key,
+          'updateCount': session.moveCount,
+          'durationUs': _sessionClock.elapsedMicroseconds - session.startUs,
+          'reason': state.name,
+        }, session.traceId);
       }
       _activeScrolls.clear();
     }
     if (state == AppLifecycleState.detached) {
       record('session_end', <String, Object?>{'reason': 'app_detached'});
     }
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
       unawaited(_flushAllJournal());
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_capturePeriodicResourceSnapshot());
@@ -975,7 +1119,8 @@ class DiagnosticsService {
       final build = timing.buildDuration.inMicroseconds;
       final raster = timing.rasterDuration.inMicroseconds;
       final vsync = timing.vsyncOverhead.inMicroseconds;
-      final budgetUs = (1000000 / (_refreshRateHz <= 0 ? 60 : _refreshRateHz)).round();
+      final budgetUs =
+          (1000000 / (_refreshRateHz <= 0 ? 60 : _refreshRateHz)).round();
       _frameCount++;
       _totalFrameMicros += total;
       _totalBuildMicros += build;
@@ -985,14 +1130,21 @@ class DiagnosticsService {
       if (total > budgetUs) _slowFrames++;
       if (total > budgetUs * 2) _verySlowFrames++;
       _recentFrameMicros.addLast(total);
-      if (_recentFrameMicros.length > _recentFrameLimit) _recentFrameMicros.removeFirst();
+      if (_recentFrameMicros.length > _recentFrameLimit)
+        _recentFrameMicros.removeFirst();
       final elapsed = _sessionClock.elapsedMicroseconds;
-      final callbackGapUs = _lastFrameElapsedMicros == 0 ? null : elapsed - _lastFrameElapsedMicros;
+      final callbackGapUs =
+          _lastFrameElapsedMicros == 0
+              ? null
+              : elapsed - _lastFrameElapsedMicros;
       _lastFrameElapsedMicros = elapsed;
-      final vsyncStartUs = timing.timestampInMicroseconds(FramePhase.vsyncStart);
-      final frameStartIntervalUs = _lastVsyncStartTimestampUs == null
-          ? null
-          : vsyncStartUs - _lastVsyncStartTimestampUs!;
+      final vsyncStartUs = timing.timestampInMicroseconds(
+        FramePhase.vsyncStart,
+      );
+      final frameStartIntervalUs =
+          _lastVsyncStartTimestampUs == null
+              ? null
+              : vsyncStartUs - _lastVsyncStartTimestampUs!;
       _lastVsyncStartTimestampUs = vsyncStartUs;
       // Frame timestamps come from the engine. Callback gaps are retained
       // separately because Flutter may deliver several FrameTiming objects
@@ -1011,17 +1163,34 @@ class DiagnosticsService {
         'overBudget': total > budgetUs,
         'severelyOverBudget': total > budgetUs * 2,
         'intervalSincePreviousFrameUs': frameStartIntervalUs,
-        'activeSpans': _activeSpans.values.map((span) => <String, Object?>{'traceId': span.traceId, 'spanId': span.spanId, 'operation': span.operation}).toList(growable: false),
-        'activeScrollTraceIds': _activeScrolls.values.map((scroll) => scroll.traceId).toList(growable: false),
-        'activePointerTraceIds': _activePointers.values.map((pointer) => pointer.traceId).toList(growable: false),
+        'activeSpans': _activeSpans.values
+            .map(
+              (span) => <String, Object?>{
+                'traceId': span.traceId,
+                'spanId': span.spanId,
+                'operation': span.operation,
+              },
+            )
+            .toList(growable: false),
+        'activeScrollTraceIds': _activeScrolls.values
+            .map((scroll) => scroll.traceId)
+            .toList(growable: false),
+        'activePointerTraceIds': _activePointers.values
+            .map((pointer) => pointer.traceId)
+            .toList(growable: false),
       });
     }
   }
 
-  Future<Map<String, Object?>> _resourceSnapshot({bool includeStorage = false}) async {
+  Future<Map<String, Object?>> _resourceSnapshot({
+    bool includeStorage = false,
+  }) async {
     Map<String, Object?> native = <String, Object?>{};
     try {
-      final result = await _native.invokeMapMethod<String, Object?>('resourceSnapshot', <String, Object?>{'includeStorage': includeStorage});
+      final result = await _native.invokeMapMethod<String, Object?>(
+        'resourceSnapshot',
+        <String, Object?>{'includeStorage': includeStorage},
+      );
       if (result != null) native = result;
     } catch (error) {
       native = <String, Object?>{'nativeSnapshotError': error.toString()};
@@ -1032,8 +1201,18 @@ class DiagnosticsService {
     return <String, Object?>{
       'capturedAt': DateTime.now().toUtc().toIso8601String(),
       'elapsedUs': _sessionClock.elapsedMicroseconds,
-      'app': <String, Object?>{'name': info.appName, 'package': info.packageName, 'version': info.version, 'build': info.buildNumber},
-      'platform': <String, Object?>{'os': Platform.operatingSystem, 'osVersion': Platform.operatingSystemVersion, 'localeName': Platform.localeName, 'numberOfProcessors': Platform.numberOfProcessors},
+      'app': <String, Object?>{
+        'name': info.appName,
+        'package': info.packageName,
+        'version': info.version,
+        'build': info.buildNumber,
+      },
+      'platform': <String, Object?>{
+        'os': Platform.operatingSystem,
+        'osVersion': Platform.operatingSystemVersion,
+        'localeName': Platform.localeName,
+        'numberOfProcessors': Platform.numberOfProcessors,
+      },
       'process': native,
     };
   }
@@ -1047,7 +1226,9 @@ class DiagnosticsService {
       _resourceSnapshots.add(snapshot);
       record('resource_snapshot', snapshot);
     } catch (error) {
-      record('resource_snapshot_failed', <String, Object?>{'error': error.toString()});
+      record('resource_snapshot_failed', <String, Object?>{
+        'error': error.toString(),
+      });
     } finally {
       _resourceSnapshotInFlight = false;
     }
@@ -1082,7 +1263,9 @@ class DiagnosticsService {
     'frameCount': _frameCount,
     'refreshRateHz': _refreshRateHz,
     'frameBudgetMs': frameBudgetMs,
-    'estimatedFpsFromAverageFrameTime': double.parse(estimatedFps.toStringAsFixed(2)),
+    'estimatedFpsFromAverageFrameTime': double.parse(
+      estimatedFps.toStringAsFixed(2),
+    ),
     'averageFrameMs': double.parse(averageFrameMs.toStringAsFixed(3)),
     'averageBuildMs': double.parse(averageBuildMs.toStringAsFixed(3)),
     'averageRasterMs': double.parse(averageRasterMs.toStringAsFixed(3)),
@@ -1116,33 +1299,48 @@ class DiagnosticsService {
     'dashboardEventLimit': _dashboardEventLimit,
     'journalEventsDropped': _journalDroppedCount,
     'journalIntegrity': <String, Object?>{
-      'status': _journalDroppedCount == 0 && _journalError == null && _pendingJournalLines.isEmpty
-          ? 'complete_at_export_boundary'
-          : 'incomplete_or_uncertain',
+      'status':
+          _journalDroppedCount == 0 &&
+                  _journalError == null &&
+                  _pendingJournalLines.isEmpty
+              ? 'complete_at_export_boundary'
+              : 'incomplete_or_uncertain',
       'queueCapacity': _pendingJournalLimit,
       'queueHighWaterMark': _journalQueueHighWaterMark,
       'queueOverflowEvents': _journalQueueOverflowCount,
       'writeFailureCount': _journalWriteFailureCount,
-      'firstDroppedSequence': _journalFirstDroppedSequence == 0 ? null : _journalFirstDroppedSequence,
-      'lastDroppedSequence': _journalLastDroppedSequence == 0 ? null : _journalLastDroppedSequence,
+      'firstDroppedSequence':
+          _journalFirstDroppedSequence == 0
+              ? null
+              : _journalFirstDroppedSequence,
+      'lastDroppedSequence':
+          _journalLastDroppedSequence == 0 ? null : _journalLastDroppedSequence,
       'droppedByType': Map<String, int>.from(_journalDroppedByType),
       'observed': _journalEventCount,
       'queued': _journalQueuedCount,
       'persisted': _journalPersistedCount,
       'droppedOrUncertain': _journalDroppedCount,
       'pendingAtSnapshot': _pendingJournalLines.length,
-      'accountingMatches': _journalEventCount ==
-          (_journalPersistedCount + _pendingJournalLines.length + _journalDroppedCount),
-      'note': 'Persisted counts flushed batches; I/O failures are classified uncertain because IOSink may partially write a batch.',
+      'accountingMatches':
+          _journalEventCount ==
+          (_journalPersistedCount +
+              _pendingJournalLines.length +
+              _journalDroppedCount),
+      'note':
+          'Persisted counts flushed batches; I/O failures are classified uncertain because IOSink may partially write a batch.',
     },
     'recordingPauseCount': _recordingPauseCount,
     'diagnosticsOverhead': <String, Object?>{
       'recordCostSampleEveryNEvents': 64,
       'recordCostSamples': _recordCostSamples,
-      'averageSampledRecordCostUs': _recordCostSamples == 0 ? 0 : _recordCostTotalUs / _recordCostSamples,
+      'averageSampledRecordCostUs':
+          _recordCostSamples == 0 ? 0 : _recordCostTotalUs / _recordCostSamples,
       'maxSampledRecordCostUs': _recordCostMaxUs,
       'journalDrainBatches': _journalDrainBatches,
-      'averageJournalDrainCostUs': _journalDrainBatches == 0 ? 0 : _journalDrainTotalUs / _journalDrainBatches,
+      'averageJournalDrainCostUs':
+          _journalDrainBatches == 0
+              ? 0
+              : _journalDrainTotalUs / _journalDrainBatches,
       'maxJournalDrainCostUs': _journalDrainMaxUs,
     },
     'journalPending': _pendingJournalLines.length,
@@ -1150,7 +1348,9 @@ class DiagnosticsService {
     'journalError': _journalError,
     'peakProcessPssKb': _maxResourceValue('processPssKb'),
     'peakJavaHeapUsedBytes': _maxResourceValue('javaHeapUsedBytes'),
-    'averageProcessCpuPercent': _averageResourceValue('processCpuPercentSincePreviousSnapshot'),
+    'averageProcessCpuPercent': _averageResourceValue(
+      'processCpuPercentSincePreviousSnapshot',
+    ),
     'resourceSnapshotCount': _resourceSnapshots.length,
     'videoThumbnailPipeline': <String, Object?>{
       'loadsStarted': _videoThumbnailLoadsStarted,
@@ -1194,7 +1394,10 @@ class DiagnosticsService {
       'timeToVisibleSamples': _artworkVisibleTimeSamples,
       'maxTimeToVisibleMs': maxArtworkTimeToVisibleMs,
     },
-    'libraryPipeline': <String, int>{'querySpans': _libraryQuerySpans, 'transformSpans': _libraryTransformSpans},
+    'libraryPipeline': <String, int>{
+      'querySpans': _libraryQuerySpans,
+      'transformSpans': _libraryTransformSpans,
+    },
     'playbackActionEvents': _playbackActionEvents,
     'diagnosticErrorEvents': _diagnosticErrorEvents,
     'flutterFrameworkReportEvents': _flutterFrameworkReportEvents,
@@ -1203,7 +1406,8 @@ class DiagnosticsService {
   };
 
   Future<DiagnosticExport> export() async {
-    if (_exportInFlight) throw StateError('A diagnostics export is already in progress.');
+    if (_exportInFlight)
+      throw StateError('A diagnostics export is already in progress.');
     _exportInFlight = true;
     File? snapshotFile;
     var snapshotEventCount = 0;
@@ -1251,13 +1455,19 @@ class DiagnosticsService {
           math.max(0, snapshotObservedCount - snapshotEventCount).toInt();
       snapshotJournalError = _journalError;
       if (_journalFile != null && await _journalFile!.exists()) {
-        final stampForSnapshot = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
-        final candidate = File('${_journalFile!.parent.path}/$_sessionId-export-$stampForSnapshot.jsonl');
+        final stampForSnapshot = DateTime.now()
+            .toUtc()
+            .toIso8601String()
+            .replaceAll(':', '-');
+        final candidate = File(
+          '${_journalFile!.parent.path}/$_sessionId-export-$stampForSnapshot.jsonl',
+        );
         try {
           await _journalFile!.copy(candidate.path);
           snapshotFile = candidate;
         } catch (error) {
-          snapshotJournalError = 'Journal snapshot copy failed: ${error.runtimeType}';
+          snapshotJournalError =
+              'Journal snapshot copy failed: ${error.runtimeType}';
           _journalError = snapshotJournalError;
         }
       }
@@ -1267,7 +1477,7 @@ class DiagnosticsService {
       unawaited(_flushAllJournal());
 
       final resources = await _resourceSnapshot(includeStorage: true);
-      final summary = summaryAtBoundary ?? _summary();
+      final summary = summaryAtBoundary;
       summary['journalEventsObserved'] = snapshotObservedCount;
       summary['journalEventsQueued'] = snapshotQueuedCount;
       summary['journalEventsPersisted'] = snapshotEventCount;
@@ -1280,26 +1490,28 @@ class DiagnosticsService {
       // _summary() is captured before pending lines are flushed so its nested
       // integrity snapshot is intentionally pre-flush. Replace it here with
       // boundary-consistent values after the immutable journal copy is ready.
-      final integrity = (summary['journalIntegrity'] as Map?)
-              ?.cast<String, Object?>() ??
+      final integrity =
+          (summary['journalIntegrity'] as Map?)?.cast<String, Object?>() ??
           <String, Object?>{};
-      final accountingMatches = snapshotObservedCount ==
+      final accountingMatches =
+          snapshotObservedCount ==
           snapshotPersistedBeforeFlush +
               snapshotPendingCount +
               snapshotDroppedBeforeFlush;
       final boundarySequenceMatches = snapshotSequence == snapshotObservedCount;
       final journalSnapshotAvailable = _journalReady && snapshotFile != null;
       integrity
-        ..['status'] = snapshotDroppedCount == 0 &&
-                snapshotJournalError == null &&
-                snapshotEventCount == snapshotObservedCount &&
-                accountingMatches &&
-                boundarySequenceMatches &&
-                journalSnapshotAvailable
-            ? (snapshotPauseCount == 0
-                ? 'complete_at_export_boundary'
-                : 'complete_at_export_boundary_with_known_recording_pauses')
-            : 'incomplete_or_uncertain'
+        ..['status'] =
+            snapshotDroppedCount == 0 &&
+                    snapshotJournalError == null &&
+                    snapshotEventCount == snapshotObservedCount &&
+                    accountingMatches &&
+                    boundarySequenceMatches &&
+                    journalSnapshotAvailable
+                ? (snapshotPauseCount == 0
+                    ? 'complete_at_export_boundary'
+                    : 'complete_at_export_boundary_with_known_recording_pauses')
+                : 'incomplete_or_uncertain'
         ..['observed'] = snapshotObservedCount
         ..['queued'] = snapshotQueuedCount
         ..['persisted'] = snapshotEventCount
@@ -1315,12 +1527,20 @@ class DiagnosticsService {
         ..['exportBoundarySequence'] = snapshotSequence
         ..['journalError'] = snapshotJournalError
         ..['recordingPauseCount'] = snapshotPauseCount
-        ..['note'] = 'Integrity is evaluated at the immutable export boundary after pending lines have been flushed; post-boundary events are excluded.';
+        ..['note'] =
+            'Integrity is evaluated at the immutable export boundary after pending lines have been flushed; post-boundary events are excluded.';
       summary['journalIntegrity'] = integrity;
-      final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
-      final analysis = snapshotFile == null
-          ? <String, Object?>{'status': 'journal_snapshot_unavailable', 'error': _journalError ?? 'No journal file was created.'}
-          : await _buildAnalysisFromJournal(snapshotFile);
+      final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+        ':',
+        '-',
+      );
+      final analysis =
+          snapshotFile == null
+              ? <String, Object?>{
+                'status': 'journal_snapshot_unavailable',
+                'error': _journalError ?? 'No journal file was created.',
+              }
+              : await _buildAnalysisFromJournal(snapshotFile);
       final metadata = <String, Object?>{
         'schemaVersion': 2,
         'product': 'YAZEN Performance Intelligence',
@@ -1329,15 +1549,23 @@ class DiagnosticsService {
         'exportBoundarySequence': snapshotSequence,
         'summary': summary,
         'finalResourceSnapshot': resources,
-        'resourceSnapshotCountInJournal': analysis['eventTypeCounts'] is Map ? ((analysis['eventTypeCounts'] as Map)['resource_snapshot'] ?? 0) : 0,
+        'resourceSnapshotCountInJournal':
+            analysis['eventTypeCounts'] is Map
+                ? ((analysis['eventTypeCounts'] as Map)['resource_snapshot'] ??
+                    0)
+                : 0,
         'journal': <String, Object?>{
           'format': 'JSONL',
-          'file': snapshotFile?.uri.pathSegments.isNotEmpty == true ? snapshotFile!.uri.pathSegments.last : null,
+          'file':
+              snapshotFile?.uri.pathSegments.isNotEmpty == true
+                  ? snapshotFile!.uri.pathSegments.last
+                  : null,
           'eventsObserved': snapshotObservedCount,
           'eventsQueued': snapshotQueuedCount,
           'eventsPersisted': snapshotEventCount,
           'droppedEvents': snapshotDroppedCount,
-          'completeFromSessionStart': _journalReady &&
+          'completeFromSessionStart':
+              _journalReady &&
               snapshotDroppedCount == 0 &&
               snapshotJournalError == null &&
               snapshotFile != null &&
@@ -1353,7 +1581,9 @@ class DiagnosticsService {
           'boundarySequence': snapshotSequence,
           'firstSequence': analysis['firstSequence'],
           'lastSequence': analysis['lastSequence'],
-          'sequenceRangeComplete': analysis['firstSequence'] == 1 && analysis['lastSequence'] == snapshotSequence,
+          'sequenceRangeComplete':
+              analysis['firstSequence'] == 1 &&
+              analysis['lastSequence'] == snapshotSequence,
           'queuedEqualsPersisted': snapshotQueuedCount == snapshotEventCount,
           'error': snapshotJournalError,
         },
@@ -1379,7 +1609,10 @@ class DiagnosticsService {
       };
       final saved = <String>[];
       try {
-        final nativeResult = await _native.invokeListMethod<String>('saveDiagnosticFiles', files);
+        final nativeResult = await _native.invokeListMethod<String>(
+          'saveDiagnosticFiles',
+          files,
+        );
         if (nativeResult != null) saved.addAll(nativeResult);
       } catch (_) {
         final directory = await getApplicationDocumentsDirectory();
@@ -1391,20 +1624,32 @@ class DiagnosticsService {
       }
       if (snapshotFile != null) {
         try {
-          final journalResult = await _native.invokeMethod<String>('exportDiagnosticJournal', <String, String>{
-            'sourcePath': snapshotFile.path,
-            'fileName': 'yazen-pi-session-$stamp.jsonl',
-          });
+          final journalResult = await _native
+              .invokeMethod<String>('exportDiagnosticJournal', <String, String>{
+                'sourcePath': snapshotFile.path,
+                'fileName': 'yazen-pi-session-$stamp.jsonl',
+              });
           if (journalResult != null) saved.add(journalResult);
           await snapshotFile.delete();
         } catch (error) {
-          saved.add('Journal snapshot remains in app documents: ${snapshotFile.path} (Downloads copy failed: $error)');
+          saved.add(
+            'Journal snapshot remains in app documents: ${snapshotFile.path} (Downloads copy failed: $error)',
+          );
         }
       } else {
-        saved.add('Full journal snapshot unavailable. Check journal initialization/error status in the JSON report.');
+        saved.add(
+          'Full journal snapshot unavailable. Check journal initialization/error status in the JSON report.',
+        );
       }
-      record('report_export_completed', <String, Object?>{'files': saved, 'exportBoundarySequence': snapshotSequence});
-      return DiagnosticExport(paths: saved, eventCount: snapshotEventCount, summary: summary);
+      record('report_export_completed', <String, Object?>{
+        'files': saved,
+        'exportBoundarySequence': snapshotSequence,
+      });
+      return DiagnosticExport(
+        paths: saved,
+        eventCount: snapshotEventCount,
+        summary: summary,
+      );
     } finally {
       _journalSnapshotting = false;
       _exportInFlight = false;
@@ -1450,7 +1695,10 @@ class DiagnosticsService {
 
     if (journal != null && await journal.exists()) {
       try {
-        await for (final line in journal.openRead().transform(utf8.decoder).transform(const LineSplitter())) {
+        await for (final line in journal
+            .openRead()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
           if (line.trim().isEmpty) continue;
           try {
             final decoded = jsonDecode(line);
@@ -1467,16 +1715,21 @@ class DiagnosticsService {
             final currentSequence = sequence.toInt();
             firstSequence ??= currentSequence;
             lastSequence = currentSequence;
-            if (previousSequence != null && currentSequence > previousSequence! + 1) {
-              missingSequenceNumbers += currentSequence - previousSequence! - 1;
-            } else if (previousSequence != null && currentSequence <= previousSequence!) {
+            final priorSequence = previousSequence;
+            if (priorSequence != null && currentSequence > priorSequence + 1) {
+              missingSequenceNumbers += currentSequence - priorSequence - 1;
+            } else if (priorSequence != null &&
+                currentSequence <= priorSequence) {
               outOfOrderEvents++;
             }
             previousSequence = currentSequence;
             final type = decoded['type']?.toString() ?? 'unknown';
             eventTypeCounts[type] = (eventTypeCounts[type] ?? 0) + 1;
             final route = decoded['route']?.toString() ?? 'unknown';
-            final data = decoded['data'] is Map ? (decoded['data'] as Map).cast<String, Object?>() : const <String, Object?>{};
+            final data =
+                decoded['data'] is Map
+                    ? (decoded['data'] as Map).cast<String, Object?>()
+                    : const <String, Object?>{};
             if (type == 'artwork_load_complete') {
               if (data['success'] == true) {
                 artworkLoadSuccesses++;
@@ -1493,21 +1746,29 @@ class DiagnosticsService {
               }
             } else if (type == 'video_thumbnail_load_failed') {
               videoThumbnailLoadExceptions++;
-            } else if ((type == 'video_thumbnail_source_fetch_complete' && data['success'] != true) ||
+            } else if ((type == 'video_thumbnail_source_fetch_complete' &&
+                    data['success'] != true) ||
                 type == 'video_thumbnail_source_fetch_failed') {
               videoThumbnailSourceFailures++;
               final reason = data['failureReason']?.toString() ?? 'unspecified';
               videoThumbnailFailureReasons[reason] =
                   (videoThumbnailFailureReasons[reason] ?? 0) + 1;
-            } else if ((type == 'artwork_source_fetch_complete' && data['success'] != true) ||
+            } else if ((type == 'artwork_source_fetch_complete' &&
+                    data['success'] != true) ||
                 type == 'artwork_source_fetch_failed') {
               sourceFetchFailures++;
-              final reason = data['failureReason']?.toString() ??
-                  (type == 'artwork_source_fetch_failed' ? 'source_exception' : 'unspecified');
-              sourceFailureReasons[reason] = (sourceFailureReasons[reason] ?? 0) + 1;
+              final reason =
+                  data['failureReason']?.toString() ??
+                  (type == 'artwork_source_fetch_failed'
+                      ? 'source_exception'
+                      : 'unspecified');
+              sourceFailureReasons[reason] =
+                  (sourceFailureReasons[reason] ?? 0) + 1;
             } else if (type == 'flutter_error') {
-              final message = data['exception']?.toString() ?? 'unknown_flutter_report';
-              final fingerprint = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+              final message =
+                  data['exception']?.toString() ?? 'unknown_flutter_report';
+              final fingerprint =
+                  message.replaceAll(RegExp(r'\s+'), ' ').trim();
               final aggregate = flutterReportFingerprints.putIfAbsent(
                 fingerprint,
                 () => <String, Object?>{
@@ -1532,15 +1793,20 @@ class DiagnosticsService {
               if (data['overBudget'] == true) {
                 overBudgetFrames++;
                 final activeScrolls = data['activeScrollTraceIds'];
-                if (activeScrolls is List && activeScrolls.isNotEmpty) activeSpanFrameCounts['scroll_gesture'] = (activeSpanFrameCounts['scroll_gesture'] ?? 0) + 1;
+                if (activeScrolls is List && activeScrolls.isNotEmpty)
+                  activeSpanFrameCounts['scroll_gesture'] =
+                      (activeSpanFrameCounts['scroll_gesture'] ?? 0) + 1;
                 final activePointers = data['activePointerTraceIds'];
-                if (activePointers is List && activePointers.isNotEmpty) activeSpanFrameCounts['pointer_gesture'] = (activeSpanFrameCounts['pointer_gesture'] ?? 0) + 1;
+                if (activePointers is List && activePointers.isNotEmpty)
+                  activeSpanFrameCounts['pointer_gesture'] =
+                      (activeSpanFrameCounts['pointer_gesture'] ?? 0) + 1;
                 overBudgetByRoute[route] = (overBudgetByRoute[route] ?? 0) + 1;
                 final active = data['activeSpans'];
                 if (active is List) {
                   final uniqueOperationsInFrame = <String>{};
                   for (final span in active.whereType<Map>()) {
-                    final operation = span['operation']?.toString() ?? 'unknown';
+                    final operation =
+                        span['operation']?.toString() ?? 'unknown';
                     activeSpanFrameOverlapCounts[operation] =
                         (activeSpanFrameOverlapCounts[operation] ?? 0) + 1;
                     uniqueOperationsInFrame.add(operation);
@@ -1570,9 +1836,16 @@ class DiagnosticsService {
             } else if (type == 'resource_snapshot') {
               final process = data['process'];
               if (process is Map) {
-                for (final key in <String>['processPssKb', 'processCpuPercentSincePreviousSnapshot', 'javaHeapUsedBytes', 'nativeHeapAllocatedBytes', 'deviceAvailableMemoryBytes']) {
+                for (final key in <String>[
+                  'processPssKb',
+                  'processCpuPercentSincePreviousSnapshot',
+                  'javaHeapUsedBytes',
+                  'nativeHeapAllocatedBytes',
+                  'deviceAvailableMemoryBytes',
+                ]) {
                   final value = process[key];
-                  if (value is num && value >= 0) (resourceValues[key] ??= <num>[]).add(value);
+                  if (value is num && value >= 0)
+                    (resourceValues[key] ??= <num>[]).add(value);
                 }
                 final threads = process['threadCpuSamples'];
                 if (threads is List) {
@@ -1584,20 +1857,31 @@ class DiagnosticsService {
                       final id = threadId.toInt();
                       final aggregate = threadCpuTickTotals.putIfAbsent(
                         id,
-                        () => <String, Object?>{'threadId': id, 'name': name, 'deltaTicks': 0},
+                        () => <String, Object?>{
+                          'threadId': id,
+                          'name': name,
+                          'deltaTicks': 0,
+                        },
                       );
-                      aggregate['deltaTicks'] = (aggregate['deltaTicks'] as int) + ticks.toInt();
+                      aggregate['deltaTicks'] =
+                          (aggregate['deltaTicks'] as int) + ticks.toInt();
                       aggregate['name'] = name;
                     }
                   }
                 }
               }
             }
-            if (type.endsWith('_complete') || type.endsWith('_failed') || type.endsWith('_rejected') || type.endsWith('_superseded') || type.endsWith('_skipped')) {
+            if (type.endsWith('_complete') ||
+                type.endsWith('_failed') ||
+                type.endsWith('_rejected') ||
+                type.endsWith('_superseded') ||
+                type.endsWith('_skipped')) {
               final duration = data['durationUs'];
               if (duration is num) {
                 final operation = type.substring(0, type.lastIndexOf('_'));
-                (operationDurations[operation] ??= <int>[]).add(duration.round());
+                (operationDurations[operation] ??= <int>[]).add(
+                  duration.round(),
+                );
               }
             }
           } catch (_) {
@@ -1615,45 +1899,61 @@ class DiagnosticsService {
     }
 
     final correlated = activeSpanFrameCounts.entries
-        .map((entry) => <String, Object?>{
-              'operation': entry.key,
-              'uniqueOverBudgetFramesDuringOperation': entry.value,
-              'overBudgetFrameSpanOverlapCount':
-                  activeSpanFrameOverlapCounts[entry.key] ?? entry.value,
-              // Keep the legacy field as an alias, but its semantics are now
-              // unique frames rather than raw span/frame overlap pairs.
-              'overBudgetFramesDuringOperation': entry.value,
-              'classification': 'correlated_only',
-              'confidence': 'medium',
-            })
-        .toList(growable: false)
-      ..sort((a, b) => (b['overBudgetFramesDuringOperation'] as int).compareTo(a['overBudgetFramesDuringOperation'] as int));
+      .map(
+        (entry) => <String, Object?>{
+          'operation': entry.key,
+          'uniqueOverBudgetFramesDuringOperation': entry.value,
+          'overBudgetFrameSpanOverlapCount':
+              activeSpanFrameOverlapCounts[entry.key] ?? entry.value,
+          // Keep the legacy field as an alias, but its semantics are now
+          // unique frames rather than raw span/frame overlap pairs.
+          'overBudgetFramesDuringOperation': entry.value,
+          'classification': 'correlated_only',
+          'confidence': 'medium',
+        },
+      )
+      .toList(growable: false)..sort(
+      (a, b) => (b['overBudgetFramesDuringOperation'] as int).compareTo(
+        a['overBudgetFramesDuringOperation'] as int,
+      ),
+    );
 
     final operationSummary = <String, Object?>{};
     for (final entry in operationDurations.entries) {
       final values = entry.value..sort();
       operationSummary[entry.key] = <String, Object?>{
         'count': values.length,
-        'averageDurationMs': values.reduce((a, b) => a + b) / values.length / 1000,
+        'averageDurationMs':
+            values.reduce((a, b) => a + b) / values.length / 1000,
         'p95DurationMs': _percentile(values, .95) / 1000,
         'maxDurationMs': values.last / 1000,
       };
     }
 
-    final velocitySummary = scrollVelocities.isEmpty
-        ? null
-        : <String, Object?>{
-            'sampleCount': scrollVelocities.length,
-            'averageAbsolutePixelsPerSecond': scrollVelocities.map((v) => v.abs()).reduce((a, b) => a + b) / scrollVelocities.length,
-            'maxAbsolutePixelsPerSecond': scrollVelocities.map((v) => v.abs()).reduce((a, b) => a > b ? a : b),
-          };
-    final pointerVelocitySummary = pointerVelocities.isEmpty
-        ? null
-        : <String, Object?>{
-            'axisVelocitySamples': pointerVelocities.length,
-            'averageAbsolutePixelsPerSecond': pointerVelocities.reduce((a, b) => a + b) / pointerVelocities.length,
-            'maxAbsolutePixelsPerSecond': pointerVelocities.reduce((a, b) => a > b ? a : b),
-          };
+    final velocitySummary =
+        scrollVelocities.isEmpty
+            ? null
+            : <String, Object?>{
+              'sampleCount': scrollVelocities.length,
+              'averageAbsolutePixelsPerSecond':
+                  scrollVelocities.map((v) => v.abs()).reduce((a, b) => a + b) /
+                  scrollVelocities.length,
+              'maxAbsolutePixelsPerSecond': scrollVelocities
+                  .map((v) => v.abs())
+                  .reduce((a, b) => a > b ? a : b),
+            };
+    final pointerVelocitySummary =
+        pointerVelocities.isEmpty
+            ? null
+            : <String, Object?>{
+              'axisVelocitySamples': pointerVelocities.length,
+              'averageAbsolutePixelsPerSecond':
+                  pointerVelocities.reduce((a, b) => a + b) /
+                  pointerVelocities.length,
+              'maxAbsolutePixelsPerSecond': pointerVelocities.reduce(
+                (a, b) => a > b ? a : b,
+              ),
+            };
     final resourceSummary = <String, Object?>{};
     for (final entry in resourceValues.entries) {
       final values = entry.value;
@@ -1663,11 +1963,14 @@ class DiagnosticsService {
         'maximum': values.reduce((a, b) => a > b ? a : b),
       };
     }
-    final topThreads = threadCpuTickTotals.values.toList()
-      ..sort((a, b) => (b['deltaTicks'] as int).compareTo(a['deltaTicks'] as int));
+    final topThreads =
+        threadCpuTickTotals.values.toList()..sort(
+          (a, b) => (b['deltaTicks'] as int).compareTo(a['deltaTicks'] as int),
+        );
 
     return <String, Object?>{
-      'status': journal == null ? 'journal_unavailable' : 'complete_journal_scan',
+      'status':
+          journal == null ? 'journal_unavailable' : 'complete_journal_scan',
       'eventsRead': totalEventsRead,
       'firstSequence': firstSequence,
       'lastSequence': lastSequence,
@@ -1689,15 +1992,20 @@ class DiagnosticsService {
         'overBudgetFramesByRoute': overBudgetByRoute,
         'frameStartIntervalMs': <String, num>{
           'sampleCount': frameStartIntervalsUs.length,
-          'average': frameStartIntervalsUs.isEmpty
-              ? 0
-              : frameStartIntervalsUs.reduce((a, b) => a + b) / frameStartIntervalsUs.length / 1000,
+          'average':
+              frameStartIntervalsUs.isEmpty
+                  ? 0
+                  : frameStartIntervalsUs.reduce((a, b) => a + b) /
+                      frameStartIntervalsUs.length /
+                      1000,
           'p50': _percentile(frameStartIntervalsUs, .50) / 1000,
           'p95': _percentile(frameStartIntervalsUs, .95) / 1000,
           'p99': _percentile(frameStartIntervalsUs, .99) / 1000,
-          'maximum': frameStartIntervalsUs.isEmpty
-              ? 0
-              : frameStartIntervalsUs.reduce((a, b) => a > b ? a : b) / 1000,
+          'maximum':
+              frameStartIntervalsUs.isEmpty
+                  ? 0
+                  : frameStartIntervalsUs.reduce((a, b) => a > b ? a : b) /
+                      1000,
         },
       },
       'interactionAnalysis': <String, Object?>{
@@ -1709,8 +2017,16 @@ class DiagnosticsService {
         'pointerVelocitySource': 'flutter_pointer_event_timestamp',
         'scrollGestureDurationMs': <String, Object?>{
           'count': scrollDurationsUs.length,
-          'average': scrollDurationsUs.isEmpty ? null : scrollDurationsUs.reduce((a, b) => a + b) / scrollDurationsUs.length / 1000,
-          'maximum': scrollDurationsUs.isEmpty ? null : scrollDurationsUs.reduce((a, b) => a > b ? a : b) / 1000,
+          'average':
+              scrollDurationsUs.isEmpty
+                  ? null
+                  : scrollDurationsUs.reduce((a, b) => a + b) /
+                      scrollDurationsUs.length /
+                      1000,
+          'maximum':
+              scrollDurationsUs.isEmpty
+                  ? null
+                  : scrollDurationsUs.reduce((a, b) => a > b ? a : b) / 1000,
         },
       },
       'resourceAnalysis': resourceSummary,
@@ -1730,9 +2046,16 @@ class DiagnosticsService {
         'sourceFetchFailures': sourceFetchFailures,
         'sourceFailureReasons': sourceFailureReasons,
       },
-      'flutterFrameworkReports': flutterReportFingerprints.values.toList(growable: false),
+      'flutterFrameworkReports': flutterReportFingerprints.values.toList(
+        growable: false,
+      ),
       'activeSpanFrameCorrelations': correlated,
-      'classificationPolicy': <String>['observed', 'correlated', 'likely_contributor', 'confirmed'],
+      'classificationPolicy': <String>[
+        'observed',
+        'correlated',
+        'likely_contributor',
+        'confirmed',
+      ],
       'limitations': <String>[
         'An active span overlapping an over-budget frame is temporal correlation, not proof that the span caused the frame delay.',
         'Per-thread CPU is reported as raw Linux clock ticks and is keyed by thread ID; it is not converted to milliseconds or normalized by sample duration.',
@@ -1746,77 +2069,129 @@ class DiagnosticsService {
   String _buildMarkdownReport(Map<String, Object?> metadata) {
     final summary = (metadata['summary'] as Map).cast<String, Object?>();
     final analysis = (metadata['analysis'] as Map).cast<String, Object?>();
-    final buffer = StringBuffer()
-      ..writeln('# YAZEN Performance Intelligence — Session Report')
-      ..writeln()
-      ..writeln('- Session: `${_sessionId}`')
-      ..writeln('- Build mode: `${summary['buildMode']}`')
-      ..writeln('- Generated: `${metadata['generatedAt']}`')
-      ..writeln('- Journal events observed: `${summary['journalEventsObserved']}`')
-      ..writeln('- Journal events persisted: `${summary['journalEventsPersisted']}`')
-      ..writeln('- Journal events dropped: `${summary['journalEventsDropped']}`')
-      ..writeln()
-      ..writeln('## Frame performance')
-      ..writeln('- Refresh rate: ${summary['refreshRateHz']} Hz')
-      ..writeln('- Frame budget: ${summary['frameBudgetMs']} ms')
-      ..writeln('- Frames: ${summary['frameCount']}')
-      ..writeln('- Average frame: ${summary['averageFrameMs']} ms')
-      ..writeln('- Percentiles (recent window): ${summary['recentFramePercentilesMs']}')
-      ..writeln('- Over budget: ${summary['framesOverBudget']}')
-      ..writeln('- Over double budget: ${summary['framesOverDoubleBudget']}')
-      ..writeln()
-      ..writeln('## Interaction capture')
-      ..writeln('- Scroll sessions: ${summary['scrollSessions']}')
-      ..writeln('- Scroll updates: ${summary['scrollUpdates']}')
-      ..writeln('- Pointer sessions: ${summary['pointerSessions']}')
-      ..writeln('- Pointer up/cancel: ${summary['pointerCompleted']} / ${summary['pointerCancelled']}')
-      ..writeln('- Tap/drag/long-press candidates: ${summary['pointerTapCandidates']} / ${summary['pointerDragCandidates']} / ${summary['pointerLongPressCandidates']}')
-      ..writeln('- Pointer move samples: ${summary['pointerMoves']}')
-      ..writeln('- Scroll completed: ${summary['scrollCompleted']}')
-      ..writeln('- Pointer/scroll sessions interrupted by lifecycle: ${summary['pointerInterrupted']} / ${summary['scrollInterrupted']}')
-      ..writeln()
-      ..writeln('## Resource metrics')
-      ..writeln('- Peak PSS: ${summary['peakProcessPssKb']} KB')
-      ..writeln('- Peak Java heap: ${summary['peakJavaHeapUsedBytes']} bytes')
-      ..writeln('- Average sampled process CPU: ${summary['averageProcessCpuPercent']}%')
-      ..writeln()
-      ..writeln('## Video thumbnail outcomes')
-      ..writeln('- Successful loads: ${(summary['videoThumbnailPipeline'] as Map)['loadsSucceeded']}')
-      ..writeln('- Null results: ${(summary['videoThumbnailPipeline'] as Map)['loadsReturnedNull']}')
-      ..writeln('- Exceptions: ${(summary['videoThumbnailPipeline'] as Map)['loadsFailed']}')
-      ..writeln()
-      ..writeln('## Artwork outcomes')
-      ..writeln('- Successful loads: ${(summary['artworkPipeline'] as Map)['loadsSucceeded']}')
-      ..writeln('- Null/no-artwork results: ${(summary['artworkPipeline'] as Map)['loadsReturnedNull']}')
-      ..writeln('- Exception failures: ${(summary['artworkPipeline'] as Map)['loadsExceptionFailed']}')
-      ..writeln()
-      ..writeln('## Framework reports')
-      ..writeln('- Flutter framework reports (may include warnings): ${summary['flutterFrameworkReportEvents']}')
-      ..writeln('- Uncaught asynchronous errors: ${summary['uncaughtAsyncErrorEvents']}')
-      ..writeln('- Failed operation spans: ${summary['failedSpanEvents']}')
-      ..writeln()
-      ..writeln('## Correlation analysis')
-      ..writeln(const JsonEncoder.withIndent('  ').convert(analysis))
-      ..writeln()
-      ..writeln('## Completeness')
-      ..writeln('- Journal ready: $_journalReady')
-      ..writeln('- Journal error: ${((metadata['journal'] as Map)['error']) ?? 'none'}')
-      ..writeln('- Dropped event count: ${(metadata['journal'] as Map)['droppedEvents']}' )
-      ..writeln('- Complete from session start: ${(metadata['journal'] as Map)['completeFromSessionStart']}')
-      ..writeln('- Pending at export boundary: ${summary['journalPendingAtExportBoundary']}')
-      ..writeln('- The companion JSONL file contains the ordered raw event stream.');
+    final buffer =
+        StringBuffer()
+          ..writeln('# YAZEN Performance Intelligence — Session Report')
+          ..writeln()
+          ..writeln('- Session: `${_sessionId}`')
+          ..writeln('- Build mode: `${summary['buildMode']}`')
+          ..writeln('- Generated: `${metadata['generatedAt']}`')
+          ..writeln(
+            '- Journal events observed: `${summary['journalEventsObserved']}`',
+          )
+          ..writeln(
+            '- Journal events persisted: `${summary['journalEventsPersisted']}`',
+          )
+          ..writeln(
+            '- Journal events dropped: `${summary['journalEventsDropped']}`',
+          )
+          ..writeln()
+          ..writeln('## Frame performance')
+          ..writeln('- Refresh rate: ${summary['refreshRateHz']} Hz')
+          ..writeln('- Frame budget: ${summary['frameBudgetMs']} ms')
+          ..writeln('- Frames: ${summary['frameCount']}')
+          ..writeln('- Average frame: ${summary['averageFrameMs']} ms')
+          ..writeln(
+            '- Percentiles (recent window): ${summary['recentFramePercentilesMs']}',
+          )
+          ..writeln('- Over budget: ${summary['framesOverBudget']}')
+          ..writeln(
+            '- Over double budget: ${summary['framesOverDoubleBudget']}',
+          )
+          ..writeln()
+          ..writeln('## Interaction capture')
+          ..writeln('- Scroll sessions: ${summary['scrollSessions']}')
+          ..writeln('- Scroll updates: ${summary['scrollUpdates']}')
+          ..writeln('- Pointer sessions: ${summary['pointerSessions']}')
+          ..writeln(
+            '- Pointer up/cancel: ${summary['pointerCompleted']} / ${summary['pointerCancelled']}',
+          )
+          ..writeln(
+            '- Tap/drag/long-press candidates: ${summary['pointerTapCandidates']} / ${summary['pointerDragCandidates']} / ${summary['pointerLongPressCandidates']}',
+          )
+          ..writeln('- Pointer move samples: ${summary['pointerMoves']}')
+          ..writeln('- Scroll completed: ${summary['scrollCompleted']}')
+          ..writeln(
+            '- Pointer/scroll sessions interrupted by lifecycle: ${summary['pointerInterrupted']} / ${summary['scrollInterrupted']}',
+          )
+          ..writeln()
+          ..writeln('## Resource metrics')
+          ..writeln('- Peak PSS: ${summary['peakProcessPssKb']} KB')
+          ..writeln(
+            '- Peak Java heap: ${summary['peakJavaHeapUsedBytes']} bytes',
+          )
+          ..writeln(
+            '- Average sampled process CPU: ${summary['averageProcessCpuPercent']}%',
+          )
+          ..writeln()
+          ..writeln('## Video thumbnail outcomes')
+          ..writeln(
+            '- Successful loads: ${(summary['videoThumbnailPipeline'] as Map)['loadsSucceeded']}',
+          )
+          ..writeln(
+            '- Null results: ${(summary['videoThumbnailPipeline'] as Map)['loadsReturnedNull']}',
+          )
+          ..writeln(
+            '- Exceptions: ${(summary['videoThumbnailPipeline'] as Map)['loadsFailed']}',
+          )
+          ..writeln()
+          ..writeln('## Artwork outcomes')
+          ..writeln(
+            '- Successful loads: ${(summary['artworkPipeline'] as Map)['loadsSucceeded']}',
+          )
+          ..writeln(
+            '- Null/no-artwork results: ${(summary['artworkPipeline'] as Map)['loadsReturnedNull']}',
+          )
+          ..writeln(
+            '- Exception failures: ${(summary['artworkPipeline'] as Map)['loadsExceptionFailed']}',
+          )
+          ..writeln()
+          ..writeln('## Framework reports')
+          ..writeln(
+            '- Flutter framework reports (may include warnings): ${summary['flutterFrameworkReportEvents']}',
+          )
+          ..writeln(
+            '- Uncaught asynchronous errors: ${summary['uncaughtAsyncErrorEvents']}',
+          )
+          ..writeln('- Failed operation spans: ${summary['failedSpanEvents']}')
+          ..writeln()
+          ..writeln('## Correlation analysis')
+          ..writeln(const JsonEncoder.withIndent('  ').convert(analysis))
+          ..writeln()
+          ..writeln('## Completeness')
+          ..writeln('- Journal ready: $_journalReady')
+          ..writeln(
+            '- Journal error: ${((metadata['journal'] as Map)['error']) ?? 'none'}',
+          )
+          ..writeln(
+            '- Dropped event count: ${(metadata['journal'] as Map)['droppedEvents']}',
+          )
+          ..writeln(
+            '- Complete from session start: ${(metadata['journal'] as Map)['completeFromSessionStart']}',
+          )
+          ..writeln(
+            '- Pending at export boundary: ${summary['journalPendingAtExportBoundary']}',
+          )
+          ..writeln(
+            '- The companion JSONL file contains the ordered raw event stream.',
+          );
     return buffer.toString();
   }
 
   static int _percentile(List<int> values, double percentile) {
     if (values.isEmpty) return 0;
     final sorted = List<int>.of(values)..sort();
-    final index = ((sorted.length - 1) * percentile).ceil().clamp(0, sorted.length - 1);
+    final index = ((sorted.length - 1) * percentile).ceil().clamp(
+      0,
+      sorted.length - 1,
+    );
     return sorted[index];
   }
 
   Future<void> dispose() async {
-    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onGlobalPointerEvent);
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(
+      _onGlobalPointerEvent,
+    );
     _resourceTimer?.cancel();
     _journalTimer?.cancel();
     record('session_end', <String, Object?>{'reason': 'service_dispose'});
@@ -1827,7 +2202,13 @@ class DiagnosticsService {
 }
 
 class DiagnosticSpan {
-  const DiagnosticSpan({required this.traceId, required this.spanId, required this.parentSpanId, required this.operation, required this.startUs});
+  const DiagnosticSpan({
+    required this.traceId,
+    required this.spanId,
+    required this.parentSpanId,
+    required this.operation,
+    required this.startUs,
+  });
   final String traceId;
   final String spanId;
   final String? parentSpanId;
@@ -1877,7 +2258,11 @@ class _PointerSession {
 }
 
 class DiagnosticExport {
-  const DiagnosticExport({required this.paths, required this.eventCount, required this.summary});
+  const DiagnosticExport({
+    required this.paths,
+    required this.eventCount,
+    required this.summary,
+  });
   final List<String> paths;
   final int eventCount;
   final Map<String, Object?> summary;
@@ -1886,5 +2271,6 @@ class DiagnosticExport {
 class _DiagnosticsLifecycleObserver with WidgetsBindingObserver {
   void Function(AppLifecycleState state)? onState;
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) => onState?.call(state);
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      onState?.call(state);
 }

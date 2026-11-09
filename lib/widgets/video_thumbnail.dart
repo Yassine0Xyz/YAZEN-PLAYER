@@ -114,15 +114,13 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
       _future = Future<Uint8List?>.value(cached);
       return;
     }
-    DiagnosticsService.instance.record(
-      'video_thumbnail_cache_miss',
-      <String, Object?>{
-        'cacheKeyFingerprint': DiagnosticsService.diagnosticFingerprint(key),
-        'cacheEntries': _cache.length,
-        'cacheBytes': _cacheBytes,
-        'cacheEvictions': _cacheEvictions,
-      },
-    );
+    DiagnosticsService.instance
+        .record('video_thumbnail_cache_miss', <String, Object?>{
+          'cacheKeyFingerprint': DiagnosticsService.diagnosticFingerprint(key),
+          'cacheEntries': _cache.length,
+          'cacheBytes': _cacheBytes,
+          'cacheEvictions': _cacheEvictions,
+        });
     _future = _loadDeduplicated(widget.track, key, width);
   }
 
@@ -146,14 +144,12 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
       if (oldest != null) {
         _cacheBytes -= oldest.length;
         _cacheEvictions++;
-        DiagnosticsService.instance.record(
-          'video_thumbnail_cache_eviction',
-          <String, Object?>{
-            'cacheEvictions': _cacheEvictions,
-            'cacheEntries': _cache.length,
-            'cacheBytes': _cacheBytes,
-          },
-        );
+        DiagnosticsService.instance
+            .record('video_thumbnail_cache_eviction', <String, Object?>{
+              'cacheEvictions': _cacheEvictions,
+              'cacheEntries': _cache.length,
+              'cacheBytes': _cacheBytes,
+            });
       }
     }
   }
@@ -212,34 +208,28 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
     );
     final permit = await _loadGate.acquireWithResult();
     if (permit != LoadPermitResult.acquired) {
-      DiagnosticsService.instance.endSpan(
-        gateSpan,
-        'rejected',
-        <String, Object?>{
-          'reason': permit == LoadPermitResult.queueEvicted
-              ? 'queue_evicted_by_newer_request'
-              : 'queue_capacity_unavailable',
-          'activeLoads': _loadGate.activeLoads,
-          'queuedLoads': _loadGate.queuedLoads,
-          'rejectedLoads': _loadGate.rejectedLoads,
-          'queueEvictions': _loadGate.queueEvictions,
-          'queueFullRejections': _loadGate.queueFullRejections,
-        },
-      );
+      DiagnosticsService.instance
+          .endSpan(gateSpan, 'rejected', <String, Object?>{
+            'reason':
+                permit == LoadPermitResult.queueEvicted
+                    ? 'queue_evicted_by_newer_request'
+                    : 'queue_capacity_unavailable',
+            'activeLoads': _loadGate.activeLoads,
+            'queuedLoads': _loadGate.queuedLoads,
+            'rejectedLoads': _loadGate.rejectedLoads,
+            'queueEvictions': _loadGate.queueEvictions,
+            'queueFullRejections': _loadGate.queueFullRejections,
+          });
       DiagnosticsService.instance.endSpan(loadSpan, 'rejected');
       return null;
     }
-    DiagnosticsService.instance.endSpan(
-      gateSpan,
-      'complete',
-      <String, Object?>{
-        'activeLoads': _loadGate.activeLoads,
-        'queuedLoads': _loadGate.queuedLoads,
-        'rejectedLoads': _loadGate.rejectedLoads,
-        'queueEvictions': _loadGate.queueEvictions,
-        'queueFullRejections': _loadGate.queueFullRejections,
-      },
-    );
+    DiagnosticsService.instance.endSpan(gateSpan, 'complete', <String, Object?>{
+      'activeLoads': _loadGate.activeLoads,
+      'queuedLoads': _loadGate.queuedLoads,
+      'rejectedLoads': _loadGate.rejectedLoads,
+      'queueEvictions': _loadGate.queueEvictions,
+      'queueFullRejections': _loadGate.queueFullRejections,
+    });
 
     try {
       final uri = track.uri;
@@ -247,7 +237,10 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
         DiagnosticsService.instance.endSpan(
           loadSpan,
           'complete',
-          <String, Object?>{'success': false, 'failureReason': 'missing_content_uri'},
+          <String, Object?>{
+            'success': false,
+            'failureReason': 'missing_content_uri',
+          },
         );
         return null;
       }
@@ -298,36 +291,34 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
         }
       }
 
-      DiagnosticsService.instance.endSpan(
-        sourceSpan,
-        'complete',
-        <String, Object?>{
-          'success': bytes != null && bytes.isNotEmpty,
-          'failureReason': bytes != null && bytes.isNotEmpty ? null : (failureReason ?? 'empty_thumbnail_result'),
-          'platformErrorCode': platformErrorCode,
-          'bytes': bytes?.length,
-        },
-      );
+      DiagnosticsService.instance
+          .endSpan(sourceSpan, 'complete', <String, Object?>{
+            'success': bytes != null && bytes.isNotEmpty,
+            'failureReason':
+                bytes != null && bytes.isNotEmpty
+                    ? null
+                    : (failureReason ?? 'empty_thumbnail_result'),
+            'platformErrorCode': platformErrorCode,
+            'bytes': bytes?.length,
+          });
       if (bytes != null && bytes.isNotEmpty) _writeCache(key, bytes);
-      DiagnosticsService.instance.endSpan(
-        loadSpan,
-        'complete',
-        <String, Object?>{
-          'success': bytes != null && bytes.isNotEmpty,
-          'failureReason': bytes != null && bytes.isNotEmpty ? null : (failureReason ?? 'empty_thumbnail_result'),
-          'bytes': bytes?.length,
-          'cacheEntries': _cache.length,
-          'cacheBytes': _cacheBytes,
-          'cacheEvictions': _cacheEvictions,
-        },
-      );
+      DiagnosticsService.instance
+          .endSpan(loadSpan, 'complete', <String, Object?>{
+            'success': bytes != null && bytes.isNotEmpty,
+            'failureReason':
+                bytes != null && bytes.isNotEmpty
+                    ? null
+                    : (failureReason ?? 'empty_thumbnail_result'),
+            'bytes': bytes?.length,
+            'cacheEntries': _cache.length,
+            'cacheBytes': _cacheBytes,
+            'cacheEvictions': _cacheEvictions,
+          });
       return bytes;
     } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        loadSpan,
-        'failed',
-        <String, Object?>{'errorType': error.runtimeType.toString()},
-      );
+      DiagnosticsService.instance.endSpan(loadSpan, 'failed', <String, Object?>{
+        'errorType': error.runtimeType.toString(),
+      });
       rethrow;
     } finally {
       _loadGate.release();
@@ -363,15 +354,23 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
                   DiagnosticsService.instance.record(
                     'video_thumbnail_first_frame_visible',
                     <String, Object?>{
-                      'cacheKeyFingerprint': _requestKey == null
-                          ? null
-                          : DiagnosticsService.diagnosticFingerprint(_requestKey!),
-                      'timeToFirstVisibleFrameUs': _loadStartedAtUs == 0
-                          ? null
-                          : DiagnosticsService.instance.elapsedMicroseconds - _loadStartedAtUs,
-                      'origin': _requestWasMemoryCacheHit
-                          ? 'memory_cache'
-                          : 'request_or_deduplicated_load',
+                      'cacheKeyFingerprint':
+                          _requestKey == null
+                              ? null
+                              : DiagnosticsService.diagnosticFingerprint(
+                                _requestKey!,
+                              ),
+                      'timeToFirstVisibleFrameUs':
+                          _loadStartedAtUs == 0
+                              ? null
+                              : DiagnosticsService
+                                      .instance
+                                      .elapsedMicroseconds -
+                                  _loadStartedAtUs,
+                      'origin':
+                          _requestWasMemoryCacheHit
+                              ? 'memory_cache'
+                              : 'request_or_deduplicated_load',
                       'wasSynchronouslyLoaded': wasSynchronouslyLoaded,
                     },
                   );
