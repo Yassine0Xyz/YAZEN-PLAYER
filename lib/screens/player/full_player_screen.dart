@@ -38,17 +38,19 @@ class FullPlayerScreen extends StatefulWidget {
           parent: animation,
           curve: Curves.easeOutCubic,
         );
+        // Avoid scaling the entire live player subtree during navigation.
+        // The player contains continuously repainting visual effects; combining
+        // scale with opacity/translation forces an expensive full-screen layer
+        // transform on every transition frame. Fade + translation preserves
+        // the entrance motion without the extra scale/compositing cost.
         return FadeTransition(
           opacity: curved,
           child: SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(0, 0.08),
+              begin: const Offset(0, 0.06),
               end: Offset.zero,
             ).animate(curved),
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
-              child: child,
-            ),
+            child: child,
           ),
         );
       },

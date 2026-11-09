@@ -1280,10 +1280,19 @@ class DiagnosticsService {
       final integrity = (summary['journalIntegrity'] as Map?)
               ?.cast<String, Object?>() ??
           <String, Object?>{};
+      final accountingMatches = snapshotObservedCount ==
+          snapshotPersistedBeforeFlush +
+              snapshotPendingCount +
+              snapshotDroppedBeforeFlush;
+      final boundarySequenceMatches = snapshotSequence == snapshotObservedCount;
+      final journalSnapshotAvailable = _journalReady && snapshotFile != null;
       integrity
         ..['status'] = snapshotDroppedCount == 0 &&
                 snapshotJournalError == null &&
-                snapshotEventCount == snapshotObservedCount
+                snapshotEventCount == snapshotObservedCount &&
+                accountingMatches &&
+                boundarySequenceMatches &&
+                journalSnapshotAvailable
             ? (snapshotPauseCount == 0
                 ? 'complete_at_export_boundary'
                 : 'complete_at_export_boundary_with_known_recording_pauses')
@@ -1297,10 +1306,9 @@ class DiagnosticsService {
         // persisted-before-flush + pending + already-dropped must equal observed.
         ..['persistedBeforeBoundaryFlush'] = snapshotPersistedBeforeFlush
         ..['droppedBeforeBoundaryFlush'] = snapshotDroppedBeforeFlush
-        ..['accountingMatches'] = snapshotObservedCount ==
-            snapshotPersistedBeforeFlush +
-                snapshotPendingCount +
-                snapshotDroppedBeforeFlush
+        ..['accountingMatches'] = accountingMatches
+        ..['boundarySequenceMatchesObserved'] = boundarySequenceMatches
+        ..['journalSnapshotAvailable'] = journalSnapshotAvailable
         ..['exportBoundarySequence'] = snapshotSequence
         ..['journalError'] = snapshotJournalError
         ..['recordingPauseCount'] = snapshotPauseCount
