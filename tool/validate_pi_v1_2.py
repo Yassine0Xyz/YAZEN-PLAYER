@@ -15,6 +15,7 @@ gate = (ROOT / 'lib/services/bounded_load_gate.dart').read_text()
 video = (ROOT / 'lib/widgets/video_thumbnail.dart').read_text()
 controller = (ROOT / 'lib/controllers/hybrid_music_controller.dart').read_text()
 settings = (ROOT / 'lib/screens/settings/settings_screen.dart').read_text()
+settings_compact = ''.join(settings.split())
 theme = (ROOT / 'lib/widgets/theme_picker_sheet.dart').read_text()
 player = (ROOT / 'lib/screens/player/full_player_screen.dart').read_text()
 
@@ -74,7 +75,7 @@ check('framework warnings are counted separately and retain stack context',
 check('thread CPU aggregates are keyed by thread ID',
       'final threadCpuTickTotals = <int, Map<String, Object?>>{}' in service and "'threadId': id" in service)
 check('settings cards provide an intervening Material ancestor',
-      'child: Material(\n        color: Colors.transparent,\n        child: child,' in settings)
+      'child:Material(color:Colors.transparent,child:child,' in settings_compact)
 check('theme picker provides an intervening Material ancestor',
       'child: Material(' in theme and 'color: Colors.transparent' in theme)
 check('full-player decorated sheet provides a Material ancestor',
