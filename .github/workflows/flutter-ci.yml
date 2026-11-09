@@ -50,12 +50,12 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Build Android debug APK
-        run: flutter build apk --debug --target-platform android-arm64
+      - name: Build Android profile APK
+        run: flutter build apk --profile --target-platform android-arm64
 
-      - name: Upload Android debug APK
+      - name: Upload Android profile APK
         uses: actions/upload-artifact@v4
         with:
-          name: yazen-player-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: yazen-player-profile-apk
+          path: build/app/outputs/flutter-apk/app-profile.apk
           if-no-files-found: error
