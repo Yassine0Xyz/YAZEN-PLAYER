@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static source guardrails for YAZEN Performance Intelligence V1.2."""
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 checks = []
@@ -75,7 +76,7 @@ check('framework warnings are counted separately and retain stack context',
 check('thread CPU aggregates are keyed by thread ID',
       'final threadCpuTickTotals = <int, Map<String, Object?>>{}' in service and "'threadId': id" in service)
 check('settings cards provide an intervening Material ancestor',
-      'child:Material(color:Colors.transparent,child:child,),' in settings_compact)
+      re.search(r'child\s*:\s*Material\s*\(\s*color\s*:\s*Colors\.transparent\s*,\s*child\s*:\s*child\s*,?\s*\)', settings) is not None)
 check('theme picker provides an intervening Material ancestor',
       'child: Material(' in theme and 'color: Colors.transparent' in theme)
 check('full-player decorated sheet provides a Material ancestor',
