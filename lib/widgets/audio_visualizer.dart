@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/playback_energy_service.dart';
+import '../services/artwork_palette_service.dart';
+import '../services/dynamic_color_settings.dart';
 import '../services/visualizer_settings.dart';
 
 enum AudioVisualizerProfile { compact, full }
@@ -411,23 +413,37 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapUp: (details) => _seekFromTap(details, context),
-        child: RepaintBoundary(
-          child: CustomPaint(
-            size: Size(double.infinity, widget.height),
-            painter: SourceSpectrumPainter(
-              repaint: _painterListenable,
-              progressListenable: _liveProgress,
-              color: color,
-              barCount: widget.barCount,
-              height: widget.height,
-              profile: widget.profile,
-              style: _visualizerSettings.style,
-              levels: _displayLevels,
-              peaks: _displayPeaks,
-              hasSignal: _hasRealSignal,
-              progress: null,
-            ),
-          ),
+        child: ValueListenableBuilder<ArtworkPalette>(
+          valueListenable: ArtworkPaletteService.instance.current,
+          builder:
+              (context, palette, _) => AnimatedBuilder(
+                animation: DynamicColorSettings.instance,
+                builder: (context, _) {
+                  final paletteColors =
+                      DynamicColorSettings.instance.enabled
+                          ? palette.ambientColors
+                          : <Color>[color, color];
+                  return RepaintBoundary(
+                    child: CustomPaint(
+                      size: Size(double.infinity, widget.height),
+                      painter: SourceSpectrumPainter(
+                        repaint: _painterListenable,
+                        progressListenable: _liveProgress,
+                        color: color,
+                        paletteColors: paletteColors,
+                        barCount: widget.barCount,
+                        height: widget.height,
+                        profile: widget.profile,
+                        style: _visualizerSettings.style,
+                        levels: _displayLevels,
+                        peaks: _displayPeaks,
+                        hasSignal: _hasRealSignal,
+                        progress: null,
+                      ),
+                    ),
+                  );
+                },
+              ),
         ),
       ),
     );
@@ -447,6 +463,7 @@ class SourceSpectrumPainter extends CustomPainter {
     required this.hasSignal,
     required this.progress,
     this.progressListenable,
+    this.paletteColors = const <Color>[],
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -460,6 +477,23 @@ class SourceSpectrumPainter extends CustomPainter {
   final bool hasSignal;
   final double? progress;
   final ValueListenable<double?>? progressListenable;
+  final List<Color> paletteColors;
+
+  Color _colorAt(double position, double energy) {
+    if (paletteColors.isEmpty) return color;
+    if (paletteColors.length == 1) return paletteColors.first;
+    final scaled =
+        position.clamp(0.0, 1.0).toDouble() * (paletteColors.length - 1);
+    final index = scaled.floor().clamp(0, paletteColors.length - 2).toInt();
+    final sampled =
+        Color.lerp(
+          paletteColors[index],
+          paletteColors[index + 1],
+          (scaled - index).toDouble(),
+        )!;
+    final highlight = energy.clamp(0.0, 1.0).toDouble() * 0.08;
+    return Color.lerp(sampled, Colors.white, highlight)!;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -473,29 +507,85 @@ class SourceSpectrumPainter extends CustomPainter {
       (size.width - gap * (barCount - 1)) / barCount,
     );
     final baselineY = size.height - 3.0;
-    final base = HSLColor.fromColor(color);
+    final linePaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round;
     final paint = Paint()..strokeCap = StrokeCap.round;
+    final spectrumColors =
+        paletteColors.length < 2 ? <Color>[color, color] : paletteColors;
+    final spectrumShader = LinearGradient(
+      colors: spectrumColors,
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+    ).createShader(Offset.zero & size);
+    final barPaint = Paint()..shader = spectrumShader;
 
     if (style == VisualizerStyle.wave || style == VisualizerStyle.line) {
-      final path = Path();
+      final centerY = size.height * 0.5;
+      final upper = <Offset>[];
+      final lower = <Offset>[];
       for (var index = 0; index < barCount; index++) {
         final x = size.width * index / math.max(1, barCount - 1);
         final level =
-            hasSignal && index < levels.length ? levels[index] : 0.025;
-        final polarity =
-            style == VisualizerStyle.wave && index.isEven ? 1.0 : -1.0;
-        final y = size.height * 0.5 - (size.height * 0.43 * level) * polarity;
-        if (index == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
+            hasSignal && index < levels.length ? levels[index] : 0.015;
+        final amplitude = math.max(0.8, size.height * 0.42 * level);
+        upper.add(Offset(x, centerY - amplitude));
+        if (style == VisualizerStyle.wave) {
+          lower.add(Offset(x, centerY + amplitude));
         }
       }
-      paint
-        ..color = color.withValues(alpha: hasSignal ? 0.92 : 0.25)
-        ..strokeWidth = style == VisualizerStyle.wave ? 2.4 : 1.8
-        ..style = PaintingStyle.stroke;
-      canvas.drawPath(path, paint);
+      if (upper.isEmpty) return;
+
+      Path smoothPath(List<Offset> points) {
+        final path = Path()..moveTo(points.first.dx, points.first.dy);
+        for (var i = 1; i < points.length; i++) {
+          final previous = points[i - 1];
+          final current = points[i];
+          final midpoint = (previous.dx + current.dx) * 0.5;
+          path.quadraticBezierTo(
+            previous.dx,
+            previous.dy,
+            midpoint,
+            (previous.dy + current.dy) * 0.5,
+          );
+        }
+        path.lineTo(points.last.dx, points.last.dy);
+        return path;
+      }
+
+      final upperPath = smoothPath(upper);
+      if (style == VisualizerStyle.wave) {
+        final area = Path()..addPath(upperPath, Offset.zero);
+        area.lineTo(lower.last.dx, lower.last.dy);
+        for (var i = lower.length - 2; i >= 0; i--) {
+          area.lineTo(lower[i].dx, lower[i].dy);
+        }
+        area.close();
+        final fill =
+            Paint()
+              ..shader = LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  _colorAt(0.12, 1).withValues(alpha: hasSignal ? 0.36 : 0.05),
+                  _colorAt(0.86, 1).withValues(alpha: hasSignal ? 0.08 : 0.01),
+                ],
+              ).createShader(Offset.zero & size);
+        canvas.drawPath(area, fill);
+        final lowerPath = smoothPath(lower);
+        linePaint
+          ..shader = spectrumShader
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.82 : 0.12)
+          ..strokeWidth = 1.5;
+        canvas.drawPath(lowerPath, linePaint);
+      }
+      linePaint
+        ..shader = spectrumShader
+        ..color = Colors.white.withValues(alpha: hasSignal ? 0.98 : 0.18)
+        ..strokeWidth = style == VisualizerStyle.wave ? 2.8 : 2.2;
+      canvas.drawPath(upperPath, linePaint);
       return;
     }
     if (style == VisualizerStyle.circular) {
@@ -505,6 +595,13 @@ class SourceSpectrumPainter extends CustomPainter {
         final angle = (index / barCount) * math.pi * 2 - math.pi / 2;
         final level = hasSignal && index < levels.length ? levels[index] : 0.02;
         final outer = radius + level * math.min(size.width, size.height) * 0.28;
+        paint
+          ..color = _colorAt(
+            index / math.max(1, barCount - 1),
+            level,
+          ).withValues(alpha: hasSignal ? 0.96 : 0.20)
+          ..strokeWidth = math.max(1.5, size.width / (barCount * 2.1))
+          ..strokeCap = StrokeCap.round;
         canvas.drawLine(
           Offset(
             center.dx + math.cos(angle) * radius,
@@ -514,9 +611,7 @@ class SourceSpectrumPainter extends CustomPainter {
             center.dx + math.cos(angle) * outer,
             center.dy + math.sin(angle) * outer,
           ),
-          paint
-            ..color = color.withValues(alpha: hasSignal ? 0.9 : 0.22)
-            ..strokeWidth = math.max(1.4, size.width / (barCount * 2)),
+          paint,
         );
       }
       return;
@@ -526,43 +621,39 @@ class SourceSpectrumPainter extends CustomPainter {
       final ratio = barCount <= 1 ? 0.0 : index / (barCount - 1);
       final level =
           hasSignal && index < levels.length
-              ? levels[index].clamp(0.0, 1.0)
+              ? levels[index].clamp(0.0, 1.0).toDouble()
               : 0.0;
       final peak =
           hasSignal && index < peaks.length
-              ? peaks[index].clamp(0.0, 1.0)
+              ? peaks[index].clamp(0.0, 1.0).toDouble()
               : 0.0;
       // The baseline is fixed at the bottom. Energy can only grow upward.
       final barHeight =
           hasSignal ? math.max(2.4, (size.height - 7.0) * level) : 2.4;
       final x = index * (barWidth + gap) + barWidth / 2;
-      final hue = (base.hue + ratio * 58 + level * 18) % 360;
-      final lightness = (base.lightness +
-              (hasSignal ? 0.08 + level * 0.10 : 0.0))
-          .clamp(0.34, 0.84);
+      final barColor = _colorAt(ratio, level);
+      final rect =
+          style == VisualizerStyle.mirror
+              ? Rect.fromLTWH(
+                x - barWidth / 2,
+                size.height / 2 - barHeight / 2,
+                barWidth,
+                barHeight,
+              )
+              : Rect.fromLTWH(
+                x - barWidth / 2,
+                baselineY - barHeight,
+                barWidth,
+                barHeight,
+              );
+      final radius = Radius.circular(math.min(barWidth * 0.48, 5.0));
+      // Reuse one palette shader for the complete spectrum. A per-bar
+      // LinearGradient + shader allocation on every 60/90 Hz repaint was
+      // needlessly expensive on mid-range devices.
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);
       paint
-        ..color =
-            HSLColor.fromAHSL(
-              hasSignal ? 0.58 + level * 0.38 : 0.18,
-              hue,
-              (base.saturation + 0.14).clamp(0.45, 1.0),
-              lightness,
-            ).toColor()
-        ..strokeWidth = barWidth;
-      if (style == VisualizerStyle.mirror) {
-        final middle = size.height / 2;
-        canvas.drawLine(
-          Offset(x, middle - barHeight / 2),
-          Offset(x, middle + barHeight / 2),
-          paint,
-        );
-      } else {
-        canvas.drawLine(
-          Offset(x, baselineY - barHeight),
-          Offset(x, baselineY),
-          paint,
-        );
-      }
+        ..color = barColor.withValues(alpha: hasSignal ? 0.82 : 0.14)
+        ..strokeWidth = math.max(1.2, barWidth * 0.7);
 
       // Draw the cap only when it is meaningfully above this same frame's
       // bar. The bounded peak logic above prevents a stale detached dot.
@@ -570,7 +661,10 @@ class SourceSpectrumPainter extends CustomPainter {
         paint
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);
-        final peakY = baselineY - (size.height - 7.0) * peak;
+        final peakY =
+            style == VisualizerStyle.mirror
+                ? size.height * 0.5 - (size.height - 7.0) * peak * 0.5
+                : baselineY - (size.height - 7.0) * peak;
         final capWidth = math.max(2.0, barWidth * 0.82);
         canvas.drawLine(
           Offset(x - capWidth / 2, peakY),
@@ -585,11 +679,19 @@ class SourceSpectrumPainter extends CustomPainter {
           ..color = color.withValues(alpha: hasSignal ? 0.34 : 0.20)
           ..strokeWidth = 1.0
           ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(0, baselineY),
-      Offset(size.width, baselineY),
-      baselinePaint,
-    );
+    if (style == VisualizerStyle.bars) {
+      canvas.drawLine(
+        Offset(0, baselineY),
+        Offset(size.width, baselineY),
+        baselinePaint,
+      );
+    } else if (style == VisualizerStyle.mirror) {
+      canvas.drawLine(
+        Offset(0, size.height * 0.5),
+        Offset(size.width, size.height * 0.5),
+        baselinePaint,
+      );
+    }
 
     final progressValue = progressListenable?.value ?? progress;
     if (progressValue != null) {
@@ -609,6 +711,7 @@ class SourceSpectrumPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant SourceSpectrumPainter oldDelegate) {
     return oldDelegate.color != color ||
+        !listEquals(oldDelegate.paletteColors, paletteColors) ||
         oldDelegate.barCount != barCount ||
         oldDelegate.height != height ||
         oldDelegate.profile != profile ||

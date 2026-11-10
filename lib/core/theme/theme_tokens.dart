@@ -62,6 +62,30 @@ class ThemeTokens {
   final Color divider;
   final bool isLight;
 
+  ThemeTokens copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceElevated,
+    Color? surfaceMuted,
+    Color? accent,
+    Color? accentStrong,
+    Color? textPrimary,
+    Color? textSecondary,
+    Color? divider,
+    bool? isLight,
+  }) => ThemeTokens(
+    background: background ?? this.background,
+    surface: surface ?? this.surface,
+    surfaceElevated: surfaceElevated ?? this.surfaceElevated,
+    surfaceMuted: surfaceMuted ?? this.surfaceMuted,
+    accent: accent ?? this.accent,
+    accentStrong: accentStrong ?? this.accentStrong,
+    textPrimary: textPrimary ?? this.textPrimary,
+    textSecondary: textSecondary ?? this.textSecondary,
+    divider: divider ?? this.divider,
+    isLight: isLight ?? this.isLight,
+  );
+
   Color get glass => surface.withValues(alpha: isLight ? 0.72 : 0.58);
   Color get scrim =>
       isLight

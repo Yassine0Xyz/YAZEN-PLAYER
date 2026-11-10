@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -719,21 +720,58 @@ class HybridAudioHandler extends BaseAudioHandler
     }
     if (!stillCurrent()) return;
 
+    final previousTracks = List<MediaTrack>.unmodifiable(_queueTracks);
+    final previousIndex =
+        (_player.currentIndex ?? 0)
+            .clamp(0, math.max(0, previousTracks.length - 1))
+            .toInt();
+    final previousPosition = _player.position;
+    final previousWasPlaying = _player.playing;
     await _player.pause();
     if (!stillCurrent()) return;
 
     _selectionSourceLoadRequest = request;
     try {
-      await _player.setAudioSources(
-        sources,
-        initialIndex: initialIndex,
-        preload: false,
-      );
+      try {
+        await _player.setAudioSources(
+          sources,
+          initialIndex: initialIndex,
+          preload: false,
+        );
+      } finally {
+        await _finishSelectionSourceLoad(request);
+      }
     } catch (error) {
+      // A failed first tap must not leave the previous song paused. Restore
+      // the last known-good queue before surfacing the original selection
+      // error; a newer user selection always wins and skips this recovery.
+      if (stillCurrent() && previousTracks.isNotEmpty) {
+        try {
+          final previousItems = previousTracks
+              .map((track) => track.toMediaItem())
+              .toList(growable: false);
+          final previousSources = <AudioSource>[
+            for (var index = 0; index < previousTracks.length; index++)
+              _resolveSource(previousTracks[index], previousItems[index]),
+          ];
+          await _player.setAudioSources(
+            previousSources,
+            initialIndex: previousIndex,
+            initialPosition: previousPosition,
+            preload: false,
+          );
+          _queueTracks
+            ..clear()
+            ..addAll(previousTracks);
+          _publishQueueState(previousItems, previousIndex);
+          if (previousWasPlaying) _startPlaybackWithoutHoldingQueue();
+        } catch (_) {
+          // Queue invariant repair below will clear an unrecoverable native
+          // mismatch; never replace the original selection error here.
+        }
+      }
       if (!stillCurrent()) return;
       rethrow;
-    } finally {
-      await _finishSelectionSourceLoad(request);
     }
     if (!stillCurrent()) return;
 
@@ -1173,9 +1211,16 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   void _onCurrentIndexChanged(int? index) {
+    // just_audio can deliver a queued currentIndex event from the previous
+    // source sequence after setAudioSources has already selected the new
+    // initialIndex. Never publish that stale index as the now-playing track.
+    // During a source swap the Dart queue and native sequence are intentionally
+    // out of phase, so only the final queue publication may update mediaItem.
     if (_isDisposed ||
         _queueMutationDepth > 0 ||
+        _selectionSourceLoadRequest != null ||
         index == null ||
+        index != _player.currentIndex ||
         index < 0 ||
         index >= _queueTracks.length) {
       return;

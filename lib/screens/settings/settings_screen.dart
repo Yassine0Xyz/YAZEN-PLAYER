@@ -11,6 +11,7 @@ import '../../services/playback_policies.dart';
 import '../../services/dynamic_color_settings.dart';
 import '../../services/ambient_color_flow_settings.dart';
 import '../../services/library_display_settings.dart';
+import '../../widgets/theme_picker_sheet.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -55,7 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = context.read<HybridMusicController>();
 
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         title: const Text(
           'Settings',
@@ -85,6 +86,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         .map((preset) => _ThemeOption(preset: preset))
                         .toList(growable: false),
                   ),
+                ),
+                Divider(color: tokens.divider, height: 1),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.palette_outlined, color: tokens.accent),
+                  title: const Text(
+                    'Customize themes',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    'Wallpaper, presets and a fully custom color palette',
+                    style: TextStyle(color: tokens.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => showThemePicker(context),
                 ),
                 Divider(color: tokens.divider, height: 1),
                 _PreferenceSwitch(

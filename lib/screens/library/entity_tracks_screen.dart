@@ -59,7 +59,7 @@ class _LocalEntityTracksScreenState extends State<LocalEntityTracksScreen> {
     final tokens = context.read<ThemeProvider>().tokens;
     final controller = context.read<HybridMusicController>();
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         title: Text(widget.title),
         actions: <Widget>[

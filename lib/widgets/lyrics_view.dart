@@ -115,7 +115,7 @@ class _LyricsPageState extends State<LyricsPage> {
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(

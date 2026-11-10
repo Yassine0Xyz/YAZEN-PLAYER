@@ -70,6 +70,58 @@ void main() {
     },
   );
 
+  test('failed queue selection restores the previous playing track', () async {
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final previous = <MediaTrack>[_track(1), _track(2)];
+    await handler.playTrackQueue(previous, initialIndex: 1);
+    expect(player.playing, isTrue);
+
+    player.failNextSetAudioSources = true;
+    await expectLater(
+      handler.playTrackQueue(<MediaTrack>[_track(3)], initialIndex: 0),
+      throwsStateError,
+    );
+
+    expect(handler.activeTrack?.id, previous[1].id);
+    expect(
+      handler.queueTracks.map((track) => track.id),
+      previous.map((track) => track.id),
+    );
+    expect(player.currentIndex, 1);
+    expect(player.playing, isTrue);
+
+    await handler.dispose();
+    await player.close();
+  });
+
+  test(
+    'stale current-index events cannot replace a newly selected track',
+    () async {
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final oldQueue = <MediaTrack>[_track(1), _track(2), _track(3)];
+      await handler.playTrackQueue(oldQueue, initialIndex: 0);
+
+      final nextQueue = <MediaTrack>[_track(4), _track(5), _track(6)];
+      await handler.playTrackQueue(nextQueue, initialIndex: 2);
+      expect(handler.activeTrack?.id, nextQueue[2].id);
+
+      // Simulate a delayed stream event emitted by the old source sequence.
+      player.emitCurrentIndexEvent(0);
+      expect(handler.activeTrack?.id, nextQueue[2].id);
+
+      await handler.dispose();
+      await player.close();
+    },
+  );
+
   test(
     'rapid taps on a large queue interrupt once and play the newest selection',
     () async {
@@ -862,6 +914,7 @@ class _FakeAudioPlayer implements AudioPlayer {
   Duration? _duration;
   LoopMode _loopMode = LoopMode.off;
   bool failNextAddAfterMutation = false;
+  bool failNextSetAudioSources = false;
   int stopCount = 0;
   Completer<void>? nextPlayGate;
   Completer<void>? _activePlayGate;
@@ -919,6 +972,10 @@ class _FakeAudioPlayer implements AudioPlayer {
     _positionController.add(value);
   }
 
+  void emitCurrentIndexEvent(int? value) {
+    _currentIndexController.add(value);
+  }
+
   void emitProcessingState(ProcessingState value) {
     _processingStateController.add(value);
   }
@@ -970,6 +1027,10 @@ class _FakeAudioPlayer implements AudioPlayer {
     sourceSetCount++;
     sourcePreloadHistory.add(preload);
     await Future<void>.delayed(const Duration(milliseconds: 1));
+    if (failNextSetAudioSources) {
+      failNextSetAudioSources = false;
+      throw StateError('Simulated source selection failure');
+    }
     final gate = nextSetAudioSourcesGate;
     nextSetAudioSourcesGate = null;
     if (gate != null) {

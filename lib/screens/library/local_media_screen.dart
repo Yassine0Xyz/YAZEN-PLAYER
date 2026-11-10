@@ -1926,7 +1926,9 @@ class _PlaylistsView extends StatelessWidget {
     final controller = context.read<HybridMusicController>();
     final totalItems = 1 + customPlaylists.length + devicePlaylists.length;
     return LibraryTrackViewport(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+      // Keep the final playlist cards scrollable clear of the persistent
+      // mini-player overlay anchored by HomeScreen.
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 116),
       addAutomaticKeepAlives: true,
       itemCount: totalItems + 1,
       separatorBuilder: (_, _) => const SizedBox(height: 10),

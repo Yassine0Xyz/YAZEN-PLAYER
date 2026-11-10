@@ -57,7 +57,7 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
     final handler = context.read<HybridMusicController>().audioHandler;
     final tokens = context.watch<ThemeProvider>().tokens;
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'Back',

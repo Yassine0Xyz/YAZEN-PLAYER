@@ -35,6 +35,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final FocusNode _focusNode = FocusNode();
   List<String> _history = const <String>[];
   String _query = '';
+  bool _isStartingPlayback = false;
   Timer? _queryDebounce;
   String? _cachedResultsQuery;
   List<MediaTrack>? _cachedSongs;
@@ -257,61 +258,88 @@ class _SearchScreenState extends State<SearchScreen> {
     _SearchEntry entry,
     List<MediaTrack> audioResults,
   ) async {
-    final navigator = Navigator.of(context);
-    await _saveSearch();
-    if (!mounted) return;
     final track = entry.track;
-    if (track != null) {
-      navigator.pop();
-      if (track.isVideo) {
-        await navigator.push(YazenVideoPlayerScreen.route(track));
-        return;
-      }
-      final index = audioResults.indexWhere((item) => item.id == track.id);
-      if (index >= 0) {
-        await controller.playTrackQueue(audioResults, initialIndex: index);
-      }
-      return;
+    final isAudioTrack = track != null && !track.isVideo;
+    if (isAudioTrack) {
+      if (_isStartingPlayback) return;
+      setState(() => _isStartingPlayback = true);
     }
 
-    final artist = entry.artist;
-    if (artist != null) {
-      await navigator.push(
-        LocalEntityTracksScreen.route(
-          title:
-              artist.artist.trim().isEmpty ? 'Unknown artist' : artist.artist,
-          subtitle: 'Tracks by this artist will appear here.',
-          loadTracks: () => controller.tracksForArtist(artist.id),
-        ),
-      );
-      return;
-    }
-    final album = entry.album;
-    if (album != null) {
-      await navigator.push(
-        LocalEntityTracksScreen.route(
-          title: album.album.trim().isEmpty ? 'Unknown album' : album.album,
-          subtitle: 'Tracks from this album will appear here.',
-          loadTracks: () => controller.tracksForAlbum(album.id),
-        ),
-      );
-      return;
-    }
-    final customPlaylist = entry.customPlaylist;
-    if (customPlaylist != null) {
-      await navigator.push(PlaylistDetailsScreen.route(customPlaylist.id));
-      return;
-    }
-    final devicePlaylist = entry.devicePlaylist;
-    if (devicePlaylist != null) {
-      await navigator.push(
-        LocalEntityTracksScreen.route(
-          title: devicePlaylist.playlist,
-          subtitle: 'Tracks from this playlist will appear here.',
-          loadTracks:
-              () => controller.tracksForDevicePlaylist(devicePlaylist.id),
-        ),
-      );
+    final navigator = Navigator.of(context);
+    try {
+      await _saveSearch();
+      if (!mounted) return;
+      if (track != null) {
+        if (track.isVideo) {
+          navigator.pop();
+          await navigator.push(YazenVideoPlayerScreen.route(track));
+          return;
+        }
+        final index = audioResults.indexWhere((item) => item.id == track.id);
+        if (index >= 0) {
+          // Keep the search route mounted until the queue/source transaction
+          // completes. This avoids coupling first-tap playback to route teardown.
+          await controller.playTrackQueue(audioResults, initialIndex: index);
+        }
+        if (mounted) navigator.pop();
+        return;
+      }
+
+      final artist = entry.artist;
+      if (artist != null) {
+        await navigator.push(
+          LocalEntityTracksScreen.route(
+            title:
+                artist.artist.trim().isEmpty ? 'Unknown artist' : artist.artist,
+            subtitle: 'Tracks by this artist will appear here.',
+            loadTracks: () => controller.tracksForArtist(artist.id),
+          ),
+        );
+        return;
+      }
+      final album = entry.album;
+      if (album != null) {
+        await navigator.push(
+          LocalEntityTracksScreen.route(
+            title: album.album.trim().isEmpty ? 'Unknown album' : album.album,
+            subtitle: 'Tracks from this album will appear here.',
+            loadTracks: () => controller.tracksForAlbum(album.id),
+          ),
+        );
+        return;
+      }
+      final customPlaylist = entry.customPlaylist;
+      if (customPlaylist != null) {
+        await navigator.push(PlaylistDetailsScreen.route(customPlaylist.id));
+        return;
+      }
+      final devicePlaylist = entry.devicePlaylist;
+      if (devicePlaylist != null) {
+        await navigator.push(
+          LocalEntityTracksScreen.route(
+            title: devicePlaylist.playlist,
+            subtitle: 'Tracks from this playlist will appear here.',
+            loadTracks:
+                () => controller.tracksForDevicePlaylist(devicePlaylist.id),
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Search entry activation failed: $error\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Could not start playback. Please try again.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+      }
+    } finally {
+      if (isAudioTrack && mounted) {
+        setState(() => _isStartingPlayback = false);
+      }
     }
   }
 
@@ -338,9 +366,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final isSearching = _query.isNotEmpty;
 
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
-        backgroundColor: tokens.background,
+        backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
         title: const Text(
           'Search',
           style: TextStyle(fontWeight: FontWeight.w900),
@@ -401,6 +429,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
+            if (_isStartingPlayback)
+              LinearProgressIndicator(
+                minHeight: 2,
+                color: tokens.accent,
+                backgroundColor: tokens.surface,
+              ),
             Expanded(
               child:
                   isSearching
@@ -481,7 +515,10 @@ class _SearchScreenState extends State<SearchScreen> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: tokens.textSecondary),
           ),
-          onTap: () => _openEntry(context, controller, entry, audioResults),
+          onTap:
+              _isStartingPlayback
+                  ? null
+                  : () => _openEntry(context, controller, entry, audioResults),
         );
       },
     );

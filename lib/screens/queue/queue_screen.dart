@@ -19,7 +19,7 @@ class QueueScreen extends StatelessWidget {
     final handler = context.read<HybridMusicController>().audioHandler;
     final tokens = context.watch<ThemeProvider>().tokens;
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         title: const Text(
           'Queue',

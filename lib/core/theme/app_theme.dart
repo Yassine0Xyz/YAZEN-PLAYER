@@ -75,7 +75,8 @@ ThemeData buildAppTheme({ThemeTokens? tokens}) {
   );
 
   return base.copyWith(
-    scaffoldBackgroundColor: palette.background,
+    // The app shell paints the theme background/wallpaper behind every route.
+    scaffoldBackgroundColor: Colors.transparent,
     colorScheme: scheme,
     splashFactory: NoSplash.splashFactory,
     textTheme: refinedType,

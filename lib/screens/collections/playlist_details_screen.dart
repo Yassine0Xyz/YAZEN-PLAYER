@@ -88,7 +88,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
     final tracks = _orderedTracks(playlist);
     final canReorder = _sort == _PlaylistSort.manual && _manageMode;
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         title: Text(
           playlist.name,
@@ -627,6 +627,7 @@ class _PlaylistMiniPlayerHost extends StatelessWidget {
     final handler = controller.audioHandler;
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
+      initialData: handler.activeTrack?.toMediaItem(),
       builder: (context, mediaSnapshot) {
         final item = mediaSnapshot.data;
         if (item == null) return const SizedBox.shrink();
@@ -635,7 +636,8 @@ class _PlaylistMiniPlayerHost extends StatelessWidget {
           builder:
               (context, playbackSnapshot) => MiniPlayer(
                 item: item,
-                isPlaying: playbackSnapshot.data?.playing ?? false,
+                isPlaying:
+                    playbackSnapshot.data?.playing ?? handler.player.playing,
                 duration: item.duration,
                 positionStream: handler.player.positionStream,
                 onPlayPause: controller.togglePlayback,

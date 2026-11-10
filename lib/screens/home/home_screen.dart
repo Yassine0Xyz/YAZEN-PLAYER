@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
       (controller) => controller.selectedTab,
     );
     return Scaffold(
-      backgroundColor: context.watch<ThemeProvider>().tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -625,6 +625,10 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
     final handler = controller.audioHandler;
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
+      // The media-item stream may not replay immediately when this host is
+      // mounted after switching to Playlists. Seed it from the handler so the
+      // mini player is visible on the very first frame of that page.
+      initialData: handler.activeTrack?.toMediaItem(),
       builder: (context, mediaSnapshot) {
         final item = mediaSnapshot.data;
         return AnimatedSwitcher(
@@ -652,7 +656,9 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
                     builder: (context, playbackSnapshot) {
                       return MiniPlayer(
                         item: item,
-                        isPlaying: playbackSnapshot.data?.playing ?? false,
+                        isPlaying:
+                            playbackSnapshot.data?.playing ??
+                            handler.player.playing,
                         duration: item.duration,
                         positionStream: handler.player.positionStream,
                         onPlayPause: controller.togglePlayback,

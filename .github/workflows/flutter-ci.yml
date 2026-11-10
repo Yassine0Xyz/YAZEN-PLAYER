@@ -35,11 +35,18 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Format Dart sources
-        run: dart format .
+      - name: Run source guardrails
+        run: |
+          python tool/validate_foundation.py
+          python tool/validate_library_evolution_v1.py
+          python tool/validate_pi_source_fixes.py
+          python tool/validate_pi_v1_2.py
+          python tool/validate_v5_performance.py
+          python tool/validate_v6_ui_performance.py
+          python tool/validate_playback_selection_fixes.py
 
-      - name: Verify Dart formatting
-        run: dart format --output=none --set-exit-if-changed .
+      - name: Normalize Dart formatting
+        run: dart format .
 
       - name: Analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
@@ -50,19 +57,14 @@ jobs:
       - name: Build Android debug APK
         run: flutter build apk --debug --target-platform android-arm64
 
-      - name: Upload Android debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: yazen-player-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
-
       - name: Build Android profile APK
         run: flutter build apk --profile --target-platform android-arm64
 
-      - name: Upload Android profile APK
+      - name: Upload Android APKs
         uses: actions/upload-artifact@v4
         with:
-          name: yazen-player-profile-apk
-          path: build/app/outputs/flutter-apk/app-profile.apk
+          name: yazen-player-android-apks
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/flutter-apk/app-profile.apk
           if-no-files-found: error

@@ -524,7 +524,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final accentColor = dynamicColors ? palette.safeAccent : tokens.accent;
 
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       body: SafeArea(
         child: StreamBuilder<MediaItem?>(
           stream: handler.mediaItem,

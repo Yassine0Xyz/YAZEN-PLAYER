@@ -104,6 +104,37 @@ void main() {
     repaint.dispose();
   });
 
+  test('artwork palette changes repaint the visualizer painter', () {
+    final repaint = ValueNotifier<int>(0);
+    final levels = List<double>.filled(12, 0.4);
+    final first = SourceSpectrumPainter(
+      repaint: repaint,
+      color: Colors.cyan,
+      paletteColors: const <Color>[Colors.purple, Colors.blue, Colors.teal],
+      barCount: 12,
+      height: 54,
+      profile: AudioVisualizerProfile.full,
+      levels: levels,
+      peaks: levels,
+      hasSignal: true,
+      progress: null,
+    );
+    final second = SourceSpectrumPainter(
+      repaint: repaint,
+      color: Colors.cyan,
+      paletteColors: const <Color>[Colors.orange, Colors.red, Colors.pink],
+      barCount: 12,
+      height: 54,
+      profile: AudioVisualizerProfile.full,
+      levels: levels,
+      peaks: levels,
+      hasSignal: true,
+      progress: null,
+    );
+    expect(first.shouldRepaint(second), isTrue);
+    repaint.dispose();
+  });
+
   testWidgets('unknown duration remains valid for the visualizer widget', (
     tester,
   ) async {

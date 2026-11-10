@@ -14,6 +14,7 @@ import 'services/hybrid_audio_handler.dart';
 import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
 import 'services/ambient_color_flow_settings.dart';
+import 'services/dynamic_color_settings.dart';
 import 'services/startup_restore.dart';
 import 'services/scroll_performance_mode.dart';
 import 'widgets/now_playing_scope.dart';
@@ -52,6 +53,7 @@ Future<void> main() async {
 
   final themeProvider = ThemeProvider();
   unawaited(AmbientColorFlowSettings.instance.load());
+  unawaited(DynamicColorSettings.instance.load());
   final playlistManager = LocalPlaylistManager();
   runApp(
     HybridMusicApp(

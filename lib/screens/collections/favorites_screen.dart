@@ -21,7 +21,7 @@ class FavoritesScreen extends StatelessWidget {
     final tokens = context.watch<ThemeProvider>().tokens;
     final tracks = manager.favorites;
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(
         title: const Text(
           'Favorites',
