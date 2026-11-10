@@ -1,10 +1,13 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
@@ -16,15 +19,36 @@ export 'theme_tokens.dart' show EchoThemePreset, ThemeTokens;
 
 class ThemeProvider extends ChangeNotifier {
   static const _presetKey = 'echo.theme_preset';
+  static const _backgroundPathKey = 'echo.custom_background_path';
 
   ThemeProvider({EchoThemePreset initialPreset = EchoThemePreset.oledBlack})
     : _preset = initialPreset;
 
   EchoThemePreset _preset;
   ImageProvider<Object>? _customBackground;
+  String? _customBackgroundPath;
+  Color? _customAccent;
 
   EchoThemePreset get preset => _preset;
-  ThemeTokens get tokens => ThemeTokens.fromPreset(_preset);
+  ThemeTokens get tokens {
+    final base = ThemeTokens.fromPreset(_preset);
+    final accent = _customAccent;
+    if (accent == null) return base;
+    return ThemeTokens(
+      background: Color.lerp(base.background, accent, 0.035)!,
+      surface: Color.lerp(base.surface, accent, 0.07)!,
+      surfaceElevated: Color.lerp(base.surfaceElevated, accent, 0.10)!,
+      surfaceMuted: Color.lerp(base.surfaceMuted, accent, 0.14)!,
+      accent: accent,
+      accentStrong:
+          Color.lerp(accent, Colors.black, base.isLight ? 0.28 : 0.12)!,
+      textPrimary: base.textPrimary,
+      textSecondary: base.textSecondary,
+      divider: Color.lerp(base.divider, accent, 0.18)!,
+      isLight: base.isLight,
+    );
+  }
+
   ImageProvider<Object>? get customBackground => _customBackground;
   bool get hasCustomBackground => _customBackground != null;
   ThemeData get theme => buildAppTheme(tokens: tokens);
@@ -32,6 +56,10 @@ class ThemeProvider extends ChangeNotifier {
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
     final savedId = preferences.getString(_presetKey);
+    final savedPath = preferences.getString(_backgroundPathKey);
+    if (savedPath != null && await File(savedPath).exists()) {
+      await setCustomBackgroundPath(savedPath, persist: false);
+    }
     if (savedId == null) return;
     EchoThemePreset? savedPreset;
     for (final preset in EchoThemePreset.values) {
@@ -58,16 +86,98 @@ class ThemeProvider extends ChangeNotifier {
     await preferences.setString(_presetKey, preset.id);
   }
 
-  void setCustomBackground(ImageProvider<Object>? image) {
-    if (_customBackground == image) return;
-    _customBackground = image;
+  Future<void> setCustomBackgroundPath(
+    String path, {
+    bool persist = true,
+  }) async {
+    final source = File(path);
+    if (!await source.exists()) return;
+    File file = source;
+    if (persist) {
+      final supportDirectory = await getApplicationSupportDirectory();
+      final extension = p.extension(path).isEmpty ? '.img' : p.extension(path);
+      final fileName =
+          'yazen_custom_background_${DateTime.now().microsecondsSinceEpoch}$extension';
+      file = await source.copy(p.join(supportDirectory.path, fileName));
+    }
+    final bytes = await file.readAsBytes();
+    final accent = await _extractImageAccent(bytes);
+    final previousPath = _customBackgroundPath;
+    _customBackgroundPath = file.path;
+    _customBackground = FileImage(file);
+    _customAccent = accent;
     notifyListeners();
+    if (persist) {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_backgroundPathKey, file.path);
+      if (previousPath != null && previousPath != file.path) {
+        try {
+          await File(previousPath).delete();
+        } catch (_) {}
+      }
+    }
   }
 
-  void clearCustomBackground() {
-    if (_customBackground == null) return;
+  Future<void> clearCustomBackground() async {
+    if (_customBackground == null && _customBackgroundPath == null) return;
+    final previousPath = _customBackgroundPath;
     _customBackground = null;
+    _customBackgroundPath = null;
+    _customAccent = null;
     notifyListeners();
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_backgroundPathKey);
+    if (previousPath != null) {
+      try {
+        await File(previousPath).delete();
+      } catch (_) {}
+    }
+  }
+
+  Future<Color?> _extractImageAccent(Uint8List bytes) async {
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: 64,
+        targetHeight: 64,
+      );
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) {
+        image.dispose();
+        return null;
+      }
+      var red = 0.0, green = 0.0, blue = 0.0, weight = 0.0;
+      for (var i = 0; i + 3 < data.lengthInBytes; i += 16) {
+        final alpha = data.getUint8(i + 3) / 255.0;
+        if (alpha < 0.5) continue;
+        final r = data.getUint8(i) / 255.0;
+        final g = data.getUint8(i + 1) / 255.0;
+        final b = data.getUint8(i + 2) / 255.0;
+        final maximum = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        final minimum = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        final saturation = maximum - minimum;
+        final w = alpha * (0.35 + saturation);
+        red += r * w;
+        green += g * w;
+        blue += b * w;
+        weight += w;
+      }
+      image.dispose();
+      if (weight <= 0) return null;
+      return Color.fromARGB(
+        255,
+        (red / weight * 255).round(),
+        (green / weight * 255).round(),
+        (blue / weight * 255).round(),
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      codec?.dispose();
+    }
   }
 }
 
@@ -84,10 +194,7 @@ class ThemeBackdrop extends StatelessWidget {
       fit: StackFit.expand,
       children: <Widget>[
         ColoredBox(color: tokens.background),
-        if (state.preset == EchoThemePreset.rgbRainbow)
-          const RepaintBoundary(child: _RgbRainbowLayer())
-        else
-          RepaintBoundary(child: EchoAmbientLayer(tokens: tokens)),
+        RepaintBoundary(child: EchoAmbientLayer(tokens: tokens)),
         if (state.customBackground != null) ...<Widget>[
           // A full-screen blur is one of the more expensive raster effects in
           // the app. Keep the softened look while idle, but remove the filter
@@ -118,210 +225,4 @@ class ThemeBackdrop extends StatelessWidget {
       ],
     );
   }
-}
-
-class _RgbRainbowLayer extends StatefulWidget {
-  const _RgbRainbowLayer();
-
-  @override
-  State<_RgbRainbowLayer> createState() => _RgbRainbowLayerState();
-}
-
-class _RgbRainbowLayerState extends State<_RgbRainbowLayer>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final _FrameLimitedAnimationValue _paintValue;
-  bool _reduceMotion = false;
-  bool _tickerEnabled = true;
-  bool _scrolling = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 26),
-    );
-    _paintValue = _FrameLimitedAnimationValue(_controller);
-    ScrollPerformanceMode.isScrolling.addListener(_onScrollModeChanged);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _reduceMotion = MediaQuery.disableAnimationsOf(context);
-    _tickerEnabled = TickerMode.of(context);
-    _scrolling = ScrollPerformanceMode.isScrolling.value;
-    _syncAnimation();
-  }
-
-  void _onScrollModeChanged() {
-    _scrolling = ScrollPerformanceMode.isScrolling.value;
-    _syncAnimation();
-  }
-
-  void _syncAnimation() {
-    if (_reduceMotion || !_tickerEnabled || _scrolling) {
-      if (_controller.isAnimating) _controller.stop(canceled: false);
-      _paintValue.sync();
-    } else if (!_controller.isAnimating) {
-      _controller.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    ScrollPerformanceMode.isScrolling.removeListener(_onScrollModeChanged);
-    _paintValue.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _RgbRainbowPainter(_paintValue),
-      child: const SizedBox.expand(),
-    );
-  }
-}
-
-class _FrameLimitedAnimationValue extends ChangeNotifier
-    implements ValueListenable<double> {
-  _FrameLimitedAnimationValue(this._controller) : _value = _controller.value {
-    _controller.addListener(_onTick);
-  }
-
-  static const Duration _minimumPaintInterval = Duration(milliseconds: 50);
-
-  final AnimationController _controller;
-  Duration? _lastPublishedElapsed;
-  double _value;
-
-  @override
-  double get value => _value;
-
-  void _onTick() {
-    final elapsed = _controller.lastElapsedDuration;
-    final previous = _lastPublishedElapsed;
-    if (elapsed != null &&
-        previous != null &&
-        elapsed - previous < _minimumPaintInterval) {
-      return;
-    }
-    _lastPublishedElapsed = elapsed;
-    _publish();
-  }
-
-  void _publish() {
-    final next = _controller.value;
-    if (next == _value) return;
-    _value = next;
-    notifyListeners();
-  }
-
-  void sync() {
-    _lastPublishedElapsed = _controller.lastElapsedDuration;
-    _publish();
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_onTick);
-    super.dispose();
-  }
-}
-
-class _RgbRainbowPainter extends CustomPainter {
-  _RgbRainbowPainter(this.animation) : super(repaint: animation);
-
-  final ValueListenable<double> animation;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final t = animation.value * math.pi * 2;
-    final pulse = 0.92 + math.sin(t * 1.4) * 0.08;
-    final rect = Offset.zero & size;
-    final glows = <({Offset center, double radius, double hue, double alpha})>[
-      (
-        center: Offset(
-          size.width * (0.14 + math.sin(t * 0.83) * 0.18),
-          size.height * (0.16 + math.cos(t * 0.52) * 0.08),
-        ),
-        radius: size.width * 0.58 * pulse,
-        hue: (265 + animation.value * 360) % 360,
-        alpha: 0.22,
-      ),
-      (
-        center: Offset(
-          size.width * (0.84 + math.cos(t * 0.71) * 0.14),
-          size.height * (0.34 + math.sin(t * 0.47) * 0.14),
-        ),
-        radius: size.width * 0.64 * pulse,
-        hue: (190 + animation.value * 360) % 360,
-        alpha: 0.16,
-      ),
-      (
-        center: Offset(
-          size.width * (0.36 + math.sin(t * 0.39) * 0.16),
-          size.height * (0.88 + math.cos(t * 0.64) * 0.08),
-        ),
-        radius: size.width * 0.60 * pulse,
-        hue: (325 + animation.value * 360) % 360,
-        alpha: 0.15,
-      ),
-      (
-        center: Offset(
-          size.width * (0.70 + math.sin(t * 0.58) * 0.12),
-          size.height * (0.78 + math.cos(t * 0.43) * 0.10),
-        ),
-        radius: size.width * 0.48 * pulse,
-        hue: (35 + animation.value * 360) % 360,
-        alpha: 0.10,
-      ),
-    ];
-    for (final glow in glows) {
-      final color = HSVColor.fromAHSV(1, glow.hue, 0.78, 1).toColor();
-      final paint =
-          Paint()
-            ..style = PaintingStyle.fill
-            ..shader = RadialGradient(
-              colors: <Color>[
-                color.withValues(alpha: glow.alpha),
-                color.withValues(alpha: glow.alpha * 0.32),
-                color.withValues(alpha: 0),
-              ],
-              stops: const <double>[0, 0.34, 1],
-            ).createShader(
-              Rect.fromCircle(center: glow.center, radius: glow.radius),
-            );
-      canvas.drawRect(rect, paint);
-    }
-
-    final spectrumPaint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(1.0, size.shortestSide * 0.012)
-          ..shader = SweepGradient(
-            transform: GradientRotation(animation.value * math.pi * 2),
-            colors: const <Color>[
-              Color(0x007C5CFC),
-              Color(0x667C5CFC),
-              Color(0x5500D9FF),
-              Color(0x55FF3D81),
-              Color(0x007C5CFC),
-            ],
-          ).createShader(rect);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        rect.deflate(size.shortestSide * 0.018),
-        Radius.circular(size.shortestSide * 0.07),
-      ),
-      spectrumPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _RgbRainbowPainter oldDelegate) =>
-      oldDelegate.animation != animation;
 }

@@ -77,6 +77,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   List<double> _displayLevels = const <double>[];
   List<double> _displayPeaks = const <double>[];
   bool _hasRealSignal = false;
+  double _adaptiveGain = 1.0;
+  double _spectralBalance = 0.0;
   Duration? _lastTick;
 
   @override
@@ -124,7 +126,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         _renderTicker.stop();
       } else {
         _positionAnchorAt = DateTime.now();
-        if (!_renderTicker.isActive) _renderTicker.start();
+        if (_visualizerSettings.enabled && !_renderTicker.isActive) {
+          _renderTicker.start();
+        }
       }
     }
     _updateProgress();
@@ -150,7 +154,17 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   void _onVisualizerSettingsChanged() {
     if (!mounted) return;
-    if (_lastRawBands.isNotEmpty) _setRealFrame(_lastRawBands);
+    _updateEnergyConsumer();
+    if (!_visualizerSettings.enabled && _renderTicker.isActive) {
+      _renderTicker.stop();
+    } else if (_visualizerSettings.enabled &&
+        widget.playing &&
+        !_renderTicker.isActive) {
+      _renderTicker.start();
+    }
+    if (_visualizerSettings.enabled && _lastRawBands.isNotEmpty) {
+      _setRealFrame(_lastRawBands);
+    }
     setState(() {});
   }
 
@@ -213,13 +227,14 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _energyConsumer?.update(
       sourceUri: widget.sourceUri ?? '',
       positionMs: _effectivePosition.inMilliseconds,
-      playing: widget.playing,
-      visible: _energyVisible,
+      playing: widget.playing && _visualizerSettings.enabled,
+      visible: _energyVisible && _visualizerSettings.enabled,
       speed: _speed,
     );
   }
 
   void _onEnergyChanged() {
+    if (!_visualizerSettings.enabled) return;
     final energy = _energyService.energy.value;
     if (energy.available && energy.bands.isNotEmpty) {
       _setRealFrame(energy.bands);
@@ -234,6 +249,28 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   void _setRealFrame(List<double> bands) {
     _lastRawBands = List<double>.unmodifiable(bands);
     final count = math.max(1, widget.barCount);
+    // Adapt visual intensity to the actual spectrum balance. Bass-heavy and
+    // bright/dense tracks get a distinct response without introducing random
+    // motion or disconnecting the animation from PCM energy.
+    var lowEnergy = 0.0;
+    var highEnergy = 0.0;
+    for (var i = 0; i < bands.length; i++) {
+      if (i < bands.length * 0.28) {
+        lowEnergy += bands[i].clamp(0.0, 1.0);
+      } else if (i >= bands.length * 0.68) {
+        highEnergy += bands[i].clamp(0.0, 1.0);
+      }
+    }
+    final lowMean = lowEnergy / math.max(1, (bands.length * 0.28).round());
+    final highMean = highEnergy / math.max(1, (bands.length * 0.32).round());
+    final spectralBalance = (lowMean - highMean).clamp(-0.45, 0.45).toDouble();
+    _spectralBalance += (spectralBalance - _spectralBalance) * 0.16;
+    final spectralCharacter = (_spectralBalance * 0.22).clamp(-0.12, 0.12);
+    final nextGain =
+        (1.0 + spectralCharacter + ((lowMean + highMean) * 0.08))
+            .clamp(0.88, 1.18)
+            .toDouble();
+    _adaptiveGain += (nextGain - _adaptiveGain) * 0.18;
     final sensitivity = _visualizerSettings.sensitivity;
     final gate = _visualizerSettings.noiseGate;
     final next = List<double>.generate(count, (index) {
@@ -241,18 +278,32 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         0,
         bands.length - 1,
       );
-      final raw = bands[source].clamp(0.0, 1.0);
+      final frequencyPosition =
+          bands.length <= 1 ? 0.0 : source / (bands.length - 1);
+      final frequencyWeight =
+          (1.0 + _spectralBalance * (0.55 - frequencyPosition * 0.9))
+              .clamp(0.75, 1.25)
+              .toDouble();
+      final raw =
+          (bands[source] * _adaptiveGain * frequencyWeight)
+              .clamp(0.0, 1.0)
+              .toDouble();
       final gated = raw <= gate ? 0.0 : (raw - gate) / (1.0 - gate);
       return math
           .pow(gated.clamp(0.0, 1.0), 1.0 / sensitivity)
           .toDouble()
-          .clamp(0.0, 1.0);
+          .clamp(0.0, 1.0)
+          .toDouble();
     });
     _targetLevels = next;
     if (!_hasRealSignal) {
       _hasRealSignal = true;
       _lastTick = null;
-      if (!_renderTicker.isActive) _renderTicker.start();
+      if (widget.playing &&
+          _visualizerSettings.enabled &&
+          !_renderTicker.isActive) {
+        _renderTicker.start();
+      }
       if (mounted) setState(() {});
     }
   }
@@ -314,6 +365,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final count = math.max(1, widget.barCount);
     _targetLevels = List<double>.filled(count, 0.0);
     _lastRawBands = const <double>[];
+    _adaptiveGain = 1.0;
+    _spectralBalance = 0.0;
     _displayLevels = List<double>.filled(count, 0.0);
     _displayPeaks = List<double>.filled(count, 0.0);
     if (mounted) setState(() {});
@@ -344,6 +397,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
+    if (_visualizerSettings.loaded && !_visualizerSettings.enabled) {
+      return const SizedBox.shrink();
+    }
     final durationMs = widget.duration?.inMilliseconds ?? 0;
     final label =
         _hasRealSignal
@@ -365,6 +421,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               barCount: widget.barCount,
               height: widget.height,
               profile: widget.profile,
+              style: _visualizerSettings.style,
               levels: _displayLevels,
               peaks: _displayPeaks,
               hasSignal: _hasRealSignal,
@@ -384,6 +441,7 @@ class SourceSpectrumPainter extends CustomPainter {
     required this.barCount,
     required this.height,
     required this.profile,
+    this.style = VisualizerStyle.bars,
     required this.levels,
     required this.peaks,
     required this.hasSignal,
@@ -396,6 +454,7 @@ class SourceSpectrumPainter extends CustomPainter {
   final int barCount;
   final double height;
   final AudioVisualizerProfile profile;
+  final VisualizerStyle style;
   final List<double> levels;
   final List<double> peaks;
   final bool hasSignal;
@@ -416,6 +475,52 @@ class SourceSpectrumPainter extends CustomPainter {
     final baselineY = size.height - 3.0;
     final base = HSLColor.fromColor(color);
     final paint = Paint()..strokeCap = StrokeCap.round;
+
+    if (style == VisualizerStyle.wave || style == VisualizerStyle.line) {
+      final path = Path();
+      for (var index = 0; index < barCount; index++) {
+        final x = size.width * index / math.max(1, barCount - 1);
+        final level =
+            hasSignal && index < levels.length ? levels[index] : 0.025;
+        final polarity =
+            style == VisualizerStyle.wave && index.isEven ? 1.0 : -1.0;
+        final y = size.height * 0.5 - (size.height * 0.43 * level) * polarity;
+        if (index == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      paint
+        ..color = color.withValues(alpha: hasSignal ? 0.92 : 0.25)
+        ..strokeWidth = style == VisualizerStyle.wave ? 2.4 : 1.8
+        ..style = PaintingStyle.stroke;
+      canvas.drawPath(path, paint);
+      return;
+    }
+    if (style == VisualizerStyle.circular) {
+      final center = Offset(size.width / 2, size.height / 2);
+      final radius = math.min(size.width, size.height) * 0.22;
+      for (var index = 0; index < barCount; index++) {
+        final angle = (index / barCount) * math.pi * 2 - math.pi / 2;
+        final level = hasSignal && index < levels.length ? levels[index] : 0.02;
+        final outer = radius + level * math.min(size.width, size.height) * 0.28;
+        canvas.drawLine(
+          Offset(
+            center.dx + math.cos(angle) * radius,
+            center.dy + math.sin(angle) * radius,
+          ),
+          Offset(
+            center.dx + math.cos(angle) * outer,
+            center.dy + math.sin(angle) * outer,
+          ),
+          paint
+            ..color = color.withValues(alpha: hasSignal ? 0.9 : 0.22)
+            ..strokeWidth = math.max(1.4, size.width / (barCount * 2)),
+        );
+      }
+      return;
+    }
 
     for (var index = 0; index < barCount; index++) {
       final ratio = barCount <= 1 ? 0.0 : index / (barCount - 1);
@@ -444,11 +549,20 @@ class SourceSpectrumPainter extends CustomPainter {
               lightness,
             ).toColor()
         ..strokeWidth = barWidth;
-      canvas.drawLine(
-        Offset(x, baselineY - barHeight),
-        Offset(x, baselineY),
-        paint,
-      );
+      if (style == VisualizerStyle.mirror) {
+        final middle = size.height / 2;
+        canvas.drawLine(
+          Offset(x, middle - barHeight / 2),
+          Offset(x, middle + barHeight / 2),
+          paint,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(x, baselineY - barHeight),
+          Offset(x, baselineY),
+          paint,
+        );
+      }
 
       // Draw the cap only when it is meaningfully above this same frame's
       // bar. The bounded peak logic above prevents a stale detached dot.
@@ -498,6 +612,7 @@ class SourceSpectrumPainter extends CustomPainter {
         oldDelegate.barCount != barCount ||
         oldDelegate.height != height ||
         oldDelegate.profile != profile ||
+        oldDelegate.style != style ||
         oldDelegate.hasSignal != hasSignal ||
         oldDelegate.progress != progress ||
         oldDelegate.progressListenable != progressListenable ||

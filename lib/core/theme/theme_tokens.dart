@@ -27,7 +27,6 @@ abstract final class ThemeElevation {
 
 enum EchoThemePreset {
   oledBlack('oled_black', 'OLED Black'),
-  rgbRainbow('rgb_rainbow', 'RGB Rainbow'),
   crimsonRed('crimson_red', 'Crimson Red'),
   pureWhite('pure_white', 'Pure White');
 
@@ -82,19 +81,6 @@ class ThemeTokens {
           textPrimary: Color(0xFFF7F5FF),
           textSecondary: Color(0xFFA6A3B2),
           divider: Color(0xFF303035),
-          isLight: false,
-        );
-      case EchoThemePreset.rgbRainbow:
-        return const ThemeTokens(
-          background: Color(0xFF090A10),
-          surface: Color(0xFF15151D),
-          surfaceElevated: Color(0xFF20202A),
-          surfaceMuted: Color(0xFF2A2A36),
-          accent: Color(0xFF8DF5FF),
-          accentStrong: Color(0xFF9C70FF),
-          textPrimary: Color(0xFFF7F8FF),
-          textSecondary: Color(0xFFA9AFBD),
-          divider: Color(0xFF303342),
           isLight: false,
         );
       case EchoThemePreset.crimsonRed:

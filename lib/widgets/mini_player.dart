@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/motion_tokens.dart';
 import '../core/theme/theme_provider.dart';
 import '../core/theme/theme_tokens.dart';
+import '../controllers/hybrid_music_controller.dart';
 import '../models/media_track.dart';
 import '../services/artwork_palette_service.dart';
 import '../services/dynamic_color_settings.dart';
@@ -14,7 +17,7 @@ import 'mini_player_gesture_surface.dart';
 import 'play_pause_morph.dart';
 import 'echo_motion.dart';
 
-class MiniPlayer extends StatelessWidget {
+class MiniPlayer extends StatefulWidget {
   const MiniPlayer({
     required this.item,
     required this.isPlaying,
@@ -49,7 +52,86 @@ class MiniPlayer extends StatelessWidget {
   final AudioServiceRepeatMode repeatMode;
 
   @override
+  State<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<MiniPlayer> {
+  String? _paletteTrackKey;
+  String? _paletteThemeKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncCurrentTrackPalette(context.watch<ThemeProvider>().tokens);
+  }
+
+  @override
+  void didUpdateWidget(covariant MiniPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.item.artUri != widget.item.artUri) {
+      _paletteTrackKey = null;
+      _syncCurrentTrackPalette(context.read<ThemeProvider>().tokens);
+    }
+  }
+
+  void _syncCurrentTrackPalette(ThemeTokens tokens) {
+    final activeTrack = context.read<HybridMusicController?>()?.activeTrack;
+    final itemTrackId =
+        widget.item.extras?['trackId']?.toString() ?? widget.item.id;
+    final track =
+        activeTrack != null && activeTrack.id == itemTrackId
+            ? activeTrack
+            : MediaTrack(
+              id: itemTrackId,
+              title: widget.item.title,
+              artist: widget.item.artist ?? 'Unknown artist',
+              album: widget.item.album ?? 'Unknown album',
+              source:
+                  widget.item.extras?['source']?.toString() == 'local'
+                      ? TrackSource.local
+                      : TrackSource.remote,
+              uri: Uri.tryParse(widget.item.id),
+              artworkUri: widget.item.artUri,
+              duration: widget.item.duration,
+            );
+    final trackKey = '${track.id}:${widget.item.artUri ?? ''}';
+    final themeKey =
+        '${tokens.accent.toARGB32()}:${tokens.background.toARGB32()}';
+    if (_paletteTrackKey == trackKey && _paletteThemeKey == themeKey) return;
+    _paletteTrackKey = trackKey;
+    _paletteThemeKey = themeKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _paletteTrackKey != trackKey ||
+          _paletteThemeKey != themeKey)
+        return;
+      unawaited(
+        ArtworkPaletteService.instance.setCurrentTrack(
+          track,
+          themeAccent: tokens.accent,
+          surface: tokens.background,
+        ),
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
+    final isPlaying = widget.isPlaying;
+    final onPlayPause = widget.onPlayPause;
+    final onStop = widget.onStop;
+    final position = widget.position;
+    final duration = widget.duration;
+    final positionStream = widget.positionStream;
+    final onPrevious = widget.onPrevious;
+    final onNext = widget.onNext;
+    final onDismiss = widget.onDismiss;
+    final onRepeat = widget.onRepeat;
+    final onQueue = widget.onQueue;
+    final onTap = widget.onTap;
+    final repeatMode = widget.repeatMode;
     final tokens = context.watch<ThemeProvider>().tokens;
     final progress = positionStream == null ? _progress : null;
     return LayoutBuilder(
@@ -313,9 +395,10 @@ class MiniPlayer extends StatelessWidget {
   }
 
   double? get _progress {
-    final total = duration?.inMilliseconds ?? 0;
-    if (total <= 0 || position == null) return null;
-    return (position!.inMilliseconds / total).clamp(0.0, 1.0).toDouble();
+    final total = widget.duration?.inMilliseconds ?? 0;
+    final current = widget.position;
+    if (total <= 0 || current == null) return null;
+    return (current.inMilliseconds / total).clamp(0.0, 1.0).toDouble();
   }
 }
 

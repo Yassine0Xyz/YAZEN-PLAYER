@@ -15,14 +15,11 @@ import 'services/media_library_service.dart';
 import 'services/local_playlist_manager.dart';
 import 'services/ambient_color_flow_settings.dart';
 import 'services/startup_restore.dart';
-import 'services/app_route_observer.dart';
 import 'services/scroll_performance_mode.dart';
 import 'widgets/now_playing_scope.dart';
-import 'diagnostics/core/diagnostics_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  DiagnosticsService.instance.start();
   late final HybridAudioHandler audioHandler;
   try {
     audioHandler = await AudioService.init<HybridAudioHandler>(
@@ -105,41 +102,16 @@ class HybridMusicApp extends StatelessWidget {
           return MaterialApp(
             title: 'YAZEN',
             debugShowCheckedModeBanner: false,
-            navigatorObservers: <NavigatorObserver>[appRouteObserver],
             theme: themeState.theme,
             builder:
                 (context, child) => NowPlayingScope(
                   child: ThemeBackdrop(
                     child: NotificationListener<ScrollNotification>(
                       onNotification: (notification) {
-                        final metrics = notification.metrics;
                         if (notification is ScrollStartNotification) {
                           ScrollPerformanceMode.noteScrollActivity();
-                          DiagnosticsService.instance.scrollStarted(
-                            axis: metrics.axis.name,
-                            pixels: metrics.pixels,
-                            depth: notification.depth,
-                            sourceTimeStamp:
-                                notification.dragDetails?.sourceTimeStamp,
-                          );
-                        } else if (notification is ScrollUpdateNotification) {
-                          DiagnosticsService.instance.scrollUpdated(
-                            axis: metrics.axis.name,
-                            depth: notification.depth,
-                            delta: notification.scrollDelta,
-                            pixels: metrics.pixels,
-                            maxExtent: metrics.maxScrollExtent,
-                            sourceTimeStamp:
-                                notification.dragDetails?.sourceTimeStamp,
-                          );
                         } else if (notification is ScrollEndNotification) {
                           ScrollPerformanceMode.noteScrollEnd();
-                          DiagnosticsService.instance.scrollEnded(
-                            axis: metrics.axis.name,
-                            depth: notification.depth,
-                            pixels: metrics.pixels,
-                            maxExtent: metrics.maxScrollExtent,
-                          );
                         }
                         return false;
                       },

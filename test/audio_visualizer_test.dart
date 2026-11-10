@@ -1,7 +1,10 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yazen/widgets/audio_visualizer.dart';
+import 'package:yazen/services/visualizer_settings.dart';
 
 void main() {
   testWidgets('source painter repaints when a real frame changes', (
@@ -77,6 +80,28 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     repaint.dispose();
     progress.dispose();
+  });
+
+  test('all visualizer styles paint from the same live spectrum data', () {
+    final repaint = ValueNotifier<int>(0);
+    for (final style in VisualizerStyle.values) {
+      final painter = SourceSpectrumPainter(
+        repaint: repaint,
+        color: Colors.cyan,
+        barCount: 16,
+        height: 60,
+        profile: AudioVisualizerProfile.full,
+        style: style,
+        levels: List<double>.generate(16, (index) => (index + 1) / 16),
+        peaks: List<double>.filled(16, 0.8),
+        hasSignal: true,
+        progress: null,
+      );
+      final recorder = ui.PictureRecorder();
+      painter.paint(ui.Canvas(recorder), const Size(320, 60));
+      recorder.endRecording().dispose();
+    }
+    repaint.dispose();
   });
 
   testWidgets('unknown duration remains valid for the visualizer widget', (

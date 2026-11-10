@@ -158,8 +158,8 @@ and cropping it in Dart.
 
 ### D. Reduce background animation while scrolling
 
-The current source now pauses both `EchoAmbientLayer` and the RGB rainbow
-background while any app scroll is active, then resumes after scrolling settles.
+The current source pauses `EchoAmbientLayer` while any app scroll is active,
+then resumes after scrolling settles.
 It also respects `TickerMode` and system Reduce Motion. This is an automatic,
 temporary performance mode; the visual themes remain available while idle.
 

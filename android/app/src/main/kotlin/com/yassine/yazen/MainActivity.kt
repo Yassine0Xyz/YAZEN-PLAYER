@@ -2,7 +2,6 @@ package com.yassine.yazen
 
 import android.Manifest
 import android.app.Activity
-import android.app.ActivityManager
 import android.app.PictureInPictureParams
 import android.content.ContentUris
 import android.content.Context
@@ -17,13 +16,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.Debug
-import android.os.Process
-import android.os.StatFs
-import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
-import android.content.ContentValues
 import android.util.Log
 import android.util.Rational
 import android.util.Size
@@ -32,7 +26,6 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.util.LinkedHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -53,7 +46,6 @@ class MainActivity : AudioServiceActivity() {
     // cannot starve thumbnails for the currently visible video cards.
     private val videoQueryExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val videoThumbnailExecutor: ExecutorService = Executors.newFixedThreadPool(2)
-    private val diagnosticsExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val pendingVideoQueryResults = mutableListOf<MethodChannel.Result>()
     private var videoQueryInFlight = false
     @Volatile
@@ -72,9 +64,6 @@ class MainActivity : AudioServiceActivity() {
         ): Boolean = size > 3
     }
     private var pcmFailure: String? = null
-    private var previousDiagnosticsCpuMs: Long? = null
-    private var previousDiagnosticsWallMs: Long? = null
-    private val previousThreadCpuTicks = mutableMapOf<Int, Long>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -118,41 +107,6 @@ class MainActivity : AudioServiceActivity() {
                     )
                     "deleteAudioTracks" -> deleteAudioTracks(
                         call.argument<List<Int>>("ids"),
-                        result,
-                    )
-                    else -> result.notImplemented()
-                }
-            }
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "yazen/diagnostics")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "resourceSnapshot" -> {
-                        val includeStorage = call.argument<Boolean>("includeStorage") == true
-                        diagnosticsExecutor.execute {
-                            try {
-                                val snapshot = diagnosticResourceSnapshot(includeStorage)
-                                mainHandler.post { result.success(snapshot) }
-                            } catch (error: Exception) {
-                                mainHandler.post { result.error("resource_snapshot_failed", error.message, null) }
-                            }
-                        }
-                    }
-                    "saveDiagnosticFiles" -> {
-                        val files = call.arguments as? Map<*, *>
-                        if (files == null) {
-                            result.error("invalid_files", "No diagnostic report files were supplied.", null)
-                        } else {
-                            try {
-                                result.success(saveDiagnosticFiles(files))
-                            } catch (error: Exception) {
-                                result.error("diagnostic_export_failed", error.message, null)
-                            }
-                        }
-                    }
-                    "exportDiagnosticJournal" -> exportDiagnosticJournal(
-                        call.argument<String>("sourcePath"),
-                        call.argument<String>("fileName"),
                         result,
                     )
                     else -> result.notImplemented()
@@ -226,191 +180,6 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
-    }
-
-    private fun diagnosticResourceSnapshot(includeStorage: Boolean): Map<String, Any> {
-        val memory = Debug.MemoryInfo()
-        Debug.getMemoryInfo(memory)
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val deviceMemory = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(deviceMemory)
-        val dataDirectory = File(applicationInfo.dataDir)
-        val storage = StatFs(dataDirectory.absolutePath)
-        val nowWallMs = SystemClock.elapsedRealtime()
-        val nowCpuMs = Process.getElapsedCpuTime()
-        val previousWall = previousDiagnosticsWallMs
-        val previousCpu = previousDiagnosticsCpuMs
-        val cpuPercent = if (previousWall != null && previousCpu != null && nowWallMs > previousWall) {
-            ((nowCpuMs - previousCpu).toDouble() / (nowWallMs - previousWall).toDouble() * 100.0)
-        } else {
-            -1.0
-        }
-        previousDiagnosticsWallMs = nowWallMs
-        previousDiagnosticsCpuMs = nowCpuMs
-        return mapOf(
-            "pid" to Process.myPid(),
-            "manufacturer" to Build.MANUFACTURER,
-            "brand" to Build.BRAND,
-            "model" to Build.MODEL,
-            "device" to Build.DEVICE,
-            "androidRelease" to Build.VERSION.RELEASE,
-            "androidSdk" to Build.VERSION.SDK_INT,
-            "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
-            "displayRefreshRateHz" to (windowManager.defaultDisplay.refreshRate.toDouble()),
-            "displayWidthPx" to windowManager.defaultDisplay.width,
-            "displayHeightPx" to windowManager.defaultDisplay.height,
-            "processCpuTimeMs" to nowCpuMs,
-            "processCpuPercentSincePreviousSnapshot" to cpuPercent,
-            "processPssKb" to memory.totalPss,
-            "processPrivateDirtyKb" to memory.totalPrivateDirty,
-            "processPrivateCleanKb" to memory.totalPrivateClean,
-            "javaHeapUsedBytes" to (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()),
-            "javaHeapMaxBytes" to Runtime.getRuntime().maxMemory(),
-            "nativeHeapAllocatedBytes" to Debug.getNativeHeapAllocatedSize(),
-            "nativeHeapFreeBytes" to Debug.getNativeHeapFreeSize(),
-            "deviceAvailableMemoryBytes" to deviceMemory.availMem,
-            "deviceTotalMemoryBytes" to deviceMemory.totalMem,
-            "deviceLowMemory" to deviceMemory.lowMemory,
-            "threadCpuSamples" to threadCpuSnapshot(),
-            "runtimeGcStats" to Debug.getRuntimeStats(),
-            "appDataBytes" to if (includeStorage) directorySize(dataDirectory) else -1L,
-            "dataVolumeTotalBytes" to storage.totalBytes,
-            "dataVolumeAvailableBytes" to storage.availableBytes,
-        )
-    }
-
-    private fun threadCpuSnapshot(): List<Map<String, Any>> {
-        val taskDirectory = File("/proc/self/task")
-        val currentThreadIds = mutableSetOf<Int>()
-        val samples = mutableListOf<Map<String, Any>>()
-        taskDirectory.listFiles()?.forEach { threadDirectory ->
-            val threadId = threadDirectory.name.toIntOrNull() ?: return@forEach
-            try {
-                val stat = File(threadDirectory, "stat").readText()
-                val closingParenthesis = stat.lastIndexOf(')')
-                if (closingParenthesis < 0 || closingParenthesis + 1 >= stat.length) return@forEach
-                val fields = stat.substring(closingParenthesis + 1).trim().split(Regex("\\s+"))
-                // After the comm field, index 11/12 are Linux stat fields 14/15 (utime/stime).
-                if (fields.size <= 12) return@forEach
-                val userTicks = fields[11].toLongOrNull() ?: return@forEach
-                val systemTicks = fields[12].toLongOrNull() ?: return@forEach
-                val totalTicks = userTicks + systemTicks
-                val previous = previousThreadCpuTicks[threadId]
-                val deltaTicks = if (previous == null) -1L else (totalTicks - previous).coerceAtLeast(0L)
-                previousThreadCpuTicks[threadId] = totalTicks
-                currentThreadIds.add(threadId)
-                val threadName = try {
-                    File(threadDirectory, "comm").readText().trim()
-                } catch (_: Exception) {
-                    "unknown"
-                }
-                samples.add(
-                    mapOf(
-                        "threadId" to threadId,
-                        "name" to threadName,
-                        "userTicks" to userTicks,
-                        "systemTicks" to systemTicks,
-                        "totalTicks" to totalTicks,
-                        "deltaTicksSincePreviousSnapshot" to deltaTicks,
-                    ),
-                )
-            } catch (_: Exception) {
-                // Threads may exit while /proc is being enumerated.
-            }
-        }
-        previousThreadCpuTicks.keys.retainAll(currentThreadIds)
-        return samples.sortedByDescending { (it["deltaTicksSincePreviousSnapshot"] as? Long) ?: -1L }
-    }
-
-    private fun directorySize(directory: File): Long {
-        var total = 0L
-        val pending = java.util.ArrayDeque<File>()
-        pending.add(directory)
-        while (pending.isNotEmpty()) {
-            val current = pending.removeFirst()
-            val children = current.listFiles() ?: continue
-            children.forEach { child ->
-                if (child.isFile) total += child.length() else if (child.isDirectory) pending.add(child)
-            }
-        }
-        return total
-    }
-
-
-    private fun exportDiagnosticJournal(
-        sourcePath: String?,
-        requestedFileName: String?,
-        result: MethodChannel.Result,
-    ) {
-        if (sourcePath.isNullOrBlank() || requestedFileName.isNullOrBlank()) {
-            result.error("invalid_journal", "A journal path and filename are required.", null)
-            return
-        }
-        Thread {
-            try {
-                val source = File(sourcePath)
-                if (!source.isFile) throw IllegalStateException("Session journal does not exist: $sourcePath")
-                val safeName = requestedFileName.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val savedPath: String
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, "application/x-ndjson")
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/YAZEN Diagnostics")
-                        put(MediaStore.MediaColumns.IS_PENDING, 1)
-                    }
-                    val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                        ?: throw IllegalStateException("Unable to create Downloads entry for $safeName")
-                    contentResolver.openOutputStream(uri)?.use { output ->
-                        source.inputStream().buffered().use { input -> input.copyTo(output, 64 * 1024) }
-                    } ?: throw IllegalStateException("Unable to open Downloads output stream")
-                    values.clear()
-                    values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    contentResolver.update(uri, values, null, null)
-                    savedPath = uri.toString()
-                } else {
-                    val directory = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: filesDir
-                    val target = File(directory, safeName)
-                    source.inputStream().buffered().use { input -> target.outputStream().buffered().use { output -> input.copyTo(output, 64 * 1024) } }
-                    savedPath = target.absolutePath
-                }
-                runOnUiThread { result.success(savedPath) }
-            } catch (error: Exception) {
-                runOnUiThread { result.error("diagnostic_journal_export_failed", error.message, null) }
-            }
-        }.start()
-    }
-
-    private fun saveDiagnosticFiles(files: Map<*, *>): List<String> {
-        val saved = mutableListOf<String>()
-        files.forEach { (rawName, rawContent) ->
-            val name = rawName as? String ?: return@forEach
-            val content = rawContent as? String ?: return@forEach
-            val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, if (safeName.endsWith(".json")) "application/json" else "text/plain")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/YAZEN Diagnostics")
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: throw IllegalStateException("Unable to create Downloads entry for $safeName")
-                contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(content) }
-                    ?: throw IllegalStateException("Unable to write $safeName")
-                values.clear()
-                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                contentResolver.update(uri, values, null, null)
-                saved.add(uri.toString())
-            } else {
-                val directory = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
-                    ?: filesDir
-                val target = File(directory, safeName)
-                target.writeText(content, Charsets.UTF_8)
-                saved.add(target.absolutePath)
-            }
-        }
-        return saved
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -1070,7 +839,6 @@ class MainActivity : AudioServiceActivity() {
                 pending.error("activity_destroyed", "The activity was closed during video indexing.", null)
             }
         }
-        diagnosticsExecutor.shutdownNow()
         videoQueryExecutor.shutdownNow()
         videoThumbnailExecutor.shutdownNow()
         pcmExecutor.shutdownNow()

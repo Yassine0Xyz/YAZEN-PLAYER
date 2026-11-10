@@ -71,6 +71,7 @@ class ArtworkPaletteService {
     ArtworkPalette.fallback(Colors.deepPurpleAccent, Colors.black),
   );
   int _requestGeneration = 0;
+  String? _currentTrackRequestKey;
 
   ValueListenable<ArtworkPalette> get current => _current;
   @visibleForTesting
@@ -81,6 +82,11 @@ class ArtworkPaletteService {
     required Color themeAccent,
     required Color surface,
   }) async {
+    final trackKey = track == null ? 'none' : _cacheKey(track);
+    final requestKey =
+        '$trackKey:${themeAccent.toARGB32()}:${surface.toARGB32()}';
+    if (_currentTrackRequestKey == requestKey) return;
+    _currentTrackRequestKey = requestKey;
     final generation = ++_requestGeneration;
     final fallback = ArtworkPalette.fallback(themeAccent, surface);
     _current.value = fallback;

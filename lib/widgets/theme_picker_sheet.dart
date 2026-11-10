@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -77,6 +78,22 @@ class _ThemePickerSheet extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   TextButton.icon(
+                    onPressed: () async {
+                      final files = await FilePicker.pickFiles(
+                        type: FileType.image,
+                      );
+                      final path = files.isNotEmpty ? files.first.path : null;
+                      if (path != null) {
+                        await theme.setCustomBackgroundPath(path);
+                      }
+                    },
+                    icon: const Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 18,
+                    ),
+                    label: const Text('Choose background image'),
+                  ),
+                  TextButton.icon(
                     onPressed: () {
                       theme.clearCustomBackground();
                       Navigator.of(context).pop();
@@ -125,11 +142,9 @@ class _ThemeOption extends StatelessWidget {
             end: Alignment.bottomRight,
           ),
         ),
-        child: Icon(
-          preset == EchoThemePreset.rgbRainbow
-              ? Icons.auto_awesome_rounded
-              : Icons.palette_outlined,
-          color: tokens.isLight ? Colors.white : Colors.black,
+        child: const Icon(
+          Icons.palette_outlined,
+          color: Colors.white,
           size: 21,
         ),
       ),

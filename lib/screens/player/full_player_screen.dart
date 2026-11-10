@@ -16,6 +16,7 @@ import '../../services/lyrics_service.dart';
 import '../../services/artwork_palette_service.dart';
 import '../../services/dynamic_color_settings.dart';
 import '../../services/ambient_color_flow_settings.dart';
+import '../../services/visualizer_settings.dart';
 import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/ambient_color_flow.dart';
@@ -139,8 +140,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   bool _swipeRestoreInFlight = false;
   double _trackSwipeDirection = -1;
   Duration _swipeOffsetDuration = Duration.zero;
-  String? _paletteRequestKey;
   late final AnimationController _trackTransitionController;
+  String? _paletteRequestKey;
   final ArtworkPaletteService _paletteService = ArtworkPaletteService.instance;
 
   @override
@@ -163,11 +164,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   void _onDynamicColorSettingsChanged() {
-    if (!mounted) return;
-    _paletteRequestKey = null;
-    final track = context.read<HybridMusicController>().activeTrack;
-    _syncArtworkPalette(track, context.read<ThemeProvider>().tokens);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _syncArtworkPalette(MediaTrack? track, ThemeTokens tokens) {
@@ -439,6 +436,84 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     });
   }
 
+  void _openVisualizerSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder:
+          (_) => SafeArea(
+            child: AnimatedBuilder(
+              animation: VisualizerSettings.instance,
+              builder: (context, _) {
+                final settings = VisualizerSettings.instance;
+                final tokens = context.watch<ThemeProvider>().tokens;
+                return Container(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  decoration: BoxDecoration(
+                    color: tokens.surface,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(26),
+                    ),
+                    border: Border.all(color: tokens.divider),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Visualizer',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Enable Visualizer'),
+                        value: settings.enabled,
+                        onChanged: settings.loaded ? settings.setEnabled : null,
+                      ),
+                      Text(
+                        'Style',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: VisualizerStyle.values
+                            .map(
+                              (style) => ChoiceChip(
+                                label: Text(switch (style) {
+                                  VisualizerStyle.bars => 'Bars',
+                                  VisualizerStyle.wave => 'Wave',
+                                  VisualizerStyle.circular => 'Circular',
+                                  VisualizerStyle.mirror => 'Mirror',
+                                  VisualizerStyle.line => 'Line',
+                                }),
+                                selected: settings.style == style,
+                                onSelected:
+                                    settings.loaded
+                                        ? (_) => settings.setStyle(style)
+                                        : null,
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
@@ -679,6 +754,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         ),
                                       ),
                                       const SizedBox(height: 18),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: IconButton(
+                                          tooltip: 'Visualizer settings',
+                                          onPressed: _openVisualizerSettings,
+                                          icon: Icon(
+                                            Icons.graphic_eq_rounded,
+                                            color: accentColor,
+                                          ),
+                                        ),
+                                      ),
                                       AudioVisualizer(
                                         playing: isPlaying,
                                         sourceUri:

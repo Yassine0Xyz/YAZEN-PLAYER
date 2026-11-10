@@ -5,11 +5,9 @@ on:
   push:
     branches:
       - main
-      - diagnostics/temp-performance-v1
   pull_request:
     branches:
       - main
-      - diagnostics/temp-performance-v1
 
 permissions:
   contents: read
@@ -42,21 +40,6 @@ jobs:
 
       - name: Verify Dart formatting
         run: dart format --output=none --set-exit-if-changed .
-
-      - name: Validate temporary diagnostics wiring
-        run: python3 tool/validate_temp_diagnostics.py
-
-      - name: Validate PI source fixes
-        run: python3 tool/validate_pi_source_fixes.py
-
-      - name: Validate PI v1.2 guardrails
-        run: python3 tool/validate_pi_v1_2.py
-
-      - name: Validate V5 performance guardrails
-        run: python3 tool/validate_v5_performance.py
-
-      - name: Validate V6 UI performance guardrails
-        run: python3 tool/validate_v6_ui_performance.py
 
       - name: Analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos

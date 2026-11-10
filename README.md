@@ -500,8 +500,7 @@ itself can still package additional small ABI libraries from plugins. Inspect
 the APK's `lib/` entries and confirm only `lib/arm64-v8a/` is present before
 calling it ARM64-only.
 
-Debug APKs contain development/runtime diagnostics and are not representative
-of optimized Release size or performance.
+Debug APKs are not representative of optimized Release size or performance.
 
 ### Signed ARM64 Release APK
 

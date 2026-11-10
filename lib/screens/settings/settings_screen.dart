@@ -11,8 +11,6 @@ import '../../services/playback_policies.dart';
 import '../../services/dynamic_color_settings.dart';
 import '../../services/ambient_color_flow_settings.dart';
 import '../../services/library_display_settings.dart';
-import '../../diagnostics/core/diagnostics_service.dart';
-import '../../diagnostics/screens/diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -289,6 +287,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 tokens: tokens,
                 child: Column(
                   children: <Widget>[
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: Icon(
+                        Icons.graphic_eq_rounded,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Enable Visualizer',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        'Stop visualizer rendering when disabled',
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      value: settings.enabled,
+                      onChanged: settings.loaded ? settings.setEnabled : null,
+                    ),
+                    Divider(color: tokens.divider, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.dashboard_customize_outlined,
+                        color: tokens.accent,
+                      ),
+                      title: const Text(
+                        'Visualizer style',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        _visualizerStyleLabel(settings.style),
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                      trailing: DropdownButton<VisualizerStyle>(
+                        value: settings.style,
+                        items: const <DropdownMenuItem<VisualizerStyle>>[
+                          DropdownMenuItem(
+                            value: VisualizerStyle.bars,
+                            child: Text('Bars'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.wave,
+                            child: Text('Wave'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.circular,
+                            child: Text('Circular'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.mirror,
+                            child: Text('Mirror'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.line,
+                            child: Text('Line'),
+                          ),
+                        ],
+                        onChanged:
+                            settings.loaded
+                                ? (value) {
+                                  if (value != null) settings.setStyle(value);
+                                }
+                                : null,
+                      ),
+                    ),
+                    Divider(color: tokens.divider, height: 1),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(
@@ -395,54 +458,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 24),
-          _SectionLabel(label: 'Performance Intelligence', tokens: tokens),
-          _SettingsCard(
-            tokens: tokens,
-            child: Column(
-              children: <Widget>[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.monitor_heart_outlined,
-                    color: tokens.accent,
-                  ),
-                  title: const Text(
-                    'Performance monitor',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Text(
-                    'Full session journal, profiling and causal investigation',
-                    style: TextStyle(color: tokens.textSecondary),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap:
-                      () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const DiagnosticsScreen(),
-                        ),
-                      ),
-                ),
-                Divider(color: tokens.divider, height: 1),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.file_download_outlined,
-                    color: tokens.accent,
-                  ),
-                  title: const Text(
-                    'Export complete session',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Text(
-                    'Raw JSONL journal, analysis JSON and Markdown report',
-                    style: TextStyle(color: tokens.textSecondary),
-                  ),
-                  onTap: _exportDiagnosticLogs,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
           _SectionLabel(label: 'About YAZEN', tokens: tokens),
           _SettingsCard(
             tokens: tokens,
@@ -463,34 +478,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _exportDiagnosticLogs() async {
-    try {
-      final result = await DiagnosticsService.instance.export();
-      if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('Diagnostic logs exported'),
-              content: SelectableText(
-                '${result.eventCount} events saved:\n\n${result.paths.join('\n\n')}',
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Unable to export logs: $error')));
-    }
   }
 
   Future<void> _loadPreferences() async {
@@ -559,6 +546,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await controller.audioHandler.setSpeed(value);
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble(_speedKey, value);
+  }
+
+  String _visualizerStyleLabel(VisualizerStyle style) {
+    return switch (style) {
+      VisualizerStyle.bars => 'Bars',
+      VisualizerStyle.wave => 'Wave',
+      VisualizerStyle.circular => 'Circular',
+      VisualizerStyle.mirror => 'Mirror',
+      VisualizerStyle.line => 'Line',
+    };
   }
 
   String _responseLabel(VisualizerResponse response) {

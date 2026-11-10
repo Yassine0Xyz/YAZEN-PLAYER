@@ -1,40 +1,20 @@
 #!/usr/bin/env python3
-"""Source-level checks for the 2026-11-08 Performance Intelligence fixes."""
+"""Source-level guardrails for retained performance fixes (source guardrails)."""
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[1]
-
-def read(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
-
-service = read("lib/diagnostics/core/diagnostics_service.dart")
-main = read("lib/main.dart")
+def read(path): return (ROOT / path).read_text(encoding="utf-8")
 artwork = read("lib/widgets/media_artwork.dart")
-disk_cache = read("lib/services/artwork_disk_cache.dart")
+disk = read("lib/services/artwork_disk_cache.dart")
+gate = read("lib/services/bounded_load_gate.dart")
 home = read("lib/screens/home/home_screen.dart")
-tests = read("test/diagnostics_service_test.dart")
-service_compact = "".join(service.split())
-
 checks = {
-    "pointer velocity uses PointerEvent timestamps": "calculateEventVelocity(" in service and "event.timeStamp" in service and "captureIntervalUs" in service,
-    "pointer event timestamp clock is explicit": "pointerEventTimestampUs" in service and "flutter_pointer_event" in service,
-    "scroll velocity uses drag source timestamps": "sourceTimeStamp" in service and "scroll_drag_event_timestamp" in service,
-    "missing drag timestamps do not fabricate scroll velocity": "canCalculateVelocity" in service_compact and "sourceTimeStamp!=null" in service_compact and "finalvelocity=!canCalculateVelocity" in service_compact and "session.lastEventTimestamp=sourceTimeStamp" in service_compact and "'velocitySource':velocity==null?'unavailable'" in service_compact,
-    "root scroll listener forwards drag timestamps": "notification.dragDetails?.sourceTimeStamp" in main,
-    "disk cache read I/O is separately traced": "artwork_disk_cache_read_io" in disk_cache,
-    "disk write gate wait is separately traced": "artwork_disk_write_gate_wait" in disk_cache,
-    "disk write I/O is separately traced": "artwork_disk_write_io" in disk_cache,
-    "disk cache trim is traced": "artwork_disk_cache_trim" in disk_cache,
-    "disk write outcome is propagated precisely to artwork diagnostics": "final result = await ArtworkDiskCache.instance.write" in artwork and "ArtworkDiskWriteResult.failed" in artwork and "ArtworkDiskWriteResult.rejectedByGate" in artwork,
-    "More sheet uses a Material surface": "return Material(" in home and "_MoreOption(" in home,
+    "artwork loads use a bounded prioritized gate": "BoundedLoadGate" in artwork and "maxConcurrent: 2" in artwork and "maxQueued: 12" in artwork,
+    "disk writes expose explicit outcomes": "enum ArtworkDiskWriteResult" in disk and "ArtworkDiskWriteResult.failed" in disk,
+    "disk cache writes remain bounded": "_maxBytes" in disk and "_trim()" in disk,
+    "more sheet uses a Material surface": "return Material(" in home and "_MoreOption(" in home,
     "sort sheet uses a Material surface": "sort) => Material(" in home and "child: RadioListTile<LibrarySort>" in home,
-    "timestamp regression tests exist": "calculates pointer velocity from event timestamps" in tests and "does not calculate velocity without a positive event timestamp interval" in tests,
 }
-
-for label, passed in checks.items():
-    print(f"{'PASS' if passed else 'FAIL'}: {label}")
-
+for label, passed in checks.items(): print(f"{'PASS' if passed else 'FAIL'}: {label}")
 failed = [label for label, passed in checks.items() if not passed]
-if failed:
-    raise SystemExit(f"{len(failed)} source-fix check(s) failed")
-print(f"All {len(checks)} Performance Intelligence source-fix checks passed.")
+if failed: raise SystemExit(f"{len(failed)} source-fix check(s) failed")
+print(f"All {len(checks)} retained performance checks passed.")

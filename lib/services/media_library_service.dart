@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import '../models/media_track.dart';
-import '../diagnostics/core/diagnostics_service.dart';
 import 'folder_identity.dart';
 
 class MediaLibraryService {
@@ -140,19 +139,18 @@ class MediaLibraryService {
     return ids;
   }
 
-  Future<List<MediaTrack>> querySongs() =>
-      _measure<List<MediaTrack>>('media_query_all_songs', () async {
-        if (!await ensurePermission()) return const <MediaTrack>[];
-        final songs = await _audioQuery.querySongs(
-          sortType: SongSortType.TITLE,
-          orderType: OrderType.ASC_OR_SMALLER,
-          ignoreCase: true,
-        );
-        return _toMediaTracks(songs);
-      });
+  Future<List<MediaTrack>> querySongs() => _run<List<MediaTrack>>(() async {
+    if (!await ensurePermission()) return const <MediaTrack>[];
+    final songs = await _audioQuery.querySongs(
+      sortType: SongSortType.TITLE,
+      orderType: OrderType.ASC_OR_SMALLER,
+      ignoreCase: true,
+    );
+    return _toMediaTracks(songs);
+  });
 
   Future<List<MediaTrack>> querySongsFrom(AudiosFromType type, Object where) =>
-      _measure<List<MediaTrack>>('media_query_filtered_songs', () async {
+      _run<List<MediaTrack>>(() async {
         if (!await ensurePermission()) return const <MediaTrack>[];
         final songs = await _audioQuery.queryAudiosFrom(
           type,
@@ -169,51 +167,29 @@ class MediaLibraryService {
     return tracksInFolder(songs, folder);
   }
 
-  List<MediaTrack> _toMediaTracks(Iterable<SongModel> songs) {
-    final span = DiagnosticsService.instance.startSpan(
-      'media_song_model_mapping',
-      data: <String, Object?>{
-        'inputCount': songs is List ? songs.length : null,
-      },
+  List<MediaTrack> _toMediaTracks(Iterable<SongModel> songs) =>
+      List<MediaTrack>.unmodifiable(songs.map(MediaTrack.fromSong));
+
+  Future<List<ArtistModel>> queryArtists() => _run<List<ArtistModel>>(() async {
+    if (!await ensurePermission()) return const <ArtistModel>[];
+    return _audioQuery.queryArtists(
+      sortType: ArtistSortType.ARTIST,
+      orderType: OrderType.ASC_OR_SMALLER,
+      ignoreCase: true,
     );
-    try {
-      final tracks = List<MediaTrack>.unmodifiable(
-        songs.map(MediaTrack.fromSong),
-      );
-      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
-        'trackCount': tracks.length,
-      });
-      return tracks;
-    } catch (error) {
-      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
-        'error': error.toString(),
-      });
-      rethrow;
-    }
-  }
+  });
 
-  Future<List<ArtistModel>> queryArtists() =>
-      _measure<List<ArtistModel>>('media_query_artists', () async {
-        if (!await ensurePermission()) return const <ArtistModel>[];
-        return _audioQuery.queryArtists(
-          sortType: ArtistSortType.ARTIST,
-          orderType: OrderType.ASC_OR_SMALLER,
-          ignoreCase: true,
-        );
-      });
-
-  Future<List<AlbumModel>> queryAlbums() =>
-      _measure<List<AlbumModel>>('media_query_albums', () async {
-        if (!await ensurePermission()) return const <AlbumModel>[];
-        return _audioQuery.queryAlbums(
-          sortType: AlbumSortType.ALBUM,
-          orderType: OrderType.ASC_OR_SMALLER,
-          ignoreCase: true,
-        );
-      });
+  Future<List<AlbumModel>> queryAlbums() => _run<List<AlbumModel>>(() async {
+    if (!await ensurePermission()) return const <AlbumModel>[];
+    return _audioQuery.queryAlbums(
+      sortType: AlbumSortType.ALBUM,
+      orderType: OrderType.ASC_OR_SMALLER,
+      ignoreCase: true,
+    );
+  });
 
   Future<List<PlaylistModel>> queryPlaylists() =>
-      _measure<List<PlaylistModel>>('media_query_playlists', () async {
+      _run<List<PlaylistModel>>(() async {
         if (!await ensurePermission()) return const <PlaylistModel>[];
         return _audioQuery.queryPlaylists(
           sortType: PlaylistSortType.PLAYLIST,
@@ -223,118 +199,69 @@ class MediaLibraryService {
       });
 
   Future<List<String>> queryFolders() async {
-    final span = DiagnosticsService.instance.startSpan(
-      'media_folder_identity_build',
-    );
-    try {
-      final songs = await querySongs();
-      final folders = folderIdentities(songs);
-      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
-        'trackCount': songs.length,
-        'folderCount': folders.length,
-      });
-      return folders;
-    } catch (error) {
-      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
-        'error': error.toString(),
-      });
-      rethrow;
-    }
+    final songs = await querySongs();
+    return folderIdentities(songs);
   }
 
-  Future<List<MediaTrack>> queryVideos({
-    bool requestPermission = true,
-  }) => _measure<List<MediaTrack>>('media_query_videos', () async {
-    final bool granted;
-    try {
-      granted =
-          requestPermission
-              ? await (_videoPermissionRequester?.call() ??
-                      _localMediaChannel.invokeMethod<bool>(
-                        'requestVideoPermission',
-                      )) ??
-                  false
-              : await (_videoPermissionStatusReader?.call() ??
-                      _localMediaChannel.invokeMethod<bool>(
-                        'videoPermissionStatus',
-                      )) ??
-                  false;
-    } on MissingPluginException {
-      return const <MediaTrack>[];
-    }
-    if (!granted) return const <MediaTrack>[];
+  Future<List<MediaTrack>> queryVideos({bool requestPermission = true}) =>
+      _run<List<MediaTrack>>(() async {
+        final bool granted;
+        try {
+          granted =
+              requestPermission
+                  ? await (_videoPermissionRequester?.call() ??
+                          _localMediaChannel.invokeMethod<bool>(
+                            'requestVideoPermission',
+                          )) ??
+                      false
+                  : await (_videoPermissionStatusReader?.call() ??
+                          _localMediaChannel.invokeMethod<bool>(
+                            'videoPermissionStatus',
+                          )) ??
+                      false;
+        } on MissingPluginException {
+          return const <MediaTrack>[];
+        }
+        if (!granted) return const <MediaTrack>[];
 
-    final raw = await _localMediaChannel.invokeMethod<List<dynamic>>(
-      'queryVideos',
-    );
-    if (raw == null) return const <MediaTrack>[];
-    final mappingSpan = DiagnosticsService.instance.startSpan(
-      'media_video_dart_mapping',
-      data: <String, Object?>{'rawEntryCount': raw.length},
-    );
-    try {
-      final mapped = raw
-          .whereType<Map<dynamic, dynamic>>()
-          .map((entry) {
-            final path = entry['path']?.toString() ?? '';
-            final uri = entry['uri']?.toString();
-            final title = entry['title']?.toString() ?? 'Local video';
-            final durationMs =
-                entry['durationMs'] is num
-                    ? (entry['durationMs'] as num).toInt()
-                    : 0;
-            final sizeBytes =
-                entry['sizeBytes'] is num
-                    ? (entry['sizeBytes'] as num).toInt()
-                    : null;
-            final dateAdded =
-                entry['dateAdded'] is num
-                    ? (entry['dateAdded'] as num).toInt()
-                    : 0;
-            return MediaTrack.fromLocalVideo(
-              path: path,
-              contentUri: uri,
-              title: title,
-              duration:
-                  durationMs > 0 ? Duration(milliseconds: durationMs) : null,
-              sizeBytes: sizeBytes,
-              modifiedAt:
-                  dateAdded > 0
-                      ? DateTime.fromMillisecondsSinceEpoch(dateAdded * 1000)
-                      : null,
-            );
-          })
-          .toList(growable: false);
-      DiagnosticsService.instance.endSpan(
-        mappingSpan,
-        'complete',
-        <String, Object?>{'trackCount': mapped.length},
-      );
-      return mapped;
-    } catch (error) {
-      DiagnosticsService.instance.endSpan(
-        mappingSpan,
-        'failed',
-        <String, Object?>{'error': error.toString()},
-      );
-      rethrow;
-    }
-  });
+        final raw = await _localMediaChannel.invokeMethod<List<dynamic>>(
+          'queryVideos',
+        );
+        if (raw == null) return const <MediaTrack>[];
+        final mapped = raw
+            .whereType<Map<dynamic, dynamic>>()
+            .map((entry) {
+              final path = entry['path']?.toString() ?? '';
+              final uri = entry['uri']?.toString();
+              final title = entry['title']?.toString() ?? 'Local video';
+              final durationMs =
+                  entry['durationMs'] is num
+                      ? (entry['durationMs'] as num).toInt()
+                      : 0;
+              final sizeBytes =
+                  entry['sizeBytes'] is num
+                      ? (entry['sizeBytes'] as num).toInt()
+                      : null;
+              final dateAdded =
+                  entry['dateAdded'] is num
+                      ? (entry['dateAdded'] as num).toInt()
+                      : 0;
+              return MediaTrack.fromLocalVideo(
+                path: path,
+                contentUri: uri,
+                title: title,
+                duration:
+                    durationMs > 0 ? Duration(milliseconds: durationMs) : null,
+                sizeBytes: sizeBytes,
+                modifiedAt:
+                    dateAdded > 0
+                        ? DateTime.fromMillisecondsSinceEpoch(dateAdded * 1000)
+                        : null,
+              );
+            })
+            .toList(growable: false);
+        return mapped;
+      });
 
-  Future<T> _measure<T>(String operation, Future<T> Function() work) async {
-    final span = DiagnosticsService.instance.startSpan(operation);
-    try {
-      final result = await work();
-      final count = result is Iterable ? result.length : null;
-      DiagnosticsService.instance.endSpan(span, 'complete', <String, Object?>{
-        'itemCount': count,
-      });
-      return result;
-    } catch (error) {
-      DiagnosticsService.instance.endSpan(span, 'failed', <String, Object?>{
-        'error': error.toString(),
-      });
-      rethrow;
-    }
-  }
+  Future<T> _run<T>(Future<T> Function() work) => work();
 }

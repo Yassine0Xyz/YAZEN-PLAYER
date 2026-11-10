@@ -41,7 +41,6 @@ Test cold start, media permission denial and recovery, local audio playback, bac
 
 ## Visualizer checklist
 
-For Android local audio, capture native diagnostics while opening the full player and playing a local file:
 
 ```bash
 adb logcat -c
@@ -54,7 +53,7 @@ For Linux, install `cmake`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libpul
 
 ## Privacy and operational policy
 
-YAZEN's local-first build should document device media-library access, local artwork access, optional lyrics requests if enabled by the current lyrics service, and local preference storage. Diagnostics must not expose private file paths, track titles, or user data unnecessarily. Do not ship unused network or download configuration.
+YAZEN's local-first build should document device media-library access, local artwork access, optional lyrics requests if enabled by the current lyrics service, and local preference storage. Do not ship unused network or download configuration.
 
 ## Known compatibility boundaries
 

@@ -3,16 +3,15 @@
 ## Baseline and scope
 
 - Baseline: `YAZEN-PLAYER-V6-ROLLBACK-BASELINE.zip` (kept unchanged outside this working copy).
-- Scope: bounded artwork-load admission and diagnostics only.
+- Scope: bounded artwork-load admission and cache behavior.
 - No player engine, MediaStore query strategy, library viewport, row layout, theme, or playback behavior was rewritten.
 
 ## Changes
 
 1. `BoundedLoadGate` now exposes a monotonic `rejectedLoads` counter. It increments both for immediate rejection (`maxQueued == 0`) and for queued work evicted on overflow.
 2. `YazenMediaArtwork` no longer treats the first gate rejection as the final result. It waits 140 ms and makes one additional prioritized admission attempt. The retry is finite (at most two attempts total); queue and concurrency limits remain unchanged.
-3. Debug/profile diagnostics now log bounded-gate state when an artwork request is still rejected after its retry.
-4. Debug/profile counters record artwork loads started/completed/failed and disk-cache hits/misses. A compact metrics log is emitted every 32 completed/failed artwork loads. Existing per-load timeline tracing remains in place.
-5. `bounded_load_gate_test.dart` now verifies rejection accounting and queue-overflow eviction accounting.
+
+3. `bounded_load_gate_test.dart` now verifies rejection accounting and queue-overflow eviction accounting.
 
 ## Deliberately deferred
 
