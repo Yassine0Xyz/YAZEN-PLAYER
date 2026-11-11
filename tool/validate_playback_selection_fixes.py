@@ -5,6 +5,7 @@ handler = (root / "lib/services/hybrid_audio_handler.dart").read_text()
 search = (root / "lib/screens/search/search_screen.dart").read_text()
 home = (root / "lib/screens/home/home_screen.dart").read_text()
 playlist = (root / "lib/screens/collections/playlist_details_screen.dart").read_text()
+mini_player_host = (root / "lib/widgets/mini_player_host.dart").read_text()
 library = (root / "lib/screens/library/local_media_screen.dart").read_text()
 tests = (root / "test/hybrid_audio_queue_race_test.dart").read_text()
 checks = {
@@ -14,7 +15,10 @@ checks = {
     "search waits for queue setup before popping route": "await controller.playTrackQueue(audioResults, initialIndex: index)" in search and "if (mounted) navigator.pop();" in search,
     "search prevents duplicate overlapping first-tap queue swaps": "_isStartingPlayback" in search,
     "home mini player is seeded from active media item": "initialData: handler.activeTrack?.toMediaItem()" in home,
-    "playlist detail mini player is seeded from active media item": "initialData: handler.activeTrack?.toMediaItem()" in playlist,
+    # Playlist details uses the shared MiniPlayerHost, so validate the host's
+    # first-frame seed rather than requiring duplicate StreamBuilder logic in
+    # every screen that embeds it.
+    "playlist detail mini player is seeded from active media item": "initialData: handler.activeTrack?.toMediaItem()" in mini_player_host,
     "playlist tab reserves space above the mini player": "EdgeInsets.fromLTRB(20, 0, 20, 116)" in library,
     "queue race regression tests cover stale indices and failed selections": "stale current-index events" in tests and "failed queue selection restores" in tests,
 }
