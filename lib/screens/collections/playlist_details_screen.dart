@@ -1,6 +1,3 @@
-import 'dart:async';
-
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,11 +5,9 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/local_playlist_manager.dart';
-import '../../widgets/mini_player.dart';
+import '../../widgets/mini_player_host.dart';
 import '../../widgets/playlist_picker_sheet.dart';
-import '../queue/queue_screen.dart';
 import '../home/widgets/track_list_tile.dart';
-import '../player/full_player_screen.dart';
 
 class PlaylistDetailsScreen extends StatefulWidget {
   const PlaylistDetailsScreen({required this.playlistId, super.key});
@@ -281,7 +276,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
             left: 12,
             right: 12,
             bottom: 10,
-            child: _PlaylistMiniPlayerHost(),
+            child: MiniPlayerHost(),
           ),
         ],
       ),
@@ -615,46 +610,6 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
       await manager.deletePlaylist(playlist.id);
       if (context.mounted) Navigator.pop(context);
     }
-  }
-}
-
-class _PlaylistMiniPlayerHost extends StatelessWidget {
-  const _PlaylistMiniPlayerHost();
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.read<HybridMusicController>();
-    final handler = controller.audioHandler;
-    return StreamBuilder<MediaItem?>(
-      stream: handler.mediaItem,
-      initialData: handler.activeTrack?.toMediaItem(),
-      builder: (context, mediaSnapshot) {
-        final item = mediaSnapshot.data;
-        if (item == null) return const SizedBox.shrink();
-        return StreamBuilder<PlaybackState>(
-          stream: handler.playbackState,
-          builder:
-              (context, playbackSnapshot) => MiniPlayer(
-                item: item,
-                isPlaying:
-                    playbackSnapshot.data?.playing ?? handler.player.playing,
-                duration: item.duration,
-                positionStream: handler.player.positionStream,
-                onPlayPause: controller.togglePlayback,
-                onPrevious: handler.skipToPrevious,
-                onNext: handler.skipToNext,
-                onDismiss: () => unawaited(handler.stop()),
-                onRepeat: controller.toggleRepeat,
-                onQueue: () => Navigator.of(context).push(QueueScreen.route()),
-                repeatMode:
-                    playbackSnapshot.data?.repeatMode ?? controller.repeatMode,
-                onStop: handler.stop,
-                onTap:
-                    () => Navigator.of(context).push(FullPlayerScreen.route()),
-              ),
-        );
-      },
-    );
   }
 }
 

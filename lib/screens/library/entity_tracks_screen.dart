@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
+import '../../widgets/mini_player_host.dart';
 import '../../widgets/playlist_picker_sheet.dart';
 import '../home/widgets/track_list_tile.dart';
 
@@ -70,92 +71,107 @@ class _LocalEntityTracksScreenState extends State<LocalEntityTracksScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<MediaTrack>>(
-        future: _tracksFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _EntityMessage(
-              icon: Icons.error_outline_rounded,
-              title: 'Unable to load tracks',
-              subtitle: 'Check media permission and try again.',
-              action: _retry,
-            );
-          }
-          final tracks = controller.orderedTracks(snapshot.data ?? const []);
-          if (tracks.isEmpty) {
-            return _EntityMessage(
-              icon: Icons.music_off_rounded,
-              title: 'No playable tracks',
-              subtitle:
-                  widget.subtitle ??
-                  'No local audio files were found in this collection.',
-              action: _retry,
-            );
-          }
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth - 24 < 470;
-              return CustomScrollView(
-                slivers: <Widget>[
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    sliver: SliverToBoxAdapter(
-                      child: Padding(
-                        // Keep the former 4px list separator after the count row.
-                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
-                        child: Text(
-                          '${tracks.length} ${tracks.length == 1 ? 'track' : 'tracks'}',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontWeight: FontWeight.w700,
+      body: Stack(
+        children: <Widget>[
+          FutureBuilder<List<MediaTrack>>(
+            future: _tracksFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return _EntityMessage(
+                  icon: Icons.error_outline_rounded,
+                  title: 'Unable to load tracks',
+                  subtitle: 'Check media permission and try again.',
+                  action: _retry,
+                );
+              }
+              final tracks = controller.orderedTracks(
+                snapshot.data ?? const [],
+              );
+              if (tracks.isEmpty) {
+                return _EntityMessage(
+                  icon: Icons.music_off_rounded,
+                  title: 'No playable tracks',
+                  subtitle:
+                      widget.subtitle ??
+                      'No local audio files were found in this collection.',
+                  action: _retry,
+                );
+              }
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth - 24 < 470;
+                  return CustomScrollView(
+                    slivers: <Widget>[
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                        sliver: SliverToBoxAdapter(
+                          child: Padding(
+                            // Keep the former 4px list separator after the count row.
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
+                            child: Text(
+                              '${tracks.length} ${tracks.length == 1 ? 'track' : 'tracks'}',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
-                    sliver: SliverFixedExtentList(
-                      itemExtent: compact ? 76 : 82,
-                      delegate: SliverChildBuilderDelegate(
-                        (context, trackIndex) {
-                          final track = tracks[trackIndex];
-                          return Padding(
-                            // A default TrackListTile is 78px high; the 4px
-                            // bottom gap matches the previous separated list.
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: TrackListTile(
-                              key: ValueKey<String>('entity-${track.id}'),
-                              track: track,
-                              compact: compact,
-                              onTap:
-                                  () => unawaited(
-                                    controller.playTrackQueue(
-                                      tracks,
-                                      initialIndex: trackIndex,
-                                    ),
-                                  ),
-                              isFavorite: controller.isFavorite(track),
-                              onFavorite:
-                                  () => controller.toggleFavorite(track),
-                              onAddToPlaylist:
-                                  () => showAddToPlaylistSheet(context, track),
-                            ),
-                          );
-                        },
-                        childCount: tracks.length,
-                        addAutomaticKeepAlives: false,
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 118),
+                        sliver: SliverFixedExtentList(
+                          itemExtent: compact ? 76 : 82,
+                          delegate: SliverChildBuilderDelegate(
+                            (context, trackIndex) {
+                              final track = tracks[trackIndex];
+                              return Padding(
+                                // A default TrackListTile is 78px high; the 4px
+                                // bottom gap matches the previous separated list.
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: TrackListTile(
+                                  key: ValueKey<String>('entity-${track.id}'),
+                                  track: track,
+                                  compact: compact,
+                                  onTap:
+                                      () => unawaited(
+                                        controller.playTrackQueue(
+                                          tracks,
+                                          initialIndex: trackIndex,
+                                        ),
+                                      ),
+                                  isFavorite: controller.isFavorite(track),
+                                  onFavorite:
+                                      () => controller.toggleFavorite(track),
+                                  onAddToPlaylist:
+                                      () => showAddToPlaylistSheet(
+                                        context,
+                                        track,
+                                      ),
+                                ),
+                              );
+                            },
+                            childCount: tracks.length,
+                            addAutomaticKeepAlives: false,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               );
             },
-          );
-        },
+          ),
+          const Positioned(
+            left: 12,
+            right: 12,
+            bottom: 10,
+            child: SafeArea(top: false, child: MiniPlayerHost()),
+          ),
+        ],
       ),
     );
   }
