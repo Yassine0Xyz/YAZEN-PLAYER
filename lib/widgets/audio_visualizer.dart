@@ -506,7 +506,9 @@ class SourceSpectrumPainter extends CustomPainter {
       1.6,
       (size.width - gap * (barCount - 1)) / barCount,
     );
-    final baselineY = size.height - 3.0;
+    // Leave only a soft breathing margin instead of pinning the spectrum to a
+    // hard horizontal surface.
+    final baselineY = size.height - 2.0;
     final linePaint =
         Paint()
           ..style = PaintingStyle.stroke
@@ -627,9 +629,10 @@ class SourceSpectrumPainter extends CustomPainter {
           hasSignal && index < peaks.length
               ? peaks[index].clamp(0.0, 1.0).toDouble()
               : 0.0;
-      // The baseline is fixed at the bottom. Energy can only grow upward.
+      // Energy grows from a soft baseline, with enough headroom for rounded
+      // tops and glow instead of a rigid ceiling/cap treatment.
       final barHeight =
-          hasSignal ? math.max(2.4, (size.height - 7.0) * level) : 2.4;
+          hasSignal ? math.max(3.0, (size.height - 4.0) * level) : 3.0;
       final x = index * (barWidth + gap) + barWidth / 2;
       final barColor = _colorAt(ratio, level);
       final rect =
@@ -650,6 +653,13 @@ class SourceSpectrumPainter extends CustomPainter {
       // Reuse one palette shader for the complete spectrum. A per-bar
       // LinearGradient + shader allocation on every 60/90 Hz repaint was
       // needlessly expensive on mid-range devices.
+      if (style == VisualizerStyle.bars && hasSignal && level > 0.04) {
+        final glowRect = rect.inflate(math.min(3.0, barWidth * 0.42));
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(glowRect, radius),
+          Paint()..color = barColor.withValues(alpha: 0.10 + level * 0.08),
+        );
+      }
       canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);
       paint
         ..color = barColor.withValues(alpha: hasSignal ? 0.82 : 0.14)
@@ -657,7 +667,10 @@ class SourceSpectrumPainter extends CustomPainter {
 
       // Draw the cap only when it is meaningfully above this same frame's
       // bar. The bounded peak logic above prevents a stale detached dot.
-      if (hasSignal && peak - level > 0.025) {
+      // Bars use a rounded, luminous top; a detached horizontal cap makes
+      // them look capped and mechanical. Keep the peak marker for Mirror,
+      // where it reads as a useful centre-line accent.
+      if (style == VisualizerStyle.mirror && hasSignal && peak - level > 0.025) {
         paint
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);
@@ -679,13 +692,7 @@ class SourceSpectrumPainter extends CustomPainter {
           ..color = color.withValues(alpha: hasSignal ? 0.34 : 0.20)
           ..strokeWidth = 1.0
           ..strokeCap = StrokeCap.round;
-    if (style == VisualizerStyle.bars) {
-      canvas.drawLine(
-        Offset(0, baselineY),
-        Offset(size.width, baselineY),
-        baselinePaint,
-      );
-    } else if (style == VisualizerStyle.mirror) {
+    if (style == VisualizerStyle.mirror) {
       canvas.drawLine(
         Offset(0, size.height * 0.5),
         Offset(size.width, size.height * 0.5),

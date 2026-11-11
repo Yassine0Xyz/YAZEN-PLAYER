@@ -664,7 +664,7 @@ class HybridAudioHandler extends BaseAudioHandler
       ..add(track);
     _publishQueueState(<MediaItem>[item], 0);
     _persistQueueAndProgress();
-    if (autoPlay && stillCurrent()) _startPlaybackWithoutHoldingQueue();
+    if (autoPlay && stillCurrent()) await _startPlaybackAndWaitForReady();
   }
 
   Future<void> playTrackQueue(List<MediaTrack> tracks, {int initialIndex = 0}) {
@@ -705,7 +705,7 @@ class HybridAudioHandler extends BaseAudioHandler
       mediaItem.add(selectedTrack.toMediaItem());
       _broadcastPlaybackState();
       _persistPlayback();
-      _startPlaybackWithoutHoldingQueue();
+      await _startPlaybackAndWaitForReady();
       return;
     }
 
@@ -780,7 +780,7 @@ class HybridAudioHandler extends BaseAudioHandler
       ..addAll(tracks);
     _publishQueueState(items, initialIndex);
     _persistQueueAndProgress();
-    _startPlaybackWithoutHoldingQueue();
+    await _startPlaybackAndWaitForReady();
   }
 
   bool _hasSameLoadedQueue(List<MediaTrack> tracks) {
@@ -1039,6 +1039,25 @@ class HybridAudioHandler extends BaseAudioHandler
         // while just_audio's play future waits for the track to finish.
       }),
     );
+  }
+
+  /// Starts a newly selected source and waits only until playback is observed,
+  /// never until the song finishes. This closes the hand-off race where a
+  /// source swap pauses the previous item, but the first play request has not
+  /// reached just_audio before the route/list rebuilds.
+  Future<void> _startPlaybackAndWaitForReady() async {
+    if (_player.playing || _isDisposed) return;
+    final started = _player.playingStream
+        .firstWhere((playing) => playing)
+        .timeout(const Duration(seconds: 4));
+    _startPlaybackWithoutHoldingQueue();
+    try {
+      await started;
+    } on TimeoutException {
+      // A platform decoder can take longer than the normal hand-off window.
+      // Retry once without blocking the queue mutation indefinitely.
+      if (!_player.playing && !_isDisposed) _startPlaybackWithoutHoldingQueue();
+    }
   }
 
   @override

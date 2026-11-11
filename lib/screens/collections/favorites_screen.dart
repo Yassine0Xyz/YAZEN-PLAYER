@@ -5,6 +5,7 @@ import '../../controllers/hybrid_music_controller.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../models/media_track.dart';
 import '../../services/local_playlist_manager.dart';
+import '../../widgets/mini_player_host.dart';
 import '../../widgets/playlist_picker_sheet.dart';
 import '../../screens/home/widgets/track_list_tile.dart';
 
@@ -46,7 +47,8 @@ class FavoritesScreen extends StatelessWidget {
             ),
         ],
       ),
-      body:
+      body: Stack(
+        children: <Widget>[
           tracks.isEmpty
               ? const _EmptyCollection(
                 icon: Icons.favorite_border_rounded,
@@ -58,7 +60,7 @@ class FavoritesScreen extends StatelessWidget {
                   final compact = constraints.maxWidth - 24 < 470;
                   final tileExtent = compact ? 72.0 : 78.0;
                   return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 30),
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 118),
                     // Preserve the former 2px separator after each fixed row.
                     itemExtent: tileExtent + 2,
                     itemCount: tracks.length,
@@ -85,6 +87,14 @@ class FavoritesScreen extends StatelessWidget {
                   );
                 },
               ),
+          const Positioned(
+            left: 12,
+            right: 12,
+            bottom: 10,
+            child: SafeArea(top: false, child: MiniPlayerHost()),
+          ),
+        ],
+      ),
     );
   }
 

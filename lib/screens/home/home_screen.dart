@@ -630,7 +630,10 @@ class _MiniPlayerHostState extends State<_MiniPlayerHost> {
       // mini player is visible on the very first frame of that page.
       initialData: handler.activeTrack?.toMediaItem(),
       builder: (context, mediaSnapshot) {
-        final item = mediaSnapshot.data;
+        // A source swap can briefly publish null before the new media item is
+        // replayed. Keep the current item visible during that hand-off so the
+        // mini player does not disappear while a new tab starts playback.
+        final item = mediaSnapshot.data ?? handler.activeTrack?.toMediaItem();
         return AnimatedSwitcher(
           duration: MotionTokens.base,
           switchInCurve: MotionTokens.standard,
