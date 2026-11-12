@@ -82,6 +82,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   double _adaptiveGain = 1.0;
   double _spectralBalance = 0.0;
   Duration? _lastTick;
+  double _sceneTime = 0;
+  double _sceneEnergy = 0;
+  double _sceneBeat = 0;
+  double _bassAverage = 0;
+  final List<List<double>> _sceneHistory = List<List<double>>.generate(
+    40,
+    (_) => List<double>.filled(28, 0),
+  );
+  int _sceneHistoryIndex = 0;
 
   @override
   void initState() {
@@ -321,6 +330,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             ? 1.0 / 60.0
             : (elapsed - previousTick).inMicroseconds /
                 Duration.microsecondsPerSecond;
+    _sceneTime += dt;
     // The ticker fills the visual gap between 40 ms source frames. These
     // constants affect only how quickly the display approaches real targets.
     final riseSeconds =
@@ -360,7 +370,50 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _displayLevels[index] = next;
       _displayPeaks[index] = nextPeak.clamp(0.0, 1.0);
     }
+    _updateNoorFrame(dt);
+    if (_isNoorStyle) changed = true;
     if (changed) _painterRepaint.value++;
+  }
+
+  bool get _isNoorStyle => switch (_visualizerSettings.style) {
+    VisualizerStyle.halo ||
+    VisualizerStyle.columns ||
+    VisualizerStyle.ribbon ||
+    VisualizerStyle.orbit ||
+    VisualizerStyle.pulse ||
+    VisualizerStyle.ridge => true,
+    _ => false,
+  };
+
+  void _updateNoorFrame(double dt) {
+    var energy = 0.0;
+    final bassCount = math.max(1, _displayLevels.length ~/ 8);
+    var bass = 0.0;
+    for (var i = 0; i < _displayLevels.length; i++) {
+      final value = _displayLevels[i];
+      energy += value;
+      if (i < bassCount) bass += value;
+    }
+    _sceneEnergy = _displayLevels.isEmpty
+        ? 0
+        : (energy / _displayLevels.length).clamp(0.0, 1.0).toDouble();
+    bass /= bassCount;
+    _bassAverage = _bassAverage * 0.96 + bass * 0.04;
+    if (bass > _bassAverage * 1.32 && bass > 0.22) {
+      _sceneBeat = 1;
+    } else {
+      _sceneBeat *= math.exp(-dt * 5.5);
+    }
+    final row = _sceneHistory[_sceneHistoryIndex];
+    for (var i = 0; i < row.length; i++) {
+      final u = row.length <= 1 ? 0.0 : i / (row.length - 1);
+      final source = (math.pow(u, 0.55) *
+              math.max(0, _displayLevels.length - 1))
+          .round()
+          .clamp(0, math.max(0, _displayLevels.length - 1));
+      row[i] = _displayLevels.isEmpty ? 0 : _displayLevels[source];
+    }
+    _sceneHistoryIndex = (_sceneHistoryIndex + 1) % _sceneHistory.length;
   }
 
   void _resetBands() {
@@ -371,6 +424,14 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _spectralBalance = 0.0;
     _displayLevels = List<double>.filled(count, 0.0);
     _displayPeaks = List<double>.filled(count, 0.0);
+    _sceneTime = 0;
+    _sceneEnergy = 0;
+    _sceneBeat = 0;
+    _bassAverage = 0;
+    _sceneHistoryIndex = 0;
+    for (final row in _sceneHistory) {
+      row.fillRange(0, row.length, 0);
+    }
     if (mounted) setState(() {});
   }
 
@@ -437,6 +498,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                         style: _visualizerSettings.style,
                         levels: _displayLevels,
                         peaks: _displayPeaks,
+                        sceneTime: _sceneTime,
+                        energy: _sceneEnergy,
+                        beat: _sceneBeat,
+                        history: _sceneHistory,
+                        sceneHistoryIndex: _sceneHistoryIndex,
                         hasSignal: _hasRealSignal,
                         progress: null,
                       ),
@@ -464,6 +530,11 @@ class SourceSpectrumPainter extends CustomPainter {
     required this.progress,
     this.progressListenable,
     this.paletteColors = const <Color>[],
+    this.sceneTime = 0,
+    this.energy = 0,
+    this.beat = 0,
+    this.history = const <List<double>>[],
+    this.sceneHistoryIndex = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -478,6 +549,11 @@ class SourceSpectrumPainter extends CustomPainter {
   final double? progress;
   final ValueListenable<double?>? progressListenable;
   final List<Color> paletteColors;
+  final double sceneTime;
+  final double energy;
+  final double beat;
+  final List<List<double>> history;
+  final int sceneHistoryIndex;
 
   Color _colorAt(double position, double energy) {
     if (paletteColors.isEmpty) return color;
@@ -495,9 +571,291 @@ class SourceSpectrumPainter extends CustomPainter {
     return Color.lerp(sampled, Colors.white, highlight)!;
   }
 
+  Color _noorColor(double position, double energy, {bool core = false}) {
+    if (paletteColors.isEmpty) return color;
+    final index = core ? paletteColors.length - 1 : position * paletteColors.length;
+    final first = paletteColors[index.floor().clamp(0, paletteColors.length - 1)];
+    final next = paletteColors[(index.floor() + 1).clamp(0, paletteColors.length - 1)];
+    return Color.lerp(first, next, index - index.floor())!.withValues(
+      alpha: (0.72 + energy.clamp(0.0, 1.0) * 0.28),
+    );
+  }
+
+  double _noorSample(double u) {
+    if (levels.isEmpty) return 0;
+    final shaped = math.pow(u.clamp(0.0, 1.0), 0.5) * (levels.length - 1);
+    final index = shaped.floor();
+    final next = math.min(levels.length - 1, index + 1);
+    return levels[index] + (levels[next] - levels[index]) * (shaped - index);
+  }
+
+  double _noorMirrored(double u) {
+    final folded = u <= 0.5 ? u * 2 : (1 - u) * 2;
+    return _noorSample(folded);
+  }
+
+  void _paintNoorScene(Canvas canvas, Size size) {
+    switch (style) {
+      case VisualizerStyle.halo:
+        _paintNoorHalo(canvas, size);
+        return;
+      case VisualizerStyle.columns:
+        _paintNoorColumns(canvas, size);
+        return;
+      case VisualizerStyle.ribbon:
+        _paintNoorRibbon(canvas, size);
+        return;
+      case VisualizerStyle.orbit:
+        _paintNoorOrbit(canvas, size);
+        return;
+      case VisualizerStyle.pulse:
+        _paintNoorPulse(canvas, size);
+        return;
+      case VisualizerStyle.ridge:
+        _paintNoorRidge(canvas, size);
+        return;
+      default:
+        return;
+    }
+  }
+
+  void _paintNoorHalo(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final base = math.min(size.width, size.height) * 0.20;
+    final reach = math.min(size.width, size.height) * 0.42;
+    final count = profile == AudioVisualizerProfile.full ? 64 : 40;
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(sceneTime * 0.06);
+    for (var i = 0; i < count; i++) {
+      final value = _noorMirrored(i / count);
+      final angle = i / count * math.pi * 2 - math.pi / 2;
+      final inner = base * 0.72 + beat * 6;
+      final outer = inner + reach * (0.34 + math.pow(value.clamp(0.08, 1.0), 0.55) * 0.66);
+      final paint = Paint()
+        ..color = _noorColor(i / count, value)
+        ..strokeWidth = math.max(2.0, (math.pi * 2 * inner / count) * 0.62)
+        ..strokeCap = StrokeCap.square;
+      canvas.drawLine(
+        Offset(math.cos(angle) * inner, math.sin(angle) * inner),
+        Offset(math.cos(angle) * outer, math.sin(angle) * outer),
+        paint,
+      );
+    }
+    final radius = base * 0.46 + energy * 22 + beat * 12;
+    final glow = Paint()
+      ..shader = RadialGradient(
+        colors: <Color>[
+          _noorColor(0.8, energy, core: true),
+          _noorColor(0.3, energy).withValues(alpha: 0.42),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius * 1.8));
+    canvas.drawCircle(Offset.zero, radius * 1.8, glow);
+    canvas.drawCircle(
+      Offset.zero,
+      base * 0.86,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = _noorColor(0.9, energy, core: true).withValues(alpha: 0.48),
+    );
+    canvas.restore();
+  }
+
+  void _paintNoorColumns(Canvas canvas, Size size) {
+    final count = profile == AudioVisualizerProfile.full ? 52 : 32;
+    final gap = math.max(2.0, size.width * 0.006);
+    final span = size.width * 0.9;
+    final barWidth = (span - gap * (count - 1)) / count;
+    final left = (size.width - span) / 2;
+    final mid = size.height * 0.58;
+    final maxHeight = size.height * 0.46;
+    for (var i = 0; i < count; i++) {
+      final value = _noorMirrored(i / math.max(1, count - 1));
+      final height = math.max(3.0, (0.08 + math.pow(value, 0.7) * 0.92) * maxHeight);
+      final x = left + i * (barWidth + gap);
+      final columnColor = _noorColor(i / math.max(1, count - 1), value);
+      final radius = Radius.circular(math.min(barWidth / 2, 8));
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(x, mid - height, barWidth, height), radius),
+        Paint()..color = columnColor,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42), radius),
+        Paint()..color = columnColor.withValues(alpha: 0.22),
+      );
+    }
+    canvas.drawLine(
+      Offset(left, mid),
+      Offset(left + span, mid),
+      Paint()
+        ..color = _noorColor(0.9, energy, core: true).withValues(alpha: 0.28)
+        ..strokeWidth = 1,
+    );
+  }
+
+  Path _noorWavePath(Size size, double amplitude, double phase) {
+    final path = Path();
+    const steps = 120;
+    for (var i = 0; i <= steps; i++) {
+      final u = i / steps;
+      final sample = _noorSample(u);
+      final wobble = math.sin(sceneTime * 1.3 + phase + u * 8) * size.height * 0.012;
+      final y = size.height * 0.5 + sample * amplitude * size.height + wobble;
+      if (i == 0) {
+        path.moveTo(u * size.width, y);
+      } else {
+        path.lineTo(u * size.width, y);
+      }
+    }
+    return path;
+  }
+
+  void _paintNoorRibbon(Canvas canvas, Size size) {
+    final upper = _noorWavePath(size, 0.30, 0.2);
+    final area = Path()..addPath(upper, Offset.zero);
+    area.lineTo(size.width, size.height);
+    area.lineTo(0, size.height);
+    area.close();
+    canvas.drawPath(
+      area,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            _noorColor(0.35, energy).withValues(alpha: 0.04),
+            _noorColor(0.35, energy).withValues(alpha: 0.12 + energy * 0.22),
+            Colors.transparent,
+          ],
+        ).createShader(Offset.zero & size),
+    );
+    for (final spec in <(double, double, double)>[
+      (0.26, 0.2, 2.2 + energy * 2),
+      (0.16, 1.4, 1.4),
+      (0.10, 2.4, 1.0),
+    ]) {
+      canvas.drawPath(
+        _noorWavePath(size, spec.$1, spec.$2),
+        Paint()
+          ..color = _noorColor(spec.$2 / 3.0, energy).withValues(alpha: spec.$3 == 1.0 ? 0.28 : 0.82)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = spec.$3
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+  }
+
+  void _paintNoorOrbit(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = math.min(size.width, size.height) * 0.44;
+    final orbitPaint = Paint()
+      ..color = _noorColor(0.1, energy).withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (final orbit in <double>[0.28, 0.5, 0.74]) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: center,
+          width: maxRadius * orbit * 2,
+          height: maxRadius * orbit * 1.44,
+        ),
+        orbitPaint,
+      );
+    }
+    for (var i = 0; i < 72; i++) {
+      final band = (i % 24) / 23;
+      final value = _noorSample(band);
+      final angle = i / 72 * math.pi * 2 + (i % 3) * 0.2 + sceneTime * (i.isEven ? 0.55 : -0.55) * (0.35 + value * 0.9);
+      final radius = maxRadius * (0.2 + (1 - band) * 0.15 + band * 0.8) * (0.9 + value * 0.22);
+      final particleSize = 2.1 + value * 5.5 + (i % 9 == 0 ? beat * 4 : 0);
+      canvas.drawCircle(
+        Offset(center.dx + math.cos(angle) * radius, center.dy + math.sin(angle) * radius * 0.7),
+        particleSize,
+        Paint()..color = _noorColor(i % 6 / 6, value).withValues(alpha: 0.5 + value * 0.5),
+      );
+    }
+  }
+
+  void _paintNoorPulse(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final base = math.min(size.width, size.height);
+    for (var i = 0; i < 7; i++) {
+      final phase = (sceneTime * (0.55 + energy * 0.8) + i * 0.19) % 1;
+      final radius = base * (0.10 + phase * 0.52) + beat * 8;
+      final life = (1 - phase) * (0.35 + energy * 0.6);
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = _noorColor(i / 7, energy).withValues(alpha: life.clamp(0.0, 0.8))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (1.2 + (1 - phase) * 2.4),
+      );
+    }
+    final core = base * (0.07 + energy * 0.05) + beat * 8;
+    canvas.drawCircle(
+      center,
+      core * 2.2,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[
+            _noorColor(0.9, energy, core: true),
+            _noorColor(0.4, energy).withValues(alpha: 0.45),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: center, radius: core * 2.2)),
+    );
+  }
+
+  void _paintNoorRidge(Canvas canvas, Size size) {
+    if (history.isEmpty) return;
+    final rows = history.length;
+    final cols = history.first.length;
+    if (cols < 2) return;
+    for (var z = 0; z < rows; z++) {
+      final row = history[(sceneHistoryIndex + z) % rows];
+      final depth = z / math.max(1, rows - 1);
+      final y = size.height * 0.22 + depth * size.height * 0.58;
+      final scale = 0.42 + depth * 0.72;
+      final path = Path();
+      for (var x = 0; x < cols; x++) {
+        final px = size.width / 2 + (x / (cols - 1) - 0.5) * size.width * 0.92 * scale;
+        final py = y - row[x] * size.height * 0.32 * scale;
+        if (x == 0) {
+          path.moveTo(px, py);
+        } else {
+          path.lineTo(px, py);
+        }
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = _noorColor(
+            depth,
+            row.isEmpty ? 0 : row.reduce((a, b) => math.max(a, b).toDouble()),
+          ).withValues(alpha: 0.15 + depth * 0.7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1 + depth * 1.4
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
+    if (style == VisualizerStyle.halo ||
+        style == VisualizerStyle.columns ||
+        style == VisualizerStyle.ribbon ||
+        style == VisualizerStyle.orbit ||
+        style == VisualizerStyle.pulse ||
+        style == VisualizerStyle.ridge) {
+      _paintNoorScene(canvas, size);
+      return;
+    }
     final gap = math.max(
       profile == AudioVisualizerProfile.full ? 2.0 : 2.6,
       size.width * (profile == AudioVisualizerProfile.full ? 0.0065 : 0.009),
@@ -726,6 +1084,10 @@ class SourceSpectrumPainter extends CustomPainter {
         oldDelegate.hasSignal != hasSignal ||
         oldDelegate.progress != progress ||
         oldDelegate.progressListenable != progressListenable ||
+        oldDelegate.sceneTime != sceneTime ||
+        oldDelegate.energy != energy ||
+        oldDelegate.beat != beat ||
+        oldDelegate.sceneHistoryIndex != sceneHistoryIndex ||
         !listEquals(oldDelegate.levels, levels) ||
         !listEquals(oldDelegate.peaks, peaks);
   }

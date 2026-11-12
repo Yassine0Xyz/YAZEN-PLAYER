@@ -495,6 +495,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   VisualizerStyle.circular => 'Circular',
                                   VisualizerStyle.mirror => 'Mirror',
                                   VisualizerStyle.line => 'Line',
+                                  VisualizerStyle.halo => 'Halo',
+                                  VisualizerStyle.columns => 'Columns',
+                                  VisualizerStyle.ribbon => 'Ribbon',
+                                  VisualizerStyle.orbit => 'Orbit',
+                                  VisualizerStyle.pulse => 'Pulse',
+                                  VisualizerStyle.ridge => 'Ridge',
                                 }),
                                 selected: settings.style == style,
                                 onSelected:

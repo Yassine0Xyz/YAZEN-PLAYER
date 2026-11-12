@@ -14,7 +14,7 @@ checks = {
     "failed queue selection restores prior queue": "previousTracks.isNotEmpty" in handler and "previousWasPlaying" in handler,
     "search waits for queue setup before popping route": "await controller.playTrackQueue(audioResults, initialIndex: index)" in search and "if (mounted) navigator.pop();" in search,
     "search prevents duplicate overlapping first-tap queue swaps": "_isStartingPlayback" in search,
-    "home mini player is seeded from active media item": "initialData: handler.activeTrack?.toMediaItem()" in home,
+    "home mini player is seeded from active media item": "MiniPlayerHost()" in home and "initialData: handler.activeTrack?.toMediaItem()" in mini_player_host,
     # Playlist details uses the shared MiniPlayerHost, so validate the host's
     # first-frame seed rather than requiring duplicate StreamBuilder logic in
     # every screen that embeds it.

@@ -358,6 +358,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             value: VisualizerStyle.line,
                             child: Text('Line'),
                           ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.halo,
+                            child: Text('NOOR · Halo'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.columns,
+                            child: Text('NOOR · Columns'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.ribbon,
+                            child: Text('NOOR · Ribbon'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.orbit,
+                            child: Text('NOOR · Orbit'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.pulse,
+                            child: Text('NOOR · Pulse'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerStyle.ridge,
+                            child: Text('NOOR · Ridge'),
+                          ),
                         ],
                         onChanged:
                             settings.loaded
@@ -571,6 +595,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       VisualizerStyle.circular => 'Circular',
       VisualizerStyle.mirror => 'Mirror',
       VisualizerStyle.line => 'Line',
+      VisualizerStyle.halo => 'NOOR · Halo',
+      VisualizerStyle.columns => 'NOOR · Columns',
+      VisualizerStyle.ribbon => 'NOOR · Ribbon',
+      VisualizerStyle.orbit => 'NOOR · Orbit',
+      VisualizerStyle.pulse => 'NOOR · Pulse',
+      VisualizerStyle.ridge => 'NOOR · Ridge',
     };
   }
 

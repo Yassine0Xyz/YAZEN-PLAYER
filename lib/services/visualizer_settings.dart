@@ -3,7 +3,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum VisualizerResponse { smooth, balanced, fast }
 
-enum VisualizerStyle { bars, wave, circular, mirror, line }
+enum VisualizerStyle {
+  bars,
+  wave,
+  circular,
+  mirror,
+  line,
+  halo,
+  columns,
+  ribbon,
+  orbit,
+  pulse,
+  ridge,
+}
 
 class VisualizerSettings extends ChangeNotifier {
   VisualizerSettings._();

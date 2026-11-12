@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:audio_service/audio_service.dart';
-
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,17 +7,15 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/hybrid_music_controller.dart';
 import '../../models/media_track.dart';
-import '../../core/theme/motion_tokens.dart';
 import '../../core/theme/theme_tokens.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../screens/effects/equalizer_screen.dart';
 import '../../screens/library/local_media_screen.dart';
 import '../../screens/search/search_screen.dart';
-import '../../screens/queue/queue_screen.dart';
 import '../../screens/settings/settings_screen.dart';
 import '../../services/library_display_settings.dart';
 import '../../widgets/echo_motion.dart';
-import '../../widgets/mini_player.dart';
+import '../../widgets/mini_player_host.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../player/full_player_screen.dart';
 import 'widgets/library_tabs.dart';
@@ -176,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
               left: 12,
               right: 12,
               bottom: 10,
-              child: _MiniPlayerHost(),
+              child: MiniPlayerHost(),
             ),
           ],
         ),
@@ -607,84 +603,6 @@ class _HeaderAction extends StatelessWidget {
       backgroundColor: tokens.surface.withValues(alpha: 0.42),
       selectedBackgroundColor: (color ?? tokens.accent).withValues(alpha: 0.12),
       size: 40,
-    );
-  }
-}
-
-class _MiniPlayerHost extends StatefulWidget {
-  const _MiniPlayerHost();
-
-  @override
-  State<_MiniPlayerHost> createState() => _MiniPlayerHostState();
-}
-
-class _MiniPlayerHostState extends State<_MiniPlayerHost> {
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.read<HybridMusicController>();
-    final handler = controller.audioHandler;
-    return StreamBuilder<MediaItem?>(
-      stream: handler.mediaItem,
-      // The media-item stream may not replay immediately when this host is
-      // mounted after switching to Playlists. Seed it from the handler so the
-      // mini player is visible on the very first frame of that page.
-      initialData: handler.activeTrack?.toMediaItem(),
-      builder: (context, mediaSnapshot) {
-        // A source swap can briefly publish null before the new media item is
-        // replayed. Keep the current item visible during that hand-off so the
-        // mini player does not disappear while a new tab starts playback.
-        final item = mediaSnapshot.data ?? handler.activeTrack?.toMediaItem();
-        return AnimatedSwitcher(
-          duration: MotionTokens.base,
-          switchInCurve: MotionTokens.standard,
-          switchOutCurve: MotionTokens.exit,
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.06),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              ),
-            );
-          },
-          child:
-              item == null
-                  ? const SizedBox.shrink(key: ValueKey('mini-player-hidden'))
-                  : StreamBuilder<PlaybackState>(
-                    key: ValueKey<String>('mini-player-${item.id}'),
-                    stream: handler.playbackState,
-                    builder: (context, playbackSnapshot) {
-                      return MiniPlayer(
-                        item: item,
-                        isPlaying:
-                            playbackSnapshot.data?.playing ??
-                            handler.player.playing,
-                        duration: item.duration,
-                        positionStream: handler.player.positionStream,
-                        onPlayPause: controller.togglePlayback,
-                        onPrevious: handler.skipToPrevious,
-                        onNext: handler.skipToNext,
-                        onDismiss: () => unawaited(handler.stop()),
-                        onRepeat: controller.toggleRepeat,
-                        onQueue:
-                            () =>
-                                Navigator.of(context).push(QueueScreen.route()),
-                        repeatMode:
-                            playbackSnapshot.data?.repeatMode ??
-                            controller.repeatMode,
-                        onStop: handler.stop,
-                        onTap:
-                            () => Navigator.of(
-                              context,
-                            ).push(FullPlayerScreen.route()),
-                      );
-                    },
-                  ),
-        );
-      },
     );
   }
 }

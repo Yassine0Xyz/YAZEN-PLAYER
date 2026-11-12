@@ -19,36 +19,48 @@ class MiniPlayerHost extends StatelessWidget {
     final controller = context.read<HybridMusicController>();
     final handler = controller.audioHandler;
 
-    return StreamBuilder<MediaItem?>(
-      stream: handler.mediaItem,
-      initialData: handler.activeTrack?.toMediaItem(),
-      builder: (context, mediaSnapshot) {
-        // Some audio-service streams do not replay their last value to a newly
-        // mounted route. Use the handler's active track as a stable fallback.
-        final item = mediaSnapshot.data ?? handler.activeTrack?.toMediaItem();
-        if (item == null) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return StreamBuilder<MediaItem?>(
+          stream: handler.mediaItem,
+          initialData: handler.activeTrack?.toMediaItem(),
+          builder: (context, mediaSnapshot) {
+            // The controller is the authoritative source during a queue swap.
+            // Prefer it over a stale stream snapshot so moving from Library to
+            // Albums, Favorites, or Playlists cannot keep the old item frozen.
+            final item =
+                handler.activeTrack?.toMediaItem() ?? mediaSnapshot.data;
+            if (item == null) return const SizedBox.shrink();
 
-        return StreamBuilder<PlaybackState>(
-          stream: handler.playbackState,
-          builder:
-              (context, playbackSnapshot) => MiniPlayer(
-                item: item,
-                isPlaying:
-                    playbackSnapshot.data?.playing ?? handler.player.playing,
-                duration: item.duration,
-                positionStream: handler.player.positionStream,
-                onPlayPause: controller.togglePlayback,
-                onPrevious: handler.skipToPrevious,
-                onNext: handler.skipToNext,
-                onDismiss: () => unawaited(handler.stop()),
-                onRepeat: controller.toggleRepeat,
-                onQueue: () => Navigator.of(context).push(QueueScreen.route()),
-                repeatMode:
-                    playbackSnapshot.data?.repeatMode ?? controller.repeatMode,
-                onStop: handler.stop,
-                onTap:
-                    () => Navigator.of(context).push(FullPlayerScreen.route()),
-              ),
+            return StreamBuilder<PlaybackState>(
+              stream: handler.playbackState,
+              builder:
+                  (context, playbackSnapshot) => MiniPlayer(
+                    item: item,
+                    isPlaying:
+                        playbackSnapshot.data?.playing ??
+                        handler.player.playing,
+                    duration: item.duration,
+                    positionStream: handler.player.positionStream,
+                    onPlayPause: controller.togglePlayback,
+                    onPrevious: handler.skipToPrevious,
+                    onNext: handler.skipToNext,
+                    onDismiss: () => unawaited(handler.stop()),
+                    onRepeat: controller.toggleRepeat,
+                    onQueue:
+                        () => Navigator.of(context).push(QueueScreen.route()),
+                    repeatMode:
+                        playbackSnapshot.data?.repeatMode ??
+                        controller.repeatMode,
+                    onStop: handler.stop,
+                    onTap:
+                        () => Navigator.of(
+                          context,
+                        ).push(FullPlayerScreen.route()),
+                  ),
+            );
+          },
         );
       },
     );
