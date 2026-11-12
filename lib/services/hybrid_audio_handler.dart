@@ -1047,16 +1047,18 @@ class HybridAudioHandler extends BaseAudioHandler
   /// reached just_audio before the route/list rebuilds.
   Future<void> _startPlaybackAndWaitForReady() async {
     if (_player.playing || _isDisposed) return;
-    final started = _player.playingStream
-        .firstWhere((playing) => playing)
-        .timeout(const Duration(seconds: 4));
     _startPlaybackWithoutHoldingQueue();
-    try {
-      await started;
-    } on TimeoutException {
-      // A platform decoder can take longer than the normal hand-off window.
-      // Retry once without blocking the queue mutation indefinitely.
-      if (!_player.playing && !_isDisposed) _startPlaybackWithoutHoldingQueue();
+    // Poll the stable AudioPlayer contract instead of depending on an optional
+    // stream. This also keeps lightweight fake players used by queue tests
+    // compatible with the hand-off guard.
+    for (var attempt = 0; attempt < 40; attempt++) {
+      if (_player.playing || _isDisposed) return;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    if (!_player.playing && !_isDisposed) {
+      // A platform decoder can take longer than the normal hand-off window;
+      // retry once without blocking the queue mutation indefinitely.
+      _startPlaybackWithoutHoldingQueue();
     }
   }
 
