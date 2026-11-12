@@ -410,7 +410,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       final source = (math.pow(u, 0.55) *
               math.max(0, _displayLevels.length - 1))
           .round()
-          .clamp(0, math.max(0, _displayLevels.length - 1));
+          .clamp(0, math.max(0, _displayLevels.length - 1))
+          .toInt();
       row[i] = _displayLevels.isEmpty ? 0 : _displayLevels[source];
     }
     _sceneHistoryIndex = (_sceneHistoryIndex + 1) % _sceneHistory.length;
@@ -583,7 +584,8 @@ class SourceSpectrumPainter extends CustomPainter {
 
   double _noorSample(double u) {
     if (levels.isEmpty) return 0;
-    final shaped = math.pow(u.clamp(0.0, 1.0), 0.5) * (levels.length - 1);
+    final shaped =
+        math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() * (levels.length - 1);
     final index = shaped.floor();
     final next = math.min(levels.length - 1, index + 1);
     return levels[index] + (levels[next] - levels[index]) * (shaped - index);
