@@ -574,11 +574,17 @@ class SourceSpectrumPainter extends CustomPainter {
 
   Color _noorColor(double position, double energy, {bool core = false}) {
     if (paletteColors.isEmpty) return color;
-    final index = core ? paletteColors.length - 1 : position * paletteColors.length;
-    final first = paletteColors[index.floor().clamp(0, paletteColors.length - 1)];
-    final next = paletteColors[(index.floor() + 1).clamp(0, paletteColors.length - 1)];
-    return Color.lerp(first, next, index - index.floor())!.withValues(
-      alpha: (0.72 + energy.clamp(0.0, 1.0) * 0.28),
+    final index = core
+        ? (paletteColors.length - 1).toDouble()
+        : position * paletteColors.length;
+    final first =
+        paletteColors[index.floor().clamp(0, paletteColors.length - 1).toInt()];
+    final next = paletteColors[(index.floor() + 1)
+        .clamp(0, paletteColors.length - 1)
+        .toInt()];
+    return Color.lerp(first, next, (index - index.floor()).toDouble())!
+        .withValues(
+      alpha: (0.72 + energy.clamp(0.0, 1.0).toDouble() * 0.28),
     );
   }
 
@@ -635,7 +641,10 @@ class SourceSpectrumPainter extends CustomPainter {
       final value = _noorMirrored(i / count);
       final angle = i / count * math.pi * 2 - math.pi / 2;
       final inner = base * 0.72 + beat * 6;
-      final outer = inner + reach * (0.34 + math.pow(value.clamp(0.08, 1.0), 0.55) * 0.66);
+      final outer = inner +
+          reach *
+              (0.34 +
+                  math.pow(value.clamp(0.08, 1.0), 0.55).toDouble() * 0.66);
       final paint = Paint()
         ..color = _noorColor(i / count, value)
         ..strokeWidth = math.max(2.0, (math.pi * 2 * inner / count) * 0.62)
@@ -677,7 +686,10 @@ class SourceSpectrumPainter extends CustomPainter {
     final maxHeight = size.height * 0.46;
     for (var i = 0; i < count; i++) {
       final value = _noorMirrored(i / math.max(1, count - 1));
-      final height = math.max(3.0, (0.08 + math.pow(value, 0.7) * 0.92) * maxHeight);
+      final height = math.max(
+        3.0,
+        (0.08 + math.pow(value, 0.7).toDouble() * 0.92) * maxHeight,
+      ).toDouble();
       final x = left + i * (barWidth + gap);
       final columnColor = _noorColor(i / math.max(1, count - 1), value);
       final radius = Radius.circular(math.min(barWidth / 2, 8));
@@ -794,7 +806,9 @@ class SourceSpectrumPainter extends CustomPainter {
         center,
         radius,
         Paint()
-          ..color = _noorColor(i / 7, energy).withValues(alpha: life.clamp(0.0, 0.8))
+          ..color = _noorColor(i / 7, energy).withValues(
+            alpha: life.clamp(0.0, 0.8).toDouble(),
+          )
           ..style = PaintingStyle.stroke
           ..strokeWidth = (1.2 + (1 - phase) * 2.4),
       );
