@@ -585,9 +585,11 @@ class SourceSpectrumPainter extends CustomPainter {
   double _noorSample(double u) {
     if (levels.isEmpty) return 0;
     final shaped =
-        math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() * (levels.length - 1);
+        (math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() *
+                (levels.length - 1))
+            .toDouble();
     final index = shaped.floor();
-    final next = math.min(levels.length - 1, index + 1);
+    final next = math.min(levels.length - 1, index + 1).toInt();
     return levels[index] + (levels[next] - levels[index]) * (shaped - index);
   }
 
