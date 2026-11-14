@@ -114,6 +114,10 @@ class LocalMediaScreen extends StatelessWidget {
         devicePlaylists: snapshot.playlists,
         customPlaylists: snapshot.customPlaylists,
         favorites: snapshot.favorites,
+        recentlyPlayed: snapshot.recentlyPlayedTracks,
+        mostPlayed: snapshot.mostPlayedTracks,
+        onOpenRecentlyPlayed: () => onTabSelected(LibraryTab.recentlyPlayed),
+        onOpenMostPlayed: () => onTabSelected(LibraryTab.mostPlayed),
       ),
     };
     final reportHeaderScroll =
@@ -352,6 +356,8 @@ class _LocalMediaSnapshot {
   const _LocalMediaSnapshot({
     required this.isLoading,
     required this.historyTracks,
+    required this.recentlyPlayedTracks,
+    required this.mostPlayedTracks,
     required this.permissionRequired,
     required this.visibleTracks,
     required this.folderCounts,
@@ -378,9 +384,20 @@ class _LocalMediaSnapshot {
       LibraryTab.mostPlayed => controller.mostPlayedTracks,
       _ => const <MediaTrack>[],
     };
+    final recentlyPlayedTracks =
+        selectedTab == LibraryTab.playlists ||
+                selectedTab == LibraryTab.recentlyPlayed
+            ? controller.recentlyPlayedTracks
+            : const <MediaTrack>[];
+    final mostPlayedTracks =
+        selectedTab == LibraryTab.playlists || selectedTab == LibraryTab.mostPlayed
+            ? controller.mostPlayedTracks
+            : const <MediaTrack>[];
     return _LocalMediaSnapshot(
       isLoading: controller.isLoading,
       historyTracks: historyTracks,
+      recentlyPlayedTracks: recentlyPlayedTracks,
+      mostPlayedTracks: mostPlayedTracks,
       permissionRequired: controller.permissionRequired,
       visibleTracks:
           needsVisibleTracks ? controller.visibleTracks : const <MediaTrack>[],
@@ -433,6 +450,8 @@ class _LocalMediaSnapshot {
 
   final bool isLoading;
   final List<MediaTrack> historyTracks;
+  final List<MediaTrack> recentlyPlayedTracks;
+  final List<MediaTrack> mostPlayedTracks;
   final bool permissionRequired;
   final List<MediaTrack> visibleTracks;
   final Map<String, int> folderCounts;
@@ -452,6 +471,8 @@ class _LocalMediaSnapshot {
       other is _LocalMediaSnapshot &&
       other.isLoading == isLoading &&
       identical(other.historyTracks, historyTracks) &&
+      identical(other.recentlyPlayedTracks, recentlyPlayedTracks) &&
+      identical(other.mostPlayedTracks, mostPlayedTracks) &&
       other.permissionRequired == permissionRequired &&
       identical(other.visibleTracks, visibleTracks) &&
       identical(other.folderCounts, folderCounts) &&
@@ -470,6 +491,8 @@ class _LocalMediaSnapshot {
   int get hashCode => Object.hash(
     isLoading,
     identityHashCode(historyTracks),
+    identityHashCode(recentlyPlayedTracks),
+    identityHashCode(mostPlayedTracks),
     permissionRequired,
     identityHashCode(visibleTracks),
     identityHashCode(folderCounts),
@@ -2215,22 +2238,28 @@ class _PlaylistsView extends StatelessWidget {
     required this.devicePlaylists,
     required this.customPlaylists,
     required this.favorites,
+    required this.recentlyPlayed,
+    required this.mostPlayed,
+    required this.onOpenRecentlyPlayed,
+    required this.onOpenMostPlayed,
   });
 
   final List<PlaylistModel> devicePlaylists;
   final List<EchoPlaylist> customPlaylists;
   final List<MediaTrack> favorites;
+  final List<MediaTrack> recentlyPlayed;
+  final List<MediaTrack> mostPlayed;
+  final VoidCallback onOpenRecentlyPlayed;
+  final VoidCallback onOpenMostPlayed;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.read<HybridMusicController>();
-    final totalItems = 1 + customPlaylists.length + devicePlaylists.length;
+    final totalItems = 4 + customPlaylists.length + devicePlaylists.length;
     return LibraryTrackViewport(
-      // Keep the final playlist cards scrollable clear of the persistent
-      // mini-player overlay anchored by HomeScreen.
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 116),
       addAutomaticKeepAlives: true,
-      itemCount: totalItems + 1,
+      itemCount: totalItems,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         if (index == 0) {
@@ -2239,9 +2268,9 @@ class _PlaylistsView extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Your collections',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               FilledButton.tonalIcon(
@@ -2252,41 +2281,58 @@ class _PlaylistsView extends StatelessWidget {
             ],
           );
         }
-        if (index == 1) {
+        if (index == 1 || index == 2) {
+          final tracks = index == 1 ? recentlyPlayed : mostPlayed;
+          final title = index == 1 ? 'Recently played' : 'Most played';
+          final isRecent = index == 1;
+          return _CollectionCard(
+            key: ValueKey<String>(isRecent ? 'collection:recently-played' : 'collection:most-played'),
+            icon: isRecent ? Icons.history_rounded : Icons.trending_up_rounded,
+            artworkTrack: tracks.isEmpty ? null : tracks.first,
+            artwork: tracks.isEmpty
+                ? null
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: YazenMediaArtwork(track: tracks.first, size: 108),
+                  ),
+            title: title,
+            subtitle: tracks.isEmpty
+                ? (isRecent ? 'No recent tracks yet' : 'Play songs more than once to see them here')
+                : '',
+            count: tracks.length,
+            previewTracks: tracks.take(3).toList(growable: false),
+            onTap: isRecent ? onOpenRecentlyPlayed : onOpenMostPlayed,
+          );
+        }
+        if (index == 3) {
           return _CollectionCard(
             key: const ValueKey<String>('collection:favorites'),
             icon: Icons.favorite_rounded,
             artworkTrack: favorites.isEmpty ? null : favorites.last,
-            artwork:
-                favorites.isEmpty
-                    ? null
-                    : YazenMediaArtwork(track: favorites.last, size: 82),
+            artwork: favorites.isEmpty
+                ? null
+                : YazenMediaArtwork(track: favorites.last, size: 82),
             title: 'Favorites',
             subtitle: 'Tracks you want to keep close',
             count: favorites.length,
             onTap: () => Navigator.of(context).push(FavoritesScreen.route()),
           );
         }
-        final customIndex = index - 2;
+        final customIndex = index - 4;
         if (customIndex < customPlaylists.length) {
           final playlist = customPlaylists[customIndex];
           return _CollectionCard(
             key: ValueKey<String>('collection:${playlist.id}'),
             icon: Icons.queue_music_rounded,
             artworkTrack: playlist.coverTrack,
-            artwork:
-                playlist.coverTrack == null
-                    ? null
-                    : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
+            artwork: playlist.coverTrack == null
+                ? null
+                : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
             title: playlist.name,
             subtitle: 'Custom playlist',
             count: playlist.tracks.length,
-            onTap:
-                () => Navigator.of(
-                  context,
-                ).push(PlaylistDetailsScreen.route(playlist.id)),
-            onDelete:
-                () => controller.playlistManager.deletePlaylist(playlist.id),
+            onTap: () => Navigator.of(context).push(PlaylistDetailsScreen.route(playlist.id)),
+            onDelete: () => controller.playlistManager.deletePlaylist(playlist.id),
           );
         }
         final deviceIndex = customIndex - customPlaylists.length;
@@ -2297,16 +2343,13 @@ class _PlaylistsView extends StatelessWidget {
           title: playlist.playlist,
           subtitle: 'Device playlist',
           count: playlist.numOfSongs,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title: playlist.playlist,
-                  subtitle:
-                      'Tracks from this device playlist will appear here.',
-                  loadTracks:
-                      () => controller.tracksForDevicePlaylist(playlist.id),
-                ),
-              ),
+          onTap: () => Navigator.of(context).push(
+            LocalEntityTracksScreen.route(
+              title: playlist.playlist,
+              subtitle: 'Tracks from this device playlist will appear here.',
+              loadTracks: () => controller.tracksForDevicePlaylist(playlist.id),
+            ),
+          ),
         );
       },
     );
@@ -2336,6 +2379,7 @@ class _CollectionCard extends StatefulWidget {
     this.artworkTrack,
     this.onTap,
     this.onDelete,
+    this.previewTracks = const <MediaTrack>[],
   });
 
   final IconData icon;
@@ -2346,6 +2390,7 @@ class _CollectionCard extends StatefulWidget {
   final MediaTrack? artworkTrack;
   final VoidCallback? onDelete;
   final VoidCallback? onTap;
+  final List<MediaTrack> previewTracks;
 
   @override
   State<_CollectionCard> createState() => _CollectionCardState();
@@ -2430,6 +2475,7 @@ class _CollectionCardState extends State<_CollectionCard> {
             ),
 
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 widget.artwork ??
                     _EntityArtwork(icon: widget.icon, accent: accent),
@@ -2438,24 +2484,55 @@ class _CollectionCardState extends State<_CollectionCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        widget.title,
-                        style: TextStyle(
-                          color: foreground,
-                          fontWeight: FontWeight.w800,
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: foreground,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${widget.count} songs',
+                            style: TextStyle(color: secondary, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (widget.previewTracks.isNotEmpty)
+                        for (final track in widget.previewTracks.take(3))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(Icons.music_note_rounded, size: 16, color: secondary),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    track.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(color: secondary, fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                      else
+                        Text(
+                          widget.subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: secondary, fontSize: 12),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.subtitle,
-                        style: TextStyle(color: secondary, fontSize: 12),
-                      ),
                     ],
                   ),
-                ),
-                Text(
-                  '${widget.count} songs',
-                  style: TextStyle(color: secondary, fontSize: 12),
                 ),
                 if (widget.onDelete != null)
                   IconButton(

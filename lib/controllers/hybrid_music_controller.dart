@@ -214,7 +214,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       playCount: _playlistManager.playCount,
       lastPlayed: _playlistManager.lastPlayed,
     );
-    return List<MediaTrack>.unmodifiable(tracks);
+    return List<MediaTrack>.unmodifiable(tracks.take(100));
   }
 
   void setLibrarySort(LibrarySort sort) {

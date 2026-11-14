@@ -303,8 +303,8 @@ void main() {
     },
   );
 
-  test('Library history lists include all tracks and sort by play history', () async {
-    final tracks = List<MediaTrack>.generate(10, _track);
+  test('Library history lists are capped at 100 and sort by play history', () async {
+    final tracks = List<MediaTrack>.generate(120, _track);
     final player = _FakeAudioPlayer();
     final handler = HybridAudioHandler(
       player: player,
@@ -315,8 +315,8 @@ void main() {
     for (final track in tracks) {
       await manager.recordPlayed(track);
       await Future<void>.delayed(const Duration(milliseconds: 2));
+      await manager.recordPlayed(track);
     }
-    await manager.recordPlayed(tracks.last);
     await manager.recordPlayed(tracks.last);
 
     final controller = HybridMusicController(
@@ -326,8 +326,8 @@ void main() {
     );
     await controller.loadLibrary(requestPermission: false);
 
-    expect(controller.recentlyPlayedTracks, hasLength(10));
-    expect(controller.mostPlayedTracks, hasLength(1));
+    expect(controller.recentlyPlayedTracks, hasLength(100));
+    expect(controller.mostPlayedTracks, hasLength(100));
     expect(controller.recentlyPlayedTracks.first.id, tracks.last.id);
     expect(controller.mostPlayedTracks.first.id, tracks.last.id);
 
