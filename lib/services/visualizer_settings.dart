@@ -110,22 +110,22 @@ class VisualizerSettings extends ChangeNotifier {
   Duration get riseTime {
     switch (_response) {
       case VisualizerResponse.smooth:
-        return const Duration(milliseconds: 160);
+        return const Duration(milliseconds: 62);
       case VisualizerResponse.balanced:
-        return const Duration(milliseconds: 100);
+        return const Duration(milliseconds: 30);
       case VisualizerResponse.fast:
-        return const Duration(milliseconds: 55);
+        return const Duration(milliseconds: 18);
     }
   }
 
   Duration get fallTime {
     switch (_response) {
       case VisualizerResponse.smooth:
-        return const Duration(milliseconds: 650);
+        return const Duration(milliseconds: 125);
       case VisualizerResponse.balanced:
-        return const Duration(milliseconds: 420);
+        return const Duration(milliseconds: 68);
       case VisualizerResponse.fast:
-        return const Duration(milliseconds: 260);
+        return const Duration(milliseconds: 42);
     }
   }
 }

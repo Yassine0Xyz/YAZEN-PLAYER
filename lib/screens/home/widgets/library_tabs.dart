@@ -7,6 +7,13 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../widgets/echo_motion.dart';
 import '../../../models/media_track.dart';
 
+final List<LibraryTab> _visibleLibraryTabs = List<LibraryTab>.unmodifiable(
+  LibraryTab.values.where(
+    (tab) =>
+        tab != LibraryTab.recentlyPlayed && tab != LibraryTab.mostPlayed,
+  ),
+);
+
 class LibraryTabs extends StatefulWidget {
   const LibraryTabs({
     required this.selected,
@@ -30,7 +37,7 @@ class _LibraryTabsState extends State<LibraryTabs> {
     super.initState();
     _scrollController = ScrollController();
     _tabKeys = List<GlobalKey>.generate(
-      LibraryTab.values.length,
+      _visibleLibraryTabs.length,
       (_) => GlobalKey(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelected());
@@ -46,7 +53,13 @@ class _LibraryTabsState extends State<LibraryTabs> {
 
   void _revealSelected() {
     if (!mounted) return;
-    final index = LibraryTab.values.indexOf(widget.selected);
+    final selectedTab =
+        widget.selected == LibraryTab.recentlyPlayed ||
+                widget.selected == LibraryTab.mostPlayed
+            ? LibraryTab.playlists
+            : widget.selected;
+    final index = _visibleLibraryTabs.indexOf(selectedTab);
+    if (index < 0) return;
     final tabContext = _tabKeys[index].currentContext;
     if (tabContext == null) return;
     Scrollable.ensureVisible(
@@ -66,18 +79,24 @@ class _LibraryTabsState extends State<LibraryTabs> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.read<ThemeProvider>().tokens;
+    final tabs = _visibleLibraryTabs;
+    final historyCollectionSelected =
+        widget.selected == LibraryTab.recentlyPlayed ||
+        widget.selected == LibraryTab.mostPlayed;
     return SizedBox(
       height: 42,
       child: ListView.separated(
         controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: ThemeSpacing.x5),
         scrollDirection: Axis.horizontal,
-        itemCount: LibraryTab.values.length,
+        itemCount: tabs.length,
         separatorBuilder:
             (context, index) => const SizedBox(width: ThemeSpacing.x2),
         itemBuilder: (context, index) {
-          final tab = LibraryTab.values[index];
-          final isSelected = widget.selected == tab;
+          final tab = tabs[index];
+          final isSelected =
+              widget.selected == tab ||
+              (tab == LibraryTab.playlists && historyCollectionSelected);
           final selectedForeground =
               tokens.isLight ? Colors.white : Colors.black;
           return EchoPressable(

@@ -16,27 +16,6 @@ enum AudioVisualizerProfile { compact, full }
 double visualizerWaveAmplitude(double level, double height) =>
     math.max(0.0, height * 0.5 - 2.0) * level.clamp(0.0, 1.0).toDouble();
 
-/// Smoothly approaches an audio target while capping long frame gaps.
-///
-/// Capping the delta prevents a delayed frame from making the spectrum snap
-/// directly to a new level instead of easing toward it on the next frames.
-@visibleForTesting
-double visualizerSmoothedLevel({
-  required double current,
-  required double target,
-  required double deltaSeconds,
-  required double riseSeconds,
-  required double fallSeconds,
-}) {
-  final boundedDelta = deltaSeconds.clamp(0.0, 0.05).toDouble();
-  final timeConstant = math.max(
-    0.001,
-    target >= current ? riseSeconds : fallSeconds,
-  );
-  final alpha = 1.0 - math.exp(-boundedDelta / timeConstant);
-  return (current + (target - current) * alpha).clamp(0.0, 1.0).toDouble();
-}
-
 /// A source-driven spectrum view for local audio.
 ///
 /// The widget has one responsibility: read real spectrum frames for the
@@ -323,14 +302,16 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             : (elapsed - previousTick).inMicroseconds /
                 Duration.microsecondsPerSecond;
     _sceneTime += dt;
-    // The ticker fills the visual gap between 40 ms source frames. A bounded
-    // elapsed time keeps a dropped frame from snapping bars to their targets.
+    // The ticker fills the visual gap between 40 ms source frames. These
+    // constants affect only how quickly the display approaches real targets.
     final riseSeconds =
         _visualizerSettings.riseTime.inMicroseconds /
         Duration.microsecondsPerSecond;
     final fallSeconds =
         _visualizerSettings.fallTime.inMicroseconds /
         Duration.microsecondsPerSecond;
+    final riseAlpha = 1.0 - math.exp(-dt / riseSeconds);
+    final fallAlpha = 1.0 - math.exp(-dt / fallSeconds);
     final count = math.max(1, widget.barCount);
     if (_displayLevels.length != count) {
       _displayLevels = List<double>.filled(count, 0.0);
@@ -340,13 +321,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     for (var index = 0; index < count; index++) {
       final target = index < _targetLevels.length ? _targetLevels[index] : 0.0;
       final current = _displayLevels[index];
-      final next = visualizerSmoothedLevel(
-        current: current,
-        target: target,
-        deltaSeconds: dt,
-        riseSeconds: riseSeconds,
-        fallSeconds: fallSeconds,
-      );
+      final alpha = target >= current ? riseAlpha : fallAlpha;
+      final next = (current + (target - current) * alpha).clamp(0.0, 1.0);
 
       // The cap/point must follow the rendered bar, not an old peak value.
       // Previously it had an independent slow decay, so a fast falling bar
