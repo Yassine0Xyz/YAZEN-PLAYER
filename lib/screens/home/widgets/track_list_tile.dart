@@ -17,6 +17,7 @@ class TrackListTile extends StatelessWidget {
     this.onAddToPlaylist,
     this.onLongPress,
     this.trailing,
+    this.subtitleOverride,
     this.selected = false,
     this.artworkSize = 64,
     required this.compact,
@@ -30,6 +31,7 @@ class TrackListTile extends StatelessWidget {
   final VoidCallback? onAddToPlaylist;
   final VoidCallback? onLongPress;
   final Widget? trailing;
+  final String? subtitleOverride;
   final bool selected;
   final double artworkSize;
 
@@ -147,7 +149,7 @@ class TrackListTile extends StatelessWidget {
                       ),
                       const SizedBox(height: ThemeSpacing.x1),
                       Text(
-                        track.artist,
+                        subtitleOverride ?? track.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

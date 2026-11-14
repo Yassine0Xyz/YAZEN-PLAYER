@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -16,6 +17,7 @@ import '../services/lyrics_service.dart';
 import '../services/media_library_service.dart';
 import '../services/local_playlist_manager.dart';
 import '../services/library_data_engine.dart';
+import '../services/folder_identity.dart';
 
 export '../models/library_query.dart' show LibraryFilter, LibrarySort;
 
@@ -31,6 +33,17 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
        _lyricsService = lyricsService ?? LyricsService() {
     _playlistManager.addListener(_onPlaylistChanged);
     _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
+    _lastObservedQueueIndex = _audioHandler.player.currentIndex;
+    _playbackHistorySubscriptions.add(
+      _audioHandler.player.currentIndexStream.listen(_onQueueIndexChanged),
+    );
+    _playbackHistorySubscriptions.add(
+      _audioHandler.playbackState.listen((state) {
+        if (state.playing) {
+          _recordCurrentQueueTrack(state.queueIndex, isPlaying: true);
+        }
+      }),
+    );
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -74,7 +87,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   final LocalPlaylistManager _playlistManager;
   final LyricsService _lyricsService;
   final LibraryDataEngine _libraryDataEngine = LibraryDataEngine();
-  int _dynamicLibraryRevision = 0;
+  final List<StreamSubscription<dynamic>> _playbackHistorySubscriptions =
+      <StreamSubscription<dynamic>>[];
 
   bool get _usesLinuxImportedFileMode =>
       Platform.isLinux && _library.runtimeType == MediaLibraryService;
@@ -83,10 +97,14 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<MediaTrack> _baseLocalSongs = const <MediaTrack>[];
   List<MediaTrack> _localSongs = const <MediaTrack>[];
   List<MediaTrack> _localVideos = const <MediaTrack>[];
+  List<String> _allFolders = const <String>[];
+  Map<String, int> _allFolderTrackCounts = const <String, int>{};
   final Map<String, MediaTrack> _importedAudioFiles = <String, MediaTrack>{};
   final Map<String, MediaTrack> _importedVideoFiles = <String, MediaTrack>{};
   List<ArtistModel> _artists = const <ArtistModel>[];
   List<AlbumModel> _albums = const <AlbumModel>[];
+  List<ArtistModel> _unfilteredArtists = const <ArtistModel>[];
+  List<AlbumModel> _unfilteredAlbums = const <AlbumModel>[];
   List<PlaylistModel> _playlists = const <PlaylistModel>[];
   List<String> _folders = const <String>[];
   bool _isLoading = false;
@@ -117,6 +135,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool _refreshQueuedDuringLoad = false;
   bool _disposed = false;
   int _secondaryLibraryGeneration = 0;
+  int? _pendingPlaybackHistorySelection;
+  int? _lastObservedQueueIndex;
 
   LibraryTab get selectedTab => _selectedTab;
   List<MediaTrack> get localSongs => _localSongs;
@@ -127,6 +147,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<AlbumModel> get albums => _albums;
   List<PlaylistModel> get playlists => _playlists;
   List<String> get folders => _folders;
+  List<String> get allFolders => _allFolders;
+  Map<String, int> get allFolderTrackCounts => _allFolderTrackCounts;
+  List<String> get excludedFolders => _playlistManager.excludedFolders;
   Map<String, int> get folderTrackCounts =>
       _libraryDataEngine.snapshot.folderCounts;
   bool get isLoading => _isLoading;
@@ -149,7 +172,9 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
   List<MediaTrack> get visibleTracks {
     final tracks = switch (_selectedTab) {
       LibraryTab.videos => _localVideos,
-      LibraryTab.playlists => _localSongs,
+      LibraryTab.playlists ||
+      LibraryTab.recentlyPlayed ||
+      LibraryTab.mostPlayed => _localSongs,
       LibraryTab.folders => _localSongs,
       LibraryTab.artists => _localSongs,
       LibraryTab.albums => _localSongs,
@@ -164,8 +189,32 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       isFavorite: _playlistManager.isFavorite,
       playCount: _playlistManager.playCount,
       lastPlayed: _playlistManager.lastPlayed,
-      dynamicRevision: _dynamicLibraryRevision,
+      favoriteRevision: _playlistManager.favoriteRevision,
+      playHistoryRevision: _playlistManager.playHistoryRevision,
     );
+  }
+
+  List<MediaTrack> get recentlyPlayedTracks => _listeningHistoryTracks(
+    LibrarySort.recentlyPlayedFirst,
+    (track) => _playlistManager.lastPlayed(track.id) != null,
+  );
+
+  List<MediaTrack> get mostPlayedTracks => _listeningHistoryTracks(
+    LibrarySort.mostPlayed,
+    (track) => _playlistManager.playCount(track.id) > 1,
+  );
+
+  List<MediaTrack> _listeningHistoryTracks(
+    LibrarySort sort,
+    bool Function(MediaTrack track) include,
+  ) {
+    final tracks = _libraryDataEngine.sortTracks(
+      _libraryDataEngine.snapshot.visibleAudioTracks.where(include),
+      sort,
+      playCount: _playlistManager.playCount,
+      lastPlayed: _playlistManager.lastPlayed,
+    );
+    return List<MediaTrack>.unmodifiable(tracks);
   }
 
   void setLibrarySort(LibrarySort sort) {
@@ -250,6 +299,8 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       _baseLocalSongs = _mergeTracks(songs, _importedAudioFiles.values);
       _artists = const <ArtistModel>[];
       _albums = const <AlbumModel>[];
+      _unfilteredArtists = const <ArtistModel>[];
+      _unfilteredAlbums = const <AlbumModel>[];
       _playlists = const <PlaylistModel>[];
       _secondaryLibraryLoaded = false;
       _rebuildLibraryDerivedLists();
@@ -366,10 +417,12 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
         }
         switch (catalog) {
           case LibraryTab.artists:
-            _artists = result as List<ArtistModel>;
+            _unfilteredArtists = result as List<ArtistModel>;
+            _applySecondaryCatalogFilters();
             break;
           case LibraryTab.albums:
-            _albums = result as List<AlbumModel>;
+            _unfilteredAlbums = result as List<AlbumModel>;
+            _applySecondaryCatalogFilters();
             break;
           case LibraryTab.playlists:
             _playlists = result as List<PlaylistModel>;
@@ -494,8 +547,12 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     _localSongs = snapshot.visibleAudioTracks;
     _artists = const <ArtistModel>[];
     _albums = const <AlbumModel>[];
+    _unfilteredArtists = const <ArtistModel>[];
+    _unfilteredAlbums = const <AlbumModel>[];
     _playlists = const <PlaylistModel>[];
     _folders = const <String>[];
+    _allFolders = const <String>[];
+    _allFolderTrackCounts = const <String, int>{};
     _localVideos = _mergeTracks(
       const <MediaTrack>[],
       _importedVideoFiles.values,
@@ -512,10 +569,63 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     final snapshot = _libraryDataEngine.rebuild(
       tracks: metadataTracks,
       hiddenTrackIds: hiddenIds,
+      excludedFolders: _playlistManager.excludedFolders,
     );
     _localSongs = snapshot.visibleAudioTracks;
     _folders = snapshot.folders;
+    _allFolders = folderIdentities(metadataTracks);
+    final folderCounts = <String, int>{};
+    for (final track in metadataTracks) {
+      final folder = track.folder;
+      if (folder == null) continue;
+      final identity = normalizeFolderIdentity(folder);
+      if (identity.isEmpty) continue;
+      folderCounts.update(identity, (count) => count + 1, ifAbsent: () => 1);
+    }
+    _allFolderTrackCounts = Map<String, int>.unmodifiable(folderCounts);
+    _applySecondaryCatalogFilters();
     _lastLibraryOverlayRevision = _playlistManager.libraryOverlayRevision;
+  }
+
+  void _applySecondaryCatalogFilters() {
+    final tracksByArtist = <int, List<MediaTrack>>{};
+    final tracksByAlbum = <int, int>{};
+    final albumsByArtist = <int, Set<String>>{};
+    for (final track in _libraryDataEngine.snapshot.allTracks) {
+      final artistId = track.artistId;
+      if (artistId != null) {
+        (tracksByArtist[artistId] ??= <MediaTrack>[]).add(track);
+        final albumIdentity =
+            track.albumId?.toString() ?? track.album.toLowerCase();
+        (albumsByArtist[artistId] ??= <String>{}).add(albumIdentity);
+      }
+      final albumId = track.albumId;
+      if (albumId != null) {
+        tracksByAlbum.update(albumId, (count) => count + 1, ifAbsent: () => 1);
+      }
+    }
+
+    final filteredArtists = <ArtistModel>[];
+    for (final artist in _unfilteredArtists) {
+      final tracks = tracksByArtist[artist.id];
+      if (tracks == null || tracks.isEmpty) continue;
+      final values =
+          Map<dynamic, dynamic>.from(artist.getMap)
+            ..['number_of_tracks'] = tracks.length
+            ..['number_of_albums'] = albumsByArtist[artist.id]?.length ?? 0;
+      filteredArtists.add(ArtistModel(values));
+    }
+    _artists = List<ArtistModel>.unmodifiable(filteredArtists);
+
+    final filteredAlbums = <AlbumModel>[];
+    for (final album in _unfilteredAlbums) {
+      final count = tracksByAlbum[album.id];
+      if (count == null || count == 0) continue;
+      final values = Map<dynamic, dynamic>.from(album.getMap)
+        ..['numsongs'] = count;
+      filteredAlbums.add(AlbumModel(values));
+    }
+    _albums = List<AlbumModel>.unmodifiable(filteredAlbums);
   }
 
   Future<void> addToQueue(MediaTrack track) {
@@ -534,17 +644,65 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     return _library.deleteAudioTracks(tracks);
   }
 
-  Future<List<MediaTrack>> tracksForArtist(int artistId) =>
-      _library.querySongsFrom(AudiosFromType.ARTIST_ID, artistId);
+  Future<List<MediaTrack>> tracksForArtist(int artistId) async =>
+      _filterExcludedTracks(
+        await _library.querySongsFrom(AudiosFromType.ARTIST_ID, artistId),
+      );
 
-  Future<List<MediaTrack>> tracksForAlbum(int albumId) =>
-      _library.querySongsFrom(AudiosFromType.ALBUM_ID, albumId);
+  Future<List<MediaTrack>> tracksForAlbum(int albumId) async =>
+      _filterExcludedTracks(
+        await _library.querySongsFrom(AudiosFromType.ALBUM_ID, albumId),
+      );
 
-  Future<List<MediaTrack>> tracksForDevicePlaylist(int playlistId) =>
-      _library.querySongsFrom(AudiosFromType.PLAYLIST, playlistId);
+  Future<List<MediaTrack>> tracksForDevicePlaylist(int playlistId) async =>
+      _filterExcludedTracks(
+        await _library.querySongsFrom(AudiosFromType.PLAYLIST, playlistId),
+      );
+
+  List<MediaTrack> _filterExcludedTracks(Iterable<MediaTrack> tracks) =>
+      List<MediaTrack>.unmodifiable(
+        tracks.where(
+          (track) =>
+              track.folder == null ||
+              !_playlistManager.isFolderExcluded(track.folder!),
+        ),
+      );
 
   Future<List<MediaTrack>> tracksForFolder(String folder) async =>
       _libraryDataEngine.snapshot.tracksInFolder(folder);
+
+  void _onQueueIndexChanged(int? index) {
+    _recordCurrentQueueTrack(index, isPlaying: _audioHandler.player.playing);
+  }
+
+  void _recordCurrentQueueTrack(int? index, {required bool isPlaying}) {
+    if (!isPlaying ||
+        _disposed ||
+        _pendingPlaybackHistorySelection != null ||
+        index == null) {
+      return;
+    }
+    final queue = _audioHandler.queueTracks;
+    if (index < 0 || index >= queue.length) return;
+    if (index == _lastObservedQueueIndex) return;
+    final hadPreviousQueueIndex = _lastObservedQueueIndex != null;
+    _lastObservedQueueIndex = index;
+    if (!hadPreviousQueueIndex) return;
+    unawaited(_recordQueueTransition(queue[index]));
+  }
+
+  Future<void> _recordQueueTransition(MediaTrack track) async {
+    try {
+      await _playlistManager.recordPlayed(track);
+    } catch (error, stackTrace) {
+      developer.log(
+        'Unable to record a queue track transition',
+        name: 'yazen.playback',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
 
   bool isFavorite(MediaTrack track) => _playlistManager.isFavorite(track);
 
@@ -563,6 +721,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> playTrack(MediaTrack track) async {
     final request = ++_playbackSelectionRequest;
+    _pendingPlaybackHistorySelection = request;
     if (_errorMessage != null) {
       _errorMessage = null;
       notifyListeners();
@@ -572,11 +731,16 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       if (request != _playbackSelectionRequest) return;
       await _playlistManager.recordPlayed(track);
       if (request != _playbackSelectionRequest) return;
+      _lastObservedQueueIndex = _audioHandler.player.currentIndex;
       notifyListeners();
     } catch (error) {
       if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
       notifyListeners();
+    } finally {
+      if (_pendingPlaybackHistorySelection == request) {
+        _pendingPlaybackHistorySelection = null;
+      }
     }
   }
 
@@ -585,6 +749,7 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     int initialIndex = 0,
   }) async {
     final request = ++_playbackSelectionRequest;
+    _pendingPlaybackHistorySelection = request;
     final selectedTrack =
         tracks.isEmpty
             ? null
@@ -599,12 +764,17 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
       if (selectedTrack != null) {
         await _playlistManager.recordPlayed(selectedTrack);
         if (request != _playbackSelectionRequest) return;
+        _lastObservedQueueIndex = _audioHandler.player.currentIndex;
       }
       notifyListeners();
     } catch (error) {
       if (request != _playbackSelectionRequest) return;
       _errorMessage = 'Playback failed: $error';
       notifyListeners();
+    } finally {
+      if (_pendingPlaybackHistorySelection == request) {
+        _pendingPlaybackHistorySelection = null;
+      }
     }
   }
 
@@ -668,11 +838,6 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     if (_lastLibraryOverlayRevision !=
         _playlistManager.libraryOverlayRevision) {
       _rebuildLibraryDerivedLists();
-    } else if (libraryFilters.contains(LibraryFilter.favorites) ||
-        librarySort == LibrarySort.mostPlayed ||
-        librarySort == LibrarySort.recentlyPlayedFirst) {
-      _dynamicLibraryRevision++;
-      _libraryDataEngine.invalidateQueries();
     }
     notifyListeners();
   }
@@ -689,6 +854,10 @@ class HybridMusicController extends ChangeNotifier with WidgetsBindingObserver {
     _secondaryLibraryGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _playlistManager.removeListener(_onPlaylistChanged);
+    for (final subscription in _playbackHistorySubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _playbackHistorySubscriptions.clear();
     _audioHandler.dispose();
     _lyricsService.dispose();
     super.dispose();

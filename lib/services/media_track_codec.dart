@@ -7,6 +7,7 @@ Map<String, dynamic> mediaTrackToJson(MediaTrack track) => <String, dynamic>{
   'album': track.album,
   'source': track.source.name,
   'kind': track.kind.name,
+  'artistId': track.artistId,
   'uri': track.uri?.toString(),
   'headers': track.headers,
   'artworkUri': track.artworkUri?.toString(),
@@ -43,6 +44,8 @@ MediaTrack mediaTrackFromJson(Map<String, dynamic> json) {
     album: json['album']?.toString() ?? 'Unknown album',
     source: source,
     kind: kind,
+    artistId:
+        json['artistId'] is num ? (json['artistId'] as num).toInt() : null,
     uri: _tryParseUri(json['uri']),
     headers: headers,
     artworkUri: _tryParseUri(json['artworkUri']),

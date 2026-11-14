@@ -1,11 +1,9 @@
-import 'dart:ui' show FontFeature;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/theme_provider.dart';
-import '../core/theme/theme_tokens.dart';
 
 Future<void> showThemePicker(BuildContext context) {
   return showModalBottomSheet<void>(

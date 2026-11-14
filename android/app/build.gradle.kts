@@ -88,6 +88,11 @@ android {
             signingConfig = signingConfigs.findByName("production")
         }
     }
+    buildTypes.configureEach {
+        if (name == "profile") {
+            applicationIdSuffix = ".profile"
+        }
+    }
 
     packaging {
         jniLibs {

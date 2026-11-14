@@ -225,6 +225,10 @@ class HybridAudioHandler extends BaseAudioHandler
   }
 
   Future<void> _repairQueueInvariant() async {
+    // just_audio may expose a temporarily incomplete sequence while replacing
+    // a source list. The selection transaction owns that transient state; an
+    // invariant repair here would clear the still-valid active media item.
+    if (_selectionSourceLoadRequest != null) return;
     if (_player.sequence.length == _queueTracks.length) return;
     try {
       await _player.stop();
@@ -727,8 +731,6 @@ class HybridAudioHandler extends BaseAudioHandler
             .toInt();
     final previousPosition = _player.position;
     final previousWasPlaying = _player.playing;
-    await _player.pause();
-    if (!stillCurrent()) return;
 
     _selectionSourceLoadRequest = request;
     try {

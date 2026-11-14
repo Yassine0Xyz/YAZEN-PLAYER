@@ -153,6 +153,8 @@ class _LibraryTabsState extends State<LibraryTabs> {
     return switch (tab) {
       LibraryTab.videos => Icons.ondemand_video_rounded,
       LibraryTab.songs => Icons.music_note_rounded,
+      LibraryTab.recentlyPlayed => Icons.history_rounded,
+      LibraryTab.mostPlayed => Icons.trending_up_rounded,
       LibraryTab.playlists => Icons.queue_music_rounded,
       LibraryTab.folders => Icons.folder_rounded,
       LibraryTab.artists => Icons.person_rounded,

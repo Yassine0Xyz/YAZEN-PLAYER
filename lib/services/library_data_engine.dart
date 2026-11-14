@@ -23,8 +23,18 @@ class LibraryIndexSnapshot {
     required int revision,
     required Iterable<MediaTrack> tracks,
     required Iterable<String> hiddenTrackIds,
+    Iterable<String> excludedFolders = const <String>[],
   }) {
-    final all = List<MediaTrack>.unmodifiable(tracks);
+    final excludedFolderList = excludedFolders.toList(growable: false);
+    final all = List<MediaTrack>.unmodifiable(
+      excludedFolderList.isEmpty
+          ? tracks
+          : tracks.where((track) {
+            final folder = track.folder;
+            return folder == null ||
+                !isFolderExcluded(folder, excludedFolderList);
+          }),
+    );
     final hiddenIds = hiddenTrackIds.toSet();
     final visible = <MediaTrack>[];
     final hidden = <MediaTrack>[];
@@ -107,11 +117,13 @@ class LibraryDataEngine {
   List<MediaTrack>? _orderedSource;
   LibrarySort? _orderedSort;
   Set<LibraryFilter>? _orderedFilters;
-  int _orderedDynamicRevision = -1;
+  int _orderedFavoriteRevision = -1;
+  int _orderedPlayHistoryRevision = -1;
   LibrarySort? _querySort;
   Set<LibraryFilter>? _queryFilters;
   String? _queryText;
-  int _queryDynamicRevision = -1;
+  int _queryFavoriteRevision = -1;
+  int _queryPlayHistoryRevision = -1;
   final Expando<_TrackSortKeys> _sortKeys = Expando<_TrackSortKeys>(
     'YAZEN library sort keys',
   );
@@ -122,11 +134,13 @@ class LibraryDataEngine {
   LibraryIndexSnapshot rebuild({
     required Iterable<MediaTrack> tracks,
     required Iterable<String> hiddenTrackIds,
+    Iterable<String> excludedFolders = const <String>[],
   }) {
     _snapshot = LibraryIndexSnapshot.build(
       revision: ++_revision,
       tracks: tracks,
       hiddenTrackIds: hiddenTrackIds,
+      excludedFolders: excludedFolders,
     );
     invalidateQueries();
     return _snapshot;
@@ -139,12 +153,14 @@ class LibraryDataEngine {
     _querySort = null;
     _queryFilters = null;
     _queryText = null;
-    _queryDynamicRevision = -1;
+    _queryFavoriteRevision = -1;
+    _queryPlayHistoryRevision = -1;
     _orderedCache = null;
     _orderedSource = null;
     _orderedSort = null;
     _orderedFilters = null;
-    _orderedDynamicRevision = -1;
+    _orderedFavoriteRevision = -1;
+    _orderedPlayHistoryRevision = -1;
   }
 
   List<MediaTrack> queryTracks({
@@ -155,13 +171,22 @@ class LibraryDataEngine {
     required bool Function(MediaTrack track) isFavorite,
     required int Function(String trackId) playCount,
     required DateTime? Function(String trackId) lastPlayed,
-    int dynamicRevision = 0,
+    int favoriteRevision = 0,
+    int playHistoryRevision = 0,
   }) {
+    final relevantFavoriteRevision =
+        filters.contains(LibraryFilter.favorites) ? favoriteRevision : 0;
+    final relevantPlayHistoryRevision =
+        sort == LibrarySort.mostPlayed ||
+                sort == LibrarySort.recentlyPlayedFirst
+            ? playHistoryRevision
+            : 0;
     if (identical(_querySource, source) &&
         _querySort == sort &&
         _sameFilters(_queryFilters, filters) &&
         _queryText == query &&
-        _queryDynamicRevision == dynamicRevision &&
+        _queryFavoriteRevision == relevantFavoriteRevision &&
+        _queryPlayHistoryRevision == relevantPlayHistoryRevision &&
         _queryCache != null) {
       return _queryCache!;
     }
@@ -176,7 +201,8 @@ class LibraryDataEngine {
       isFavorite: isFavorite,
       playCount: playCount,
       lastPlayed: lastPlayed,
-      dynamicRevision: dynamicRevision,
+      favoriteRevision: relevantFavoriteRevision,
+      playHistoryRevision: relevantPlayHistoryRevision,
     );
     final result = _searchService.search(ordered, query);
 
@@ -184,7 +210,8 @@ class LibraryDataEngine {
     _querySort = sort;
     _queryFilters = Set<LibraryFilter>.unmodifiable(filters);
     _queryText = query;
-    _queryDynamicRevision = dynamicRevision;
+    _queryFavoriteRevision = relevantFavoriteRevision;
+    _queryPlayHistoryRevision = relevantPlayHistoryRevision;
     _queryCache = result;
     return result;
   }
@@ -196,12 +223,14 @@ class LibraryDataEngine {
     required bool Function(MediaTrack track) isFavorite,
     required int Function(String trackId) playCount,
     required DateTime? Function(String trackId) lastPlayed,
-    required int dynamicRevision,
+    required int favoriteRevision,
+    required int playHistoryRevision,
   }) {
     if (identical(_orderedSource, source) &&
         _orderedSort == sort &&
         _sameFilters(_orderedFilters, filters) &&
-        _orderedDynamicRevision == dynamicRevision &&
+        _orderedFavoriteRevision == favoriteRevision &&
+        _orderedPlayHistoryRevision == playHistoryRevision &&
         _orderedCache != null) {
       return _orderedCache!;
     }
@@ -250,7 +279,8 @@ class LibraryDataEngine {
     _orderedSource = source;
     _orderedSort = sort;
     _orderedFilters = Set<LibraryFilter>.unmodifiable(filters);
-    _orderedDynamicRevision = dynamicRevision;
+    _orderedFavoriteRevision = favoriteRevision;
+    _orderedPlayHistoryRevision = playHistoryRevision;
     _orderedCache = result;
     return result;
   }

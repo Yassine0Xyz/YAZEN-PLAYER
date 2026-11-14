@@ -91,11 +91,22 @@ class LocalMediaScreen extends StatelessWidget {
 
     final view = switch (selectedTab) {
       LibraryTab.songs => _SongsView(tracks: snapshot.visibleTracks),
+      LibraryTab.recentlyPlayed => _HistoryTracksView(
+        tracks: snapshot.historyTracks,
+        mostPlayed: false,
+      ),
+      LibraryTab.mostPlayed => _HistoryTracksView(
+        tracks: snapshot.historyTracks,
+        mostPlayed: true,
+      ),
       LibraryTab.artists => _ArtistsView(artists: snapshot.artists),
       LibraryTab.albums => _AlbumsView(albums: snapshot.albums),
       LibraryTab.folders => _FoldersView(
         folders: snapshot.folders,
         counts: snapshot.folderCounts,
+        allFolders: snapshot.allFolders,
+        allCounts: snapshot.allFolderCounts,
+        excludedFolders: snapshot.excludedFolders,
       ),
       LibraryTab.videos => _VideosView(tracks: snapshot.visibleTracks),
       LibraryTab.hidden => _HiddenFilesView(tracks: snapshot.hiddenTracks),
@@ -340,6 +351,7 @@ class _FastScrollThumbState extends State<_FastScrollThumb> {
 class _LocalMediaSnapshot {
   const _LocalMediaSnapshot({
     required this.isLoading,
+    required this.historyTracks,
     required this.permissionRequired,
     required this.visibleTracks,
     required this.folderCounts,
@@ -348,6 +360,9 @@ class _LocalMediaSnapshot {
     required this.albums,
     required this.playlists,
     required this.folders,
+    required this.allFolders,
+    required this.allFolderCounts,
+    required this.excludedFolders,
     required this.customPlaylists,
     required this.favorites,
   });
@@ -358,8 +373,14 @@ class _LocalMediaSnapshot {
   ) {
     final needsVisibleTracks =
         selectedTab == LibraryTab.songs || selectedTab == LibraryTab.videos;
+    final historyTracks = switch (selectedTab) {
+      LibraryTab.recentlyPlayed => controller.recentlyPlayedTracks,
+      LibraryTab.mostPlayed => controller.mostPlayedTracks,
+      _ => const <MediaTrack>[],
+    };
     return _LocalMediaSnapshot(
       isLoading: controller.isLoading,
+      historyTracks: historyTracks,
       permissionRequired: controller.permissionRequired,
       visibleTracks:
           needsVisibleTracks ? controller.visibleTracks : const <MediaTrack>[],
@@ -387,6 +408,18 @@ class _LocalMediaSnapshot {
           selectedTab == LibraryTab.folders
               ? controller.folders
               : const <String>[],
+      allFolders:
+          selectedTab == LibraryTab.folders
+              ? controller.allFolders
+              : const <String>[],
+      allFolderCounts:
+          selectedTab == LibraryTab.folders
+              ? controller.allFolderTrackCounts
+              : const <String, int>{},
+      excludedFolders:
+          selectedTab == LibraryTab.folders
+              ? controller.excludedFolders
+              : const <String>[],
       customPlaylists:
           selectedTab == LibraryTab.playlists
               ? controller.playlistManager.playlists
@@ -399,6 +432,7 @@ class _LocalMediaSnapshot {
   }
 
   final bool isLoading;
+  final List<MediaTrack> historyTracks;
   final bool permissionRequired;
   final List<MediaTrack> visibleTracks;
   final Map<String, int> folderCounts;
@@ -407,6 +441,9 @@ class _LocalMediaSnapshot {
   final List<AlbumModel> albums;
   final List<PlaylistModel> playlists;
   final List<String> folders;
+  final List<String> allFolders;
+  final Map<String, int> allFolderCounts;
+  final List<String> excludedFolders;
   final List<EchoPlaylist> customPlaylists;
   final List<MediaTrack> favorites;
 
@@ -414,6 +451,7 @@ class _LocalMediaSnapshot {
   bool operator ==(Object other) =>
       other is _LocalMediaSnapshot &&
       other.isLoading == isLoading &&
+      identical(other.historyTracks, historyTracks) &&
       other.permissionRequired == permissionRequired &&
       identical(other.visibleTracks, visibleTracks) &&
       identical(other.folderCounts, folderCounts) &&
@@ -422,12 +460,16 @@ class _LocalMediaSnapshot {
       identical(other.albums, albums) &&
       identical(other.playlists, playlists) &&
       identical(other.folders, folders) &&
+      identical(other.allFolders, allFolders) &&
+      identical(other.allFolderCounts, allFolderCounts) &&
+      identical(other.excludedFolders, excludedFolders) &&
       identical(other.customPlaylists, customPlaylists) &&
       identical(other.favorites, favorites);
 
   @override
   int get hashCode => Object.hash(
     isLoading,
+    identityHashCode(historyTracks),
     permissionRequired,
     identityHashCode(visibleTracks),
     identityHashCode(folderCounts),
@@ -436,9 +478,63 @@ class _LocalMediaSnapshot {
     identityHashCode(albums),
     identityHashCode(playlists),
     identityHashCode(folders),
+    identityHashCode(allFolders),
+    identityHashCode(allFolderCounts),
+    identityHashCode(excludedFolders),
     identityHashCode(customPlaylists),
     identityHashCode(favorites),
   );
+}
+
+class _HistoryTracksView extends StatelessWidget {
+  const _HistoryTracksView({required this.tracks, required this.mostPlayed});
+  final List<MediaTrack> tracks;
+  final bool mostPlayed;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.read<HybridMusicController>();
+    final manager = context.read<LocalPlaylistManager>();
+    if (tracks.isEmpty) {
+      return Center(
+        child: Text(
+          mostPlayed ? 'No songs played more than once yet' : 'No recently played songs yet',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: context.read<ThemeProvider>().tokens.textSecondary),
+        ),
+      );
+    }
+    return Column(children: <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(children: <Widget>[
+          Expanded(child: Text('${tracks.length} songs', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800))),
+          IconButton(tooltip: 'Play all', onPressed: () => controller.playTrackQueue(tracks), icon: const Icon(Icons.play_arrow_rounded)),
+        ]),
+      ),
+      Expanded(child: LayoutBuilder(builder: (context, constraints) {
+        final compact = constraints.maxWidth < 470;
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 118),
+          itemCount: tracks.length,
+          itemBuilder: (context, index) {
+            final track = tracks[index];
+            final subtitle = mostPlayed ? '${manager.playCount(track.id)} played | ${track.artist}' : null;
+            return TrackListTile(
+              key: ValueKey<String>('history-${mostPlayed ? 'most' : 'recent'}-${track.id}'),
+              track: track,
+              compact: compact,
+              onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
+              isFavorite: manager.isFavorite(track),
+              onFavorite: () => manager.toggleFavorite(track),
+              onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
+              subtitleOverride: subtitle,
+            );
+          },
+        );
+      })),
+    ]);
+  }
 }
 
 class _HiddenFilesView extends StatelessWidget {
@@ -1428,45 +1524,238 @@ class _AlbumCard extends StatelessWidget {
 }
 
 class _FoldersView extends StatelessWidget {
-  const _FoldersView({required this.folders, required this.counts});
+  const _FoldersView({
+    required this.folders,
+    required this.counts,
+    required this.allFolders,
+    required this.allCounts,
+    required this.excludedFolders,
+  });
+
+  final List<String> folders;
+  final Map<String, int> counts;
+  final List<String> allFolders;
+  final Map<String, int> allCounts;
+  final List<String> excludedFolders;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '${excludedFolders.length} excluded',
+                  style: TextStyle(
+                    color: context.read<ThemeProvider>().tokens.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed:
+                    () => _showFolderExclusions(
+                      context,
+                      allFolders: allFolders,
+                      allCounts: allCounts,
+                    ),
+                icon: const Icon(Icons.folder_off_outlined, size: 18),
+                label: const Text('Manage exclusions'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child:
+              folders.isEmpty
+                  ? const _CategoryEmptyState(
+                    icon: Icons.folder_open_rounded,
+                    title: 'No audio folders found',
+                    subtitle:
+                        'Folders containing local audio will appear here.',
+                  )
+                  : LibraryTrackViewport(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+                    itemCount: folders.length,
+                    cacheExtent: 220,
+                    addAutomaticKeepAlives: false,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final folder = folders[index];
+                      return _FolderRow(
+                        key: ValueKey<String>(folder),
+                        folder: folder,
+                        count: counts[folder] ?? 0,
+                        onTap:
+                            () => Navigator.of(context).push(
+                              LocalEntityTracksScreen.route(
+                                title: folderDisplayName(folder),
+                                subtitle:
+                                    'Audio files in this folder will appear here.',
+                                loadTracks:
+                                    () => context
+                                        .read<HybridMusicController>()
+                                        .tracksForFolder(folder),
+                              ),
+                            ),
+                      );
+                    },
+                  ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showFolderExclusions(
+    BuildContext context, {
+    required List<String> allFolders,
+    required Map<String, int> allCounts,
+  }) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder:
+        (_) => _FolderExclusionSheet(folders: allFolders, counts: allCounts),
+  );
+}
+
+class _FolderExclusionSheet extends StatelessWidget {
+  const _FolderExclusionSheet({required this.folders, required this.counts});
 
   final List<String> folders;
   final Map<String, int> counts;
 
+  Future<void> _addFolder(
+    BuildContext context,
+    LocalPlaylistManager manager,
+  ) async {
+    final candidates = folders
+        .where((folder) => !manager.isFolderExcluded(folder))
+        .toList(growable: false);
+    if (candidates.isEmpty) return;
+    final folder = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder:
+          (pickerContext) => SizedBox(
+            height: MediaQuery.sizeOf(pickerContext).height * 0.65,
+            child: SafeArea(
+              child: ListView.builder(
+                itemCount: candidates.length,
+                itemBuilder: (context, index) {
+                  final candidate = candidates[index];
+                  return ListTile(
+                    leading: const Icon(Icons.folder_outlined),
+                    title: Text(folderDisplayName(candidate)),
+                    subtitle: Text('${counts[candidate] ?? 0} audio files'),
+                    onTap: () => Navigator.of(context).pop(candidate),
+                  );
+                },
+              ),
+            ),
+          ),
+    );
+    if (folder == null || !context.mounted) return;
+    await _updateFolderExclusion(context, () => manager.excludeFolder(folder));
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (folders.isEmpty) {
-      return const _CategoryEmptyState(
-        icon: Icons.folder_open_rounded,
-        title: 'No audio folders found',
-        subtitle: 'Folders containing local audio will appear here.',
-      );
-    }
-    return LibraryTrackViewport(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-      itemCount: folders.length,
-      cacheExtent: 220,
-      addAutomaticKeepAlives: false,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final folder = folders[index];
-        return _FolderRow(
-          key: ValueKey<String>(folder),
-          folder: folder,
-          count: counts[folder] ?? 0,
-          onTap:
-              () => Navigator.of(context).push(
-                LocalEntityTracksScreen.route(
-                  title: folderDisplayName(folder),
-                  subtitle: 'Audio files in this folder will appear here.',
-                  loadTracks:
-                      () => context
-                          .read<HybridMusicController>()
-                          .tracksForFolder(folder),
+    final manager = context.read<LocalPlaylistManager>();
+    final tokens = context.read<ThemeProvider>().tokens;
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.72,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Excluded folders',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Only the YAZEN library index changes. Files and saved playlists are kept.',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.tonalIcon(
+                  onPressed: () => _addFolder(context, manager),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Exclude a folder'),
                 ),
               ),
-        );
-      },
+              const SizedBox(height: 8),
+              Expanded(
+                child: Consumer<LocalPlaylistManager>(
+                  builder: (context, currentManager, _) {
+                    final exclusions = currentManager.excludedFolders;
+                    if (exclusions.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No folders are excluded.',
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      itemCount: exclusions.length,
+                      itemBuilder: (context, index) {
+                        final folder = exclusions[index];
+                        return ListTile(
+                          leading: const Icon(Icons.folder_off_outlined),
+                          title: Text(
+                            folderDisplayName(folder),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${counts[folder] ?? 0} audio files; subfolders included',
+                          ),
+                          trailing: IconButton(
+                            tooltip: 'Include folder',
+                            onPressed:
+                                () => _updateFolderExclusion(
+                                  context,
+                                  () => currentManager.includeFolder(folder),
+                                ),
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _updateFolderExclusion(
+  BuildContext context,
+  Future<void> Function() update,
+) async {
+  try {
+    await update();
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Unable to update folder exclusions: $error')),
     );
   }
 }
@@ -1603,7 +1892,8 @@ class _VideosView extends StatelessWidget {
                                   itemBuilder:
                                       (context, index) => _videoCard(
                                         context,
-                                        tracks[index],
+                                        tracks,
+                                        index,
                                         compact,
                                       ),
                                 )
@@ -1623,7 +1913,8 @@ class _VideosView extends StatelessWidget {
                                   itemBuilder:
                                       (context, index) => _videoCard(
                                         context,
-                                        tracks[index],
+                                        tracks,
+                                        index,
                                         compact,
                                       ),
                                 ),
@@ -1635,15 +1926,24 @@ class _VideosView extends StatelessWidget {
     );
   }
 
-  Widget _videoCard(BuildContext context, MediaTrack track, bool compact) =>
-      _VideoPreviewCard(
-        key: ValueKey<String>(track.id),
-        track: track,
-        compact: compact,
-        onPlay:
-            () =>
-                Navigator.of(context).push(YazenVideoPlayerScreen.route(track)),
-      );
+  Widget _videoCard(
+    BuildContext context,
+    List<MediaTrack> tracks,
+    int index,
+    bool compact,
+  ) => _VideoPreviewCard(
+    key: ValueKey<String>(tracks[index].id),
+    track: tracks[index],
+    compact: compact,
+    onPlay:
+        () => Navigator.of(context).push(
+          YazenVideoPlayerScreen.route(
+            tracks[index],
+            videoTracks: tracks,
+            initialIndex: index,
+          ),
+        ),
+  );
 }
 
 class _LibraryViewToolbar extends StatefulWidget {

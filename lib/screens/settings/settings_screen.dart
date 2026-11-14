@@ -347,40 +347,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text('Wave'),
                           ),
                           DropdownMenuItem(
-                            value: VisualizerStyle.circular,
-                            child: Text('Circular'),
-                          ),
-                          DropdownMenuItem(
                             value: VisualizerStyle.mirror,
                             child: Text('Mirror'),
                           ),
                           DropdownMenuItem(
-                            value: VisualizerStyle.line,
-                            child: Text('Line'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.halo,
-                            child: Text('NOOR · Halo'),
-                          ),
-                          DropdownMenuItem(
                             value: VisualizerStyle.columns,
-                            child: Text('NOOR · Columns'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.ribbon,
-                            child: Text('NOOR · Ribbon'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.orbit,
-                            child: Text('NOOR · Orbit'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.pulse,
-                            child: Text('NOOR · Pulse'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.ridge,
-                            child: Text('NOOR · Ridge'),
+                            child: Text('Columns'),
                           ),
                         ],
                         onChanged:
@@ -588,22 +560,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await preferences.setDouble(_speedKey, value);
   }
 
-  String _visualizerStyleLabel(VisualizerStyle style) {
-    return switch (style) {
-      VisualizerStyle.bars => 'Bars',
-      VisualizerStyle.wave => 'Wave',
-      VisualizerStyle.circular => 'Circular',
-      VisualizerStyle.mirror => 'Mirror',
-      VisualizerStyle.line => 'Line',
-      VisualizerStyle.halo => 'NOOR · Halo',
-      VisualizerStyle.columns => 'NOOR · Columns',
-      VisualizerStyle.ribbon => 'NOOR · Ribbon',
-      VisualizerStyle.orbit => 'NOOR · Orbit',
-      VisualizerStyle.pulse => 'NOOR · Pulse',
-      VisualizerStyle.ridge => 'NOOR · Ridge',
-    };
-  }
-
+  String _visualizerStyleLabel(VisualizerStyle style) => switch (style) {
+    VisualizerStyle.bars => 'Bars',
+    VisualizerStyle.wave => 'Wave',
+    VisualizerStyle.columns => 'Columns',
+    VisualizerStyle.mirror => 'Mirror',
+  };
   String _responseLabel(VisualizerResponse response) {
     switch (response) {
       case VisualizerResponse.smooth:

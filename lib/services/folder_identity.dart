@@ -12,6 +12,26 @@ String normalizeFolderIdentity(String path) {
   return p.posix.normalize(value);
 }
 
+/// Whether [folder] is the same as or a descendant of [parentFolder].
+///
+/// The separator boundary prevents `/Music/AB` from matching `/Music/ABC`.
+bool isFolderWithin(String folder, String parentFolder) {
+  final identity = normalizeFolderIdentity(folder);
+  final parent = normalizeFolderIdentity(parentFolder);
+  if (identity.isEmpty || parent.isEmpty) return false;
+  if (identity == parent) return true;
+  final prefix = parent.endsWith('/') ? parent : '$parent/';
+  return identity.startsWith(prefix);
+}
+
+/// Whether a folder falls under any normalized or unnormalized exclusion.
+bool isFolderExcluded(String folder, Iterable<String> excludedFolders) {
+  for (final excludedFolder in excludedFolders) {
+    if (isFolderWithin(folder, excludedFolder)) return true;
+  }
+  return false;
+}
+
 /// Returns a compact label that distinguishes equal basenames in different
 /// parent folders while retaining the basename as the primary label.
 String folderDisplayName(String path) {

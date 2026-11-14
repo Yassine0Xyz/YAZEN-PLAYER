@@ -99,6 +99,46 @@ void main() {
   });
 
   test(
+    'one queue tap preserves mini-player item during deferred load and starts it',
+    () async {
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final trackA = _track(101);
+      final trackB = _track(202);
+      await handler.playTrackQueue(<MediaTrack>[trackA]);
+      expect(player.playing, isTrue);
+
+      final loadGate = Completer<void>();
+      player.nextSetAudioSourcesGate = loadGate;
+      final firstTap = handler.playTrackQueue(<MediaTrack>[trackB]);
+      for (
+        var attempt = 0;
+        attempt < 100 && !player.waitingForSource;
+        attempt++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+
+      expect(player.waitingForSource, isTrue);
+      expect(handler.activeTrack?.id, trackA.id);
+      expect(handler.mediaItem.value?.extras?['trackId'], trackA.id);
+      expect(player.playing, isTrue);
+
+      loadGate.complete();
+      await firstTap.timeout(const Duration(seconds: 2));
+
+      expect(handler.activeTrack?.id, trackB.id);
+      expect(handler.mediaItem.value?.extras?['trackId'], trackB.id);
+      expect(player.playing, isTrue);
+      await handler.dispose();
+      await player.close();
+    },
+  );
+
+  test(
     'stale current-index events cannot replace a newly selected track',
     () async {
       final player = _FakeAudioPlayer();
@@ -220,6 +260,80 @@ void main() {
       await player.close();
     },
   );
+
+  test(
+    'playback history records queue transitions once and exposes ordered lists',
+    () async {
+      final tracks = List<MediaTrack>.generate(3, _track);
+      final player = _FakeAudioPlayer();
+      final handler = HybridAudioHandler(
+        player: player,
+        playbackStore: const PlaybackStateStore(),
+      );
+      final manager = LocalPlaylistManager();
+      await manager.initialize();
+      final controller = HybridMusicController(
+        library: _FakeMediaLibrary(songs: tracks),
+        audioHandler: handler,
+        playlistManager: manager,
+      );
+      await controller.loadLibrary(requestPermission: false);
+      await controller.playTrackQueue(tracks);
+
+      expect(manager.playCount(tracks[0].id), 1);
+      player.emitCurrentIndexEvent(1);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      player.emitCurrentIndexEvent(1);
+      player.emitCurrentIndexEvent(1);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(manager.playCount(tracks[1].id), 1);
+
+      player.emitCurrentIndexEvent(2);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      player.emitCurrentIndexEvent(1);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(manager.playCount(tracks[1].id), 2);
+      expect(manager.playCount(tracks[2].id), 1);
+      expect(controller.recentlyPlayedTracks.first.id, tracks[1].id);
+      expect(controller.mostPlayedTracks.first.id, tracks[1].id);
+
+      controller.dispose();
+      await player.close();
+    },
+  );
+
+  test('Library history lists include all tracks and sort by play history', () async {
+    final tracks = List<MediaTrack>.generate(10, _track);
+    final player = _FakeAudioPlayer();
+    final handler = HybridAudioHandler(
+      player: player,
+      playbackStore: const PlaybackStateStore(),
+    );
+    final manager = LocalPlaylistManager();
+    await manager.initialize();
+    for (final track in tracks) {
+      await manager.recordPlayed(track);
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    await manager.recordPlayed(tracks.last);
+    await manager.recordPlayed(tracks.last);
+
+    final controller = HybridMusicController(
+      library: _FakeMediaLibrary(songs: tracks),
+      audioHandler: handler,
+      playlistManager: manager,
+    );
+    await controller.loadLibrary(requestPermission: false);
+
+    expect(controller.recentlyPlayedTracks, hasLength(10));
+    expect(controller.mostPlayedTracks, hasLength(1));
+    expect(controller.recentlyPlayedTracks.first.id, tracks.last.id);
+    expect(controller.mostPlayedTracks.first.id, tracks.last.id);
+
+    controller.dispose();
+    await player.close();
+  });
 
   test('Repeat All manual Next wraps from the final queue item', () async {
     final player = _FakeAudioPlayer();

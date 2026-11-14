@@ -51,6 +51,9 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
   bool _appVisible = true;
   bool _resumeAfterBackground = false;
   bool? _lastKeepScreenOn;
+  bool? _lastPipIsPlaying;
+  bool? _lastPipHasPrevious;
+  bool? _lastPipHasNext;
 
   @override
   void initState() {
@@ -61,7 +64,9 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
       value: 1,
     );
     WidgetsBinding.instance.addObserver(this);
+    _platform.setMethodCallHandler(_handlePlatformCall);
     widget.controller.addListener(_onVideoChanged);
+    _syncPipActions();
     _syncKeepScreenOn();
     _scheduleHudHide();
   }
@@ -72,6 +77,10 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onVideoChanged);
       widget.controller.addListener(_onVideoChanged);
+    }
+    if (oldWidget.onPrevious != widget.onPrevious ||
+        oldWidget.onNext != widget.onNext) {
+      _syncPipActions();
     }
     _syncKeepScreenOn();
   }
@@ -99,6 +108,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
 
   @override
   void dispose() {
+    _platform.setMethodCallHandler(null);
     if (_isFullscreen) {
       unawaited(
         SystemChrome.setPreferredOrientations(<DeviceOrientation>[
@@ -123,7 +133,56 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
 
   void _onVideoChanged() {
     _syncKeepScreenOn();
+    _syncPipActions();
     if (mounted) setState(() {});
+  }
+
+  void _syncPipActions() {
+    if (!Platform.isAndroid) return;
+    final isPlaying = widget.controller.value.isPlaying;
+    final hasPrevious = widget.onPrevious != null;
+    final hasNext = widget.onNext != null;
+    if (_lastPipIsPlaying == isPlaying &&
+        _lastPipHasPrevious == hasPrevious &&
+        _lastPipHasNext == hasNext) {
+      return;
+    }
+    _lastPipIsPlaying = isPlaying;
+    _lastPipHasPrevious = hasPrevious;
+    _lastPipHasNext = hasNext;
+    unawaited(
+      _platform
+          .invokeMethod<void>('updateVideoPipActions', <String, Object>{
+            'isPlaying': isPlaying,
+            'hasPrevious': hasPrevious,
+            'hasNext': hasNext,
+          })
+          .catchError((_) {}),
+    );
+  }
+
+  Future<void> _handlePlatformCall(MethodCall call) async {
+    if (call.method != 'onVideoPipAction') return;
+    switch (call.arguments?.toString()) {
+      case 'video_previous':
+        await widget.onPrevious?.call();
+        break;
+      case 'video_play_pause':
+        if (widget.controller.value.isPlaying) {
+          await widget.controller.pause();
+        } else {
+          await widget.controller.play();
+        }
+        break;
+      case 'video_stop':
+        await widget.controller.pause();
+        widget.onClose?.call();
+        break;
+      case 'video_next':
+        await widget.onNext?.call();
+        break;
+    }
+    _syncPipActions();
   }
 
   void _syncKeepScreenOn({bool? force}) {
@@ -246,6 +305,7 @@ class _YazenVideoPlayerState extends State<YazenVideoPlayer>
 
   Future<void> _enterPip() async {
     try {
+      _syncPipActions();
       await _platform.invokeMethod<void>('enterPictureInPicture');
     } on PlatformException {
       if (!mounted) return;

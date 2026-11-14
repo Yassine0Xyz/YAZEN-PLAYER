@@ -294,6 +294,7 @@ void main() {
     await manager.initialize();
     await manager.recordPlayed(track());
     await manager.recordPlayed(track());
+    final lastPlayed = manager.lastPlayed(track().id);
     await manager.updateTrackMetadata(
       track().id,
       title: 'Edited title',
@@ -302,6 +303,7 @@ void main() {
     );
 
     expect(manager.playCount(track().id), 2);
+    expect(lastPlayed, isNotNull);
     final edited = manager.applyMetadata(<MediaTrack>[track()]).single;
     expect(edited.title, 'Edited title');
     expect(edited.artist, 'Edited artist');
@@ -310,6 +312,7 @@ void main() {
     final restored = LocalPlaylistManager();
     await restored.initialize();
     expect(restored.playCount(track().id), 2);
+    expect(restored.lastPlayed(track().id), lastPlayed);
     expect(
       restored.applyMetadata(<MediaTrack>[track()]).single.title,
       'Edited title',

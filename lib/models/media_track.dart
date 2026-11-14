@@ -11,6 +11,7 @@ class MediaTrack {
     required this.album,
     required this.source,
     this.kind = MediaKind.audio,
+    this.artistId,
     this.albumId,
     this.uri,
     this.headers,
@@ -27,6 +28,7 @@ class MediaTrack {
   final String album;
   final TrackSource source;
   final MediaKind kind;
+  final int? artistId;
   final int? albumId;
   final Uri? uri;
   final Map<String, String>? headers;
@@ -50,6 +52,7 @@ class MediaTrack {
       album: album ?? this.album,
       source: source,
       kind: kind,
+      artistId: artistId,
       albumId: albumId,
       uri: uri,
       headers: headers,
@@ -92,6 +95,7 @@ class MediaTrack {
           song.artist?.trim().isEmpty ?? true ? 'Unknown artist' : song.artist!,
       album: song.album?.trim().isEmpty ?? true ? 'Unknown album' : song.album!,
       source: TrackSource.local,
+      artistId: song.artistId,
       albumId: song.albumId,
       uri: Uri.file(path),
       artworkUri: Uri.parse(
@@ -143,6 +147,8 @@ enum TrackSource { local, remote }
 enum LibraryTab {
   videos('Local Videos'),
   songs('Songs'),
+  recentlyPlayed('Recently played'),
+  mostPlayed('Most played'),
   playlists('Playlists'),
   folders('Folders'),
   artists('Artists'),

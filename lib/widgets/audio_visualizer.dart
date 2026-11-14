@@ -12,6 +12,31 @@ import '../services/visualizer_settings.dart';
 
 enum AudioVisualizerProfile { compact, full }
 
+@visibleForTesting
+double visualizerWaveAmplitude(double level, double height) =>
+    math.max(0.0, height * 0.5 - 2.0) * level.clamp(0.0, 1.0).toDouble();
+
+/// Smoothly approaches an audio target while capping long frame gaps.
+///
+/// Capping the delta prevents a delayed frame from making the spectrum snap
+/// directly to a new level instead of easing toward it on the next frames.
+@visibleForTesting
+double visualizerSmoothedLevel({
+  required double current,
+  required double target,
+  required double deltaSeconds,
+  required double riseSeconds,
+  required double fallSeconds,
+}) {
+  final boundedDelta = deltaSeconds.clamp(0.0, 0.05).toDouble();
+  final timeConstant = math.max(
+    0.001,
+    target >= current ? riseSeconds : fallSeconds,
+  );
+  final alpha = 1.0 - math.exp(-boundedDelta / timeConstant);
+  return (current + (target - current) * alpha).clamp(0.0, 1.0).toDouble();
+}
+
 /// A source-driven spectrum view for local audio.
 ///
 /// The widget has one responsibility: read real spectrum frames for the
@@ -79,8 +104,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   List<double> _displayLevels = const <double>[];
   List<double> _displayPeaks = const <double>[];
   bool _hasRealSignal = false;
-  double _adaptiveGain = 1.0;
-  double _spectralBalance = 0.0;
   Duration? _lastTick;
   double _sceneTime = 0;
   double _sceneEnergy = 0;
@@ -260,28 +283,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   void _setRealFrame(List<double> bands) {
     _lastRawBands = List<double>.unmodifiable(bands);
     final count = math.max(1, widget.barCount);
-    // Adapt visual intensity to the actual spectrum balance. Bass-heavy and
-    // bright/dense tracks get a distinct response without introducing random
-    // motion or disconnecting the animation from PCM energy.
-    var lowEnergy = 0.0;
-    var highEnergy = 0.0;
-    for (var i = 0; i < bands.length; i++) {
-      if (i < bands.length * 0.28) {
-        lowEnergy += bands[i].clamp(0.0, 1.0);
-      } else if (i >= bands.length * 0.68) {
-        highEnergy += bands[i].clamp(0.0, 1.0);
-      }
-    }
-    final lowMean = lowEnergy / math.max(1, (bands.length * 0.28).round());
-    final highMean = highEnergy / math.max(1, (bands.length * 0.32).round());
-    final spectralBalance = (lowMean - highMean).clamp(-0.45, 0.45).toDouble();
-    _spectralBalance += (spectralBalance - _spectralBalance) * 0.16;
-    final spectralCharacter = (_spectralBalance * 0.22).clamp(-0.12, 0.12);
-    final nextGain =
-        (1.0 + spectralCharacter + ((lowMean + highMean) * 0.08))
-            .clamp(0.88, 1.18)
-            .toDouble();
-    _adaptiveGain += (nextGain - _adaptiveGain) * 0.18;
     final sensitivity = _visualizerSettings.sensitivity;
     final gate = _visualizerSettings.noiseGate;
     final next = List<double>.generate(count, (index) {
@@ -289,23 +290,14 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         0,
         bands.length - 1,
       );
-      final frequencyPosition =
-          bands.length <= 1 ? 0.0 : source / (bands.length - 1);
-      final frequencyWeight =
-          (1.0 + _spectralBalance * (0.55 - frequencyPosition * 0.9))
-              .clamp(0.75, 1.25)
-              .toDouble();
-      final raw =
-          (bands[source] * _adaptiveGain * frequencyWeight)
-              .clamp(0.0, 1.0)
-              .toDouble();
+      final raw = bands[source].clamp(0.0, 1.0).toDouble();
       final gated = raw <= gate ? 0.0 : (raw - gate) / (1.0 - gate);
       return math
           .pow(gated.clamp(0.0, 1.0), 1.0 / sensitivity)
           .toDouble()
           .clamp(0.0, 1.0)
           .toDouble();
-    });
+    }, growable: false);
     _targetLevels = next;
     if (!_hasRealSignal) {
       _hasRealSignal = true;
@@ -331,16 +323,14 @@ class _AudioVisualizerState extends State<AudioVisualizer>
             : (elapsed - previousTick).inMicroseconds /
                 Duration.microsecondsPerSecond;
     _sceneTime += dt;
-    // The ticker fills the visual gap between 40 ms source frames. These
-    // constants affect only how quickly the display approaches real targets.
+    // The ticker fills the visual gap between 40 ms source frames. A bounded
+    // elapsed time keeps a dropped frame from snapping bars to their targets.
     final riseSeconds =
         _visualizerSettings.riseTime.inMicroseconds /
         Duration.microsecondsPerSecond;
     final fallSeconds =
         _visualizerSettings.fallTime.inMicroseconds /
         Duration.microsecondsPerSecond;
-    final riseAlpha = 1.0 - math.exp(-dt / riseSeconds);
-    final fallAlpha = 1.0 - math.exp(-dt / fallSeconds);
     final count = math.max(1, widget.barCount);
     if (_displayLevels.length != count) {
       _displayLevels = List<double>.filled(count, 0.0);
@@ -350,8 +340,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     for (var index = 0; index < count; index++) {
       final target = index < _targetLevels.length ? _targetLevels[index] : 0.0;
       final current = _displayLevels[index];
-      final alpha = target >= current ? riseAlpha : fallAlpha;
-      final next = (current + (target - current) * alpha).clamp(0.0, 1.0);
+      final next = visualizerSmoothedLevel(
+        current: current,
+        target: target,
+        deltaSeconds: dt,
+        riseSeconds: riseSeconds,
+        fallSeconds: fallSeconds,
+      );
 
       // The cap/point must follow the rendered bar, not an old peak value.
       // Previously it had an independent slow decay, so a fast falling bar
@@ -370,22 +365,15 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       _displayLevels[index] = next;
       _displayPeaks[index] = nextPeak.clamp(0.0, 1.0);
     }
-    _updateNoorFrame(dt);
-    if (_isNoorStyle) changed = true;
+    _updateColumnsFrame(dt);
+    if (_isColumnsStyle) changed = true;
     if (changed) _painterRepaint.value++;
   }
 
-  bool get _isNoorStyle => switch (_visualizerSettings.style) {
-    VisualizerStyle.halo ||
-    VisualizerStyle.columns ||
-    VisualizerStyle.ribbon ||
-    VisualizerStyle.orbit ||
-    VisualizerStyle.pulse ||
-    VisualizerStyle.ridge => true,
-    _ => false,
-  };
+  bool get _isColumnsStyle =>
+      _visualizerSettings.style == VisualizerStyle.columns;
 
-  void _updateNoorFrame(double dt) {
+  void _updateColumnsFrame(double dt) {
     var energy = 0.0;
     final bassCount = math.max(1, _displayLevels.length ~/ 8);
     var bass = 0.0;
@@ -394,9 +382,10 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       energy += value;
       if (i < bassCount) bass += value;
     }
-    _sceneEnergy = _displayLevels.isEmpty
-        ? 0
-        : (energy / _displayLevels.length).clamp(0.0, 1.0).toDouble();
+    _sceneEnergy =
+        _displayLevels.isEmpty
+            ? 0
+            : (energy / _displayLevels.length).clamp(0.0, 1.0).toDouble();
     bass /= bassCount;
     _bassAverage = _bassAverage * 0.96 + bass * 0.04;
     if (bass > _bassAverage * 1.32 && bass > 0.22) {
@@ -407,11 +396,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final row = _sceneHistory[_sceneHistoryIndex];
     for (var i = 0; i < row.length; i++) {
       final u = row.length <= 1 ? 0.0 : i / (row.length - 1);
-      final source = (math.pow(u, 0.55) *
-              math.max(0, _displayLevels.length - 1))
-          .round()
-          .clamp(0, math.max(0, _displayLevels.length - 1))
-          .toInt();
+      final source =
+          (math.pow(u, 0.55) * math.max(0, _displayLevels.length - 1))
+              .round()
+              .clamp(0, math.max(0, _displayLevels.length - 1))
+              .toInt();
       row[i] = _displayLevels.isEmpty ? 0 : _displayLevels[source];
     }
     _sceneHistoryIndex = (_sceneHistoryIndex + 1) % _sceneHistory.length;
@@ -421,8 +410,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final count = math.max(1, widget.barCount);
     _targetLevels = List<double>.filled(count, 0.0);
     _lastRawBands = const <double>[];
-    _adaptiveGain = 1.0;
-    _spectralBalance = 0.0;
     _displayLevels = List<double>.filled(count, 0.0);
     _displayPeaks = List<double>.filled(count, 0.0);
     _sceneTime = 0;
@@ -572,111 +559,54 @@ class SourceSpectrumPainter extends CustomPainter {
     return Color.lerp(sampled, Colors.white, highlight)!;
   }
 
-  Color _noorColor(double position, double energy, {bool core = false}) {
+  Color _columnsColor(double position, double energy, {bool core = false}) {
     if (paletteColors.isEmpty) return color;
-    final index = core
-        ? (paletteColors.length - 1).toDouble()
-        : position * paletteColors.length;
+    final index =
+        core
+            ? (paletteColors.length - 1).toDouble()
+            : position * paletteColors.length;
     final first =
         paletteColors[index.floor().clamp(0, paletteColors.length - 1).toInt()];
-    final next = paletteColors[(index.floor() + 1)
-        .clamp(0, paletteColors.length - 1)
-        .toInt()];
-    return Color.lerp(first, next, (index - index.floor()).toDouble())!
-        .withValues(
-      alpha: (0.72 + energy.clamp(0.0, 1.0).toDouble() * 0.28),
-    );
+    final next =
+        paletteColors[(index.floor() + 1)
+            .clamp(0, paletteColors.length - 1)
+            .toInt()];
+    return Color.lerp(
+      first,
+      next,
+      (index - index.floor()).toDouble(),
+    )!.withValues(alpha: (0.72 + energy.clamp(0.0, 1.0).toDouble() * 0.28));
   }
 
-  double _noorSample(double u) {
+  double _columnsSample(double u) {
     if (levels.isEmpty) return 0;
     final shaped =
-        (math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() *
-                (levels.length - 1))
+        (math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() * (levels.length - 1))
             .toDouble();
     final index = shaped.floor();
     final next = math.min(levels.length - 1, index + 1).toInt();
     return levels[index] + (levels[next] - levels[index]) * (shaped - index);
   }
 
-  double _noorMirrored(double u) {
-    final folded = u <= 0.5 ? u * 2 : (1 - u) * 2;
-    return _noorSample(folded);
-  }
-
-  void _paintNoorScene(Canvas canvas, Size size) {
-    switch (style) {
-      case VisualizerStyle.halo:
-        _paintNoorHalo(canvas, size);
-        return;
-      case VisualizerStyle.columns:
-        _paintNoorColumns(canvas, size);
-        return;
-      case VisualizerStyle.ribbon:
-        _paintNoorRibbon(canvas, size);
-        return;
-      case VisualizerStyle.orbit:
-        _paintNoorOrbit(canvas, size);
-        return;
-      case VisualizerStyle.pulse:
-        _paintNoorPulse(canvas, size);
-        return;
-      case VisualizerStyle.ridge:
-        _paintNoorRidge(canvas, size);
-        return;
-      default:
-        return;
-    }
-  }
-
-  void _paintNoorHalo(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final base = math.min(size.width, size.height) * 0.20;
-    final reach = math.min(size.width, size.height) * 0.42;
-    final count = profile == AudioVisualizerProfile.full ? 64 : 40;
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(sceneTime * 0.06);
-    for (var i = 0; i < count; i++) {
-      final value = _noorMirrored(i / count);
-      final angle = i / count * math.pi * 2 - math.pi / 2;
-      final inner = base * 0.72 + beat * 6;
-      final outer = inner +
-          reach *
-              (0.34 +
-                  math.pow(value.clamp(0.08, 1.0), 0.55).toDouble() * 0.66);
-      final paint = Paint()
-        ..color = _noorColor(i / count, value)
-        ..strokeWidth = math.max(2.0, (math.pi * 2 * inner / count) * 0.62)
-        ..strokeCap = StrokeCap.square;
-      canvas.drawLine(
-        Offset(math.cos(angle) * inner, math.sin(angle) * inner),
-        Offset(math.cos(angle) * outer, math.sin(angle) * outer),
-        paint,
+  Path _smoothTrace(List<Offset> points) {
+    final path = Path();
+    if (points.isEmpty) return path;
+    path.moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final previous = points[i - 1];
+      final current = points[i];
+      path.quadraticBezierTo(
+        previous.dx,
+        previous.dy,
+        (previous.dx + current.dx) * 0.5,
+        (previous.dy + current.dy) * 0.5,
       );
     }
-    final radius = base * 0.46 + energy * 22 + beat * 12;
-    final glow = Paint()
-      ..shader = RadialGradient(
-        colors: <Color>[
-          _noorColor(0.8, energy, core: true),
-          _noorColor(0.3, energy).withValues(alpha: 0.42),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius * 1.8));
-    canvas.drawCircle(Offset.zero, radius * 1.8, glow);
-    canvas.drawCircle(
-      Offset.zero,
-      base * 0.86,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = _noorColor(0.9, energy, core: true).withValues(alpha: 0.48),
-    );
-    canvas.restore();
+    if (points.length > 1) path.lineTo(points.last.dx, points.last.dy);
+    return path;
   }
 
-  void _paintNoorColumns(Canvas canvas, Size size) {
+  void _paintColumnsColumns(Canvas canvas, Size size) {
     final count = profile == AudioVisualizerProfile.full ? 52 : 32;
     final gap = math.max(2.0, size.width * 0.006);
     final span = size.width * 0.9;
@@ -685,20 +615,29 @@ class SourceSpectrumPainter extends CustomPainter {
     final mid = size.height * 0.58;
     final maxHeight = size.height * 0.46;
     for (var i = 0; i < count; i++) {
-      final value = _noorMirrored(i / math.max(1, count - 1));
-      final height = math.max(
-        3.0,
-        (0.08 + math.pow(value, 0.7).toDouble() * 0.92) * maxHeight,
-      ).toDouble();
+      final value = _columnsSample(i / math.max(1, count - 1));
+      final height =
+          math
+              .max(
+                3.0,
+                (0.08 + math.pow(value, 0.7).toDouble() * 0.92) * maxHeight,
+              )
+              .toDouble();
       final x = left + i * (barWidth + gap);
-      final columnColor = _noorColor(i / math.max(1, count - 1), value);
+      final columnColor = _columnsColor(i / math.max(1, count - 1), value);
       final radius = Radius.circular(math.min(barWidth / 2, 8));
       canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(x, mid - height, barWidth, height), radius),
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, mid - height, barWidth, height),
+          radius,
+        ),
         Paint()..color = columnColor,
       );
       canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42), radius),
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42),
+          radius,
+        ),
         Paint()..color = columnColor.withValues(alpha: 0.22),
       );
     }
@@ -706,172 +645,16 @@ class SourceSpectrumPainter extends CustomPainter {
       Offset(left, mid),
       Offset(left + span, mid),
       Paint()
-        ..color = _noorColor(0.9, energy, core: true).withValues(alpha: 0.28)
+        ..color = _columnsColor(0.9, energy, core: true).withValues(alpha: 0.28)
         ..strokeWidth = 1,
     );
-  }
-
-  Path _noorWavePath(Size size, double amplitude, double phase) {
-    final path = Path();
-    const steps = 120;
-    for (var i = 0; i <= steps; i++) {
-      final u = i / steps;
-      final sample = _noorSample(u);
-      final wobble = math.sin(sceneTime * 1.3 + phase + u * 8) * size.height * 0.012;
-      final y = size.height * 0.5 + sample * amplitude * size.height + wobble;
-      if (i == 0) {
-        path.moveTo(u * size.width, y);
-      } else {
-        path.lineTo(u * size.width, y);
-      }
-    }
-    return path;
-  }
-
-  void _paintNoorRibbon(Canvas canvas, Size size) {
-    final upper = _noorWavePath(size, 0.30, 0.2);
-    final area = Path()..addPath(upper, Offset.zero);
-    area.lineTo(size.width, size.height);
-    area.lineTo(0, size.height);
-    area.close();
-    canvas.drawPath(
-      area,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            _noorColor(0.35, energy).withValues(alpha: 0.04),
-            _noorColor(0.35, energy).withValues(alpha: 0.12 + energy * 0.22),
-            Colors.transparent,
-          ],
-        ).createShader(Offset.zero & size),
-    );
-    for (final spec in <(double, double, double)>[
-      (0.26, 0.2, 2.2 + energy * 2),
-      (0.16, 1.4, 1.4),
-      (0.10, 2.4, 1.0),
-    ]) {
-      canvas.drawPath(
-        _noorWavePath(size, spec.$1, spec.$2),
-        Paint()
-          ..color = _noorColor(spec.$2 / 3.0, energy).withValues(alpha: spec.$3 == 1.0 ? 0.28 : 0.82)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = spec.$3
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round,
-      );
-    }
-  }
-
-  void _paintNoorOrbit(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final maxRadius = math.min(size.width, size.height) * 0.44;
-    final orbitPaint = Paint()
-      ..color = _noorColor(0.1, energy).withValues(alpha: 0.28)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    for (final orbit in <double>[0.28, 0.5, 0.74]) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: center,
-          width: maxRadius * orbit * 2,
-          height: maxRadius * orbit * 1.44,
-        ),
-        orbitPaint,
-      );
-    }
-    for (var i = 0; i < 72; i++) {
-      final band = (i % 24) / 23;
-      final value = _noorSample(band);
-      final angle = i / 72 * math.pi * 2 + (i % 3) * 0.2 + sceneTime * (i.isEven ? 0.55 : -0.55) * (0.35 + value * 0.9);
-      final radius = maxRadius * (0.2 + (1 - band) * 0.15 + band * 0.8) * (0.9 + value * 0.22);
-      final particleSize = 2.1 + value * 5.5 + (i % 9 == 0 ? beat * 4 : 0);
-      canvas.drawCircle(
-        Offset(center.dx + math.cos(angle) * radius, center.dy + math.sin(angle) * radius * 0.7),
-        particleSize,
-        Paint()..color = _noorColor(i % 6 / 6, value).withValues(alpha: 0.5 + value * 0.5),
-      );
-    }
-  }
-
-  void _paintNoorPulse(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final base = math.min(size.width, size.height);
-    for (var i = 0; i < 7; i++) {
-      final phase = (sceneTime * (0.55 + energy * 0.8) + i * 0.19) % 1;
-      final radius = base * (0.10 + phase * 0.52) + beat * 8;
-      final life = (1 - phase) * (0.35 + energy * 0.6);
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..color = _noorColor(i / 7, energy).withValues(
-            alpha: life.clamp(0.0, 0.8).toDouble(),
-          )
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = (1.2 + (1 - phase) * 2.4),
-      );
-    }
-    final core = base * (0.07 + energy * 0.05) + beat * 8;
-    canvas.drawCircle(
-      center,
-      core * 2.2,
-      Paint()
-        ..shader = RadialGradient(
-          colors: <Color>[
-            _noorColor(0.9, energy, core: true),
-            _noorColor(0.4, energy).withValues(alpha: 0.45),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: center, radius: core * 2.2)),
-    );
-  }
-
-  void _paintNoorRidge(Canvas canvas, Size size) {
-    if (history.isEmpty) return;
-    final rows = history.length;
-    final cols = history.first.length;
-    if (cols < 2) return;
-    for (var z = 0; z < rows; z++) {
-      final row = history[(sceneHistoryIndex + z) % rows];
-      final depth = z / math.max(1, rows - 1);
-      final y = size.height * 0.22 + depth * size.height * 0.58;
-      final scale = 0.42 + depth * 0.72;
-      final path = Path();
-      for (var x = 0; x < cols; x++) {
-        final px = size.width / 2 + (x / (cols - 1) - 0.5) * size.width * 0.92 * scale;
-        final py = y - row[x] * size.height * 0.32 * scale;
-        if (x == 0) {
-          path.moveTo(px, py);
-        } else {
-          path.lineTo(px, py);
-        }
-      }
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = _noorColor(
-            depth,
-            row.isEmpty ? 0 : row.reduce((a, b) => math.max(a, b).toDouble()),
-          ).withValues(alpha: 0.15 + depth * 0.7)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1 + depth * 1.4
-          ..strokeJoin = StrokeJoin.round,
-      );
-    }
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
-    if (style == VisualizerStyle.halo ||
-        style == VisualizerStyle.columns ||
-        style == VisualizerStyle.ribbon ||
-        style == VisualizerStyle.orbit ||
-        style == VisualizerStyle.pulse ||
-        style == VisualizerStyle.ridge) {
-      _paintNoorScene(canvas, size);
+    if (style == VisualizerStyle.columns) {
+      _paintColumnsColumns(canvas, size);
       return;
     }
     final gap = math.max(
@@ -900,98 +683,80 @@ class SourceSpectrumPainter extends CustomPainter {
     ).createShader(Offset.zero & size);
     final barPaint = Paint()..shader = spectrumShader;
 
-    if (style == VisualizerStyle.wave || style == VisualizerStyle.line) {
+    if (style == VisualizerStyle.wave) {
       final centerY = size.height * 0.5;
       final upper = <Offset>[];
       final lower = <Offset>[];
+      final maxAmplitude = visualizerWaveAmplitude(1, size.height);
       for (var index = 0; index < barCount; index++) {
         final x = size.width * index / math.max(1, barCount - 1);
         final level =
-            hasSignal && index < levels.length ? levels[index] : 0.015;
-        final amplitude = math.max(0.8, size.height * 0.42 * level);
+            hasSignal && index < levels.length
+                ? levels[index].clamp(0.0, 1.0).toDouble()
+                : 0.0;
+        final amplitude = maxAmplitude * level;
         upper.add(Offset(x, centerY - amplitude));
-        if (style == VisualizerStyle.wave) {
-          lower.add(Offset(x, centerY + amplitude));
-        }
+        lower.add(Offset(x, centerY + amplitude));
       }
       if (upper.isEmpty) return;
-
-      Path smoothPath(List<Offset> points) {
-        final path = Path()..moveTo(points.first.dx, points.first.dy);
-        for (var i = 1; i < points.length; i++) {
-          final previous = points[i - 1];
-          final current = points[i];
-          final midpoint = (previous.dx + current.dx) * 0.5;
-          path.quadraticBezierTo(
-            previous.dx,
-            previous.dy,
-            midpoint,
-            (previous.dy + current.dy) * 0.5,
-          );
-        }
-        path.lineTo(points.last.dx, points.last.dy);
-        return path;
+      final upperPath = _smoothTrace(upper);
+      final lowerPath = _smoothTrace(lower);
+      final area = Path()..addPath(upperPath, Offset.zero);
+      area.lineTo(lower.last.dx, lower.last.dy);
+      final reversedLower = lower.reversed.toList(growable: false);
+      for (var i = 1; i < reversedLower.length; i++) {
+        final previous = reversedLower[i - 1];
+        final current = reversedLower[i];
+        area.quadraticBezierTo(
+          previous.dx,
+          previous.dy,
+          (previous.dx + current.dx) * 0.5,
+          (previous.dy + current.dy) * 0.5,
+        );
       }
-
-      final upperPath = smoothPath(upper);
-      if (style == VisualizerStyle.wave) {
-        final area = Path()..addPath(upperPath, Offset.zero);
-        area.lineTo(lower.last.dx, lower.last.dy);
-        for (var i = lower.length - 2; i >= 0; i--) {
-          area.lineTo(lower[i].dx, lower[i].dy);
-        }
-        area.close();
-        final fill =
-            Paint()
-              ..shader = LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  _colorAt(0.12, 1).withValues(alpha: hasSignal ? 0.36 : 0.05),
-                  _colorAt(0.86, 1).withValues(alpha: hasSignal ? 0.08 : 0.01),
-                ],
-              ).createShader(Offset.zero & size);
-        canvas.drawPath(area, fill);
-        final lowerPath = smoothPath(lower);
-        linePaint
-          ..shader = spectrumShader
-          ..color = Colors.white.withValues(alpha: hasSignal ? 0.82 : 0.12)
-          ..strokeWidth = 1.5;
-        canvas.drawPath(lowerPath, linePaint);
+      area.lineTo(reversedLower.last.dx, reversedLower.last.dy);
+      area.close();
+      final areaColors =
+          paletteColors.length < 2 ? <Color>[color, color] : paletteColors;
+      canvas.drawPath(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              areaColors.first.withValues(alpha: hasSignal ? 0.34 : 0.0),
+              areaColors[areaColors.length ~/ 2].withValues(
+                alpha: hasSignal ? 0.16 : 0.0,
+              ),
+              areaColors.last.withValues(alpha: hasSignal ? 0.28 : 0.0),
+            ],
+          ).createShader(Offset.zero & size),
+      );
+      if (hasSignal) {
+        canvas.drawPath(
+          upperPath,
+          Paint()
+            ..color =
+                paletteColors.isEmpty
+                    ? color.withValues(alpha: 0.18)
+                    : paletteColors.first.withValues(alpha: 0.22)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 7.0
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0),
+        );
       }
       linePaint
         ..shader = spectrumShader
+        ..color = Colors.white.withValues(alpha: hasSignal ? 0.70 : 0.12)
+        ..strokeWidth = 1.25;
+      canvas.drawPath(lowerPath, linePaint);
+      linePaint
+        ..shader = spectrumShader
         ..color = Colors.white.withValues(alpha: hasSignal ? 0.98 : 0.18)
-        ..strokeWidth = style == VisualizerStyle.wave ? 2.8 : 2.2;
+        ..strokeWidth = math.max(2.0, size.height * 0.045);
       canvas.drawPath(upperPath, linePaint);
-      return;
-    }
-    if (style == VisualizerStyle.circular) {
-      final center = Offset(size.width / 2, size.height / 2);
-      final radius = math.min(size.width, size.height) * 0.22;
-      for (var index = 0; index < barCount; index++) {
-        final angle = (index / barCount) * math.pi * 2 - math.pi / 2;
-        final level = hasSignal && index < levels.length ? levels[index] : 0.02;
-        final outer = radius + level * math.min(size.width, size.height) * 0.28;
-        paint
-          ..color = _colorAt(
-            index / math.max(1, barCount - 1),
-            level,
-          ).withValues(alpha: hasSignal ? 0.96 : 0.20)
-          ..strokeWidth = math.max(1.5, size.width / (barCount * 2.1))
-          ..strokeCap = StrokeCap.round;
-        canvas.drawLine(
-          Offset(
-            center.dx + math.cos(angle) * radius,
-            center.dy + math.sin(angle) * radius,
-          ),
-          Offset(
-            center.dx + math.cos(angle) * outer,
-            center.dy + math.sin(angle) * outer,
-          ),
-          paint,
-        );
-      }
       return;
     }
 
@@ -1008,7 +773,7 @@ class SourceSpectrumPainter extends CustomPainter {
       // Energy grows from a soft baseline, with enough headroom for rounded
       // tops and glow instead of a rigid ceiling/cap treatment.
       final barHeight =
-          hasSignal ? math.max(3.0, (size.height - 4.0) * level) : 3.0;
+          hasSignal ? math.max(1.0, (size.height - 2.0) * level) : 1.0;
       final x = index * (barWidth + gap) + barWidth / 2;
       final barColor = _colorAt(ratio, level);
       final rect =
@@ -1037,6 +802,18 @@ class SourceSpectrumPainter extends CustomPainter {
         );
       }
       canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);
+      if (style == VisualizerStyle.bars && hasSignal && level > 0.025) {
+        final highlightY =
+            baselineY - barHeight + math.min(1.5, barHeight * 0.2);
+        paint
+          ..color = Colors.white.withValues(alpha: 0.28 + level * 0.3)
+          ..strokeWidth = math.max(1.0, barWidth * 0.42);
+        canvas.drawLine(
+          Offset(rect.left + barWidth * 0.24, highlightY),
+          Offset(rect.right - barWidth * 0.24, highlightY),
+          paint,
+        );
+      }
       paint
         ..color = barColor.withValues(alpha: hasSignal ? 0.82 : 0.14)
         ..strokeWidth = math.max(1.2, barWidth * 0.7);
@@ -1046,7 +823,9 @@ class SourceSpectrumPainter extends CustomPainter {
       // Bars use a rounded, luminous top; a detached horizontal cap makes
       // them look capped and mechanical. Keep the peak marker for Mirror,
       // where it reads as a useful centre-line accent.
-      if (style == VisualizerStyle.mirror && hasSignal && peak - level > 0.025) {
+      if (style == VisualizerStyle.mirror &&
+          hasSignal &&
+          peak - level > 0.025) {
         paint
           ..color = paint.color.withValues(alpha: 0.72)
           ..strokeWidth = math.max(1.2, barWidth * 0.62);

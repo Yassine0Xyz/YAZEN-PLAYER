@@ -2,10 +2,14 @@ package com.yassine.yazen
 
 import android.Manifest
 import android.app.Activity
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
@@ -33,6 +37,22 @@ import kotlin.math.roundToInt
 
 class MainActivity : AudioServiceActivity() {
     private val channelName = "yazen/local_media"
+    private val playerControlsChannelName = "yazen/player_controls"
+    private val pipActionExtra = "yazen.video_pip_action"
+    private var playerControlsChannel: MethodChannel? = null
+    private var videoPipIsPlaying = false
+    private var videoPipHasPrevious = false
+    private var videoPipHasNext = false
+    private var isInPictureInPictureMode = false
+    private var pipReceiverRegistered = false
+    private val videoPipActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val actionIdentifier = intent?.getStringExtra(pipActionExtra) ?: return
+            if (actionIdentifier in VIDEO_PIP_ACTIONS) {
+                playerControlsChannel?.invokeMethod("onVideoPipAction", actionIdentifier)
+            }
+        }
+    }
     private val pcmTag = "YAZENPcm"
     private val mainHandler = Handler(Looper.getMainLooper())
     private val deleteAudioRequestCode = 4207
@@ -64,6 +84,31 @@ class MainActivity : AudioServiceActivity() {
         ): Boolean = size > 3
     }
     private var pcmFailure: String? = null
+
+    companion object {
+        private val VIDEO_PIP_ACTIONS = setOf(
+            "video_previous",
+            "video_play_pause",
+            "video_stop",
+            "video_next",
+        )
+    }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val filter = IntentFilter().apply {
+                VIDEO_PIP_ACTIONS.forEach(::addAction)
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(videoPipActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(videoPipActionReceiver, filter)
+            }
+            pipReceiverRegistered = true
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -133,8 +178,11 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "yazen/player_controls")
-            .setMethodCallHandler { call, result ->
+        playerControlsChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            playerControlsChannelName,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "setVolume" -> {
                         val value = (call.argument<Number>("value")?.toFloat() ?: 0.75f)
@@ -165,13 +213,18 @@ class MainActivity : AudioServiceActivity() {
                         }
                         result.success(null)
                     }
+                    "updateVideoPipActions" -> {
+                        videoPipIsPlaying = call.argument<Boolean>("isPlaying") ?: false
+                        videoPipHasPrevious = call.argument<Boolean>("hasPrevious") ?: false
+                        videoPipHasNext = call.argument<Boolean>("hasNext") ?: false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+                            setPictureInPictureParams(buildPictureInPictureParams())
+                        }
+                        result.success(null)
+                    }
                     "enterPictureInPicture" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            enterPictureInPictureMode(
-                                PictureInPictureParams.Builder()
-                                    .setAspectRatio(Rational(16, 9))
-                                    .build(),
-                            )
+                            enterPictureInPictureMode(buildPictureInPictureParams())
                             result.success(null)
                         } else {
                             result.error("UNAVAILABLE", "Picture-in-picture requires Android 8.0 or newer.", null)
@@ -180,6 +233,58 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+        }
+    }
+
+    private fun buildPictureInPictureParams(): PictureInPictureParams {
+        val actions = mutableListOf<RemoteAction>()
+        if (videoPipHasPrevious) {
+            actions.add(createVideoPipAction("video_previous", android.R.drawable.ic_media_previous, "Previous"))
+        }
+        actions.add(
+            createVideoPipAction(
+                "video_play_pause",
+                if (videoPipIsPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                if (videoPipIsPlaying) "Pause" else "Play",
+            ),
+        )
+        if (videoPipHasNext) {
+            actions.add(createVideoPipAction("video_next", android.R.drawable.ic_media_next, "Next"))
+        }
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .setActions(actions)
+            .build()
+    }
+
+    private fun createVideoPipAction(identifier: String, icon: Int, title: String): RemoteAction {
+        val intent = Intent(identifier).apply {
+            action = identifier
+            putExtra(pipActionExtra, identifier)
+            setPackage(packageName)
+        }
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags = flags or PendingIntent.FLAG_IMMUTABLE
+        val pendingIntent = PendingIntent.getBroadcast(
+            this,
+            identifier.hashCode(),
+            intent,
+            flags,
+        )
+        return RemoteAction(
+            android.graphics.drawable.Icon.createWithResource(this, icon),
+            title,
+            title,
+            pendingIntent,
+        )
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        this.isInPictureInPictureMode = isInPictureInPictureMode
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -830,6 +935,11 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        if (pipReceiverRegistered) {
+            runCatching { unregisterReceiver(videoPipActionReceiver) }
+            pipReceiverRegistered = false
+        }
+        playerControlsChannel = null
         stopPcmAnalyzer()
         activityDestroyed = true
         val waiting = pendingVideoQueryResults.toList()

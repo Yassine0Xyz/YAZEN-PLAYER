@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:yazen/models/media_track.dart';
+import 'package:yazen/services/media_track_codec.dart';
 
 void main() {
   test(
@@ -16,10 +17,12 @@ void main() {
           'title': 'Song',
           'artist': 'Artist',
           'album': 'Album',
+          'artist_id': 3,
           'album_id': 7,
         }),
       );
 
+      expect(track.artistId, 3);
       expect(track.albumId, 7);
       expect(track.sizeBytes, 4096);
       expect(
@@ -46,5 +49,23 @@ void main() {
 
     expect(track.modifiedAt, isNull);
     expect(track.sizeBytes, 1);
+  });
+
+  test('round-trips artist IDs and reads legacy tracks without one', () {
+    const track = MediaTrack(
+      id: 'song',
+      title: 'Song',
+      artist: 'Artist',
+      album: 'Album',
+      source: TrackSource.local,
+      artistId: 3,
+      albumId: 7,
+    );
+
+    expect(mediaTrackFromJson(mediaTrackToJson(track)).artistId, 3);
+    expect(
+      mediaTrackFromJson(<String, dynamic>{'id': 'legacy'}).artistId,
+      isNull,
+    );
   });
 }

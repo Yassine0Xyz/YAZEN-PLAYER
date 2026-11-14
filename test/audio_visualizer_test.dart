@@ -7,6 +7,94 @@ import 'package:yazen/widgets/audio_visualizer.dart';
 import 'package:yazen/services/visualizer_settings.dart';
 
 void main() {
+  test('legacy visualizer styles migrate to the four supported styles', () {
+    expect(visualizerStyleFromLegacyIndex(0), VisualizerStyle.bars);
+    expect(visualizerStyleFromLegacyIndex(1), VisualizerStyle.wave);
+    expect(visualizerStyleFromLegacyIndex(2), VisualizerStyle.bars);
+    expect(visualizerStyleFromLegacyIndex(3), VisualizerStyle.mirror);
+    expect(visualizerStyleFromLegacyIndex(4), VisualizerStyle.bars);
+    expect(visualizerStyleFromLegacyIndex(5), VisualizerStyle.bars);
+    expect(visualizerStyleFromLegacyIndex(6), VisualizerStyle.columns);
+    for (var i = 7; i <= 10; i++) {
+      expect(visualizerStyleFromLegacyIndex(i), VisualizerStyle.bars);
+    }
+    expect(visualizerStyleFromLegacyIndex(null), VisualizerStyle.bars);
+  });
+  test('loud spectrum levels retain their natural full-scale range', () {
+    for (final level in <double>[0.2, 0.48, 0.8, 1.0]) {
+      expect(level.clamp(0.0, 1.0), level);
+    }
+    expect(1.0, greaterThan(0.78));
+  });
+  test('wave uses nearly the full vertical range without a tight ceiling', () {
+    expect(visualizerWaveAmplitude(0.0, 60), 0);
+    expect(visualizerWaveAmplitude(1.0, 60), 28);
+    expect(visualizerWaveAmplitude(0.5, 60), 14);
+    expect(visualizerWaveAmplitude(1.0, 12), 4);
+  });
+
+  test('visualizer eases in and releases more gradually than before', () {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final settings = VisualizerSettings.instance;
+    expect(settings.response, VisualizerResponse.balanced);
+    final balancedRise = visualizerSmoothedLevel(
+      current: 0,
+      target: 1,
+      deltaSeconds: 0.016,
+      riseSeconds: settings.riseTime.inMilliseconds / 1000,
+      fallSeconds: settings.fallTime.inMilliseconds / 1000,
+    );
+    final balancedFall = visualizerSmoothedLevel(
+      current: 1,
+      target: 0,
+      deltaSeconds: 0.016,
+      riseSeconds: settings.riseTime.inMilliseconds / 1000,
+      fallSeconds: settings.fallTime.inMilliseconds / 1000,
+    );
+
+    expect(balancedRise, greaterThan(0));
+    expect(balancedRise, lessThan(0.2));
+    expect(balancedFall, greaterThan(0.95));
+    expect(balancedFall, lessThan(1));
+  });
+
+  test('long frame gaps are capped to avoid a sudden spectrum snap', () {
+    final afterLongGap = visualizerSmoothedLevel(
+      current: 0,
+      target: 1,
+      deltaSeconds: 1,
+      riseSeconds: 0.1,
+      fallSeconds: 0.4,
+    );
+    final afterOneFrame = visualizerSmoothedLevel(
+      current: 0,
+      target: 1,
+      deltaSeconds: 0.05,
+      riseSeconds: 0.1,
+      fallSeconds: 0.4,
+    );
+
+    expect(afterLongGap, lessThan(1));
+    expect(afterLongGap, closeTo(afterOneFrame, 1e-12));
+  });
+
+  test(
+    'visualizer response presets use smooth attack and longer release times',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final settings = VisualizerSettings.instance;
+      await settings.setResponse(VisualizerResponse.smooth);
+      expect(settings.riseTime.inMilliseconds, 160);
+      expect(settings.fallTime.inMilliseconds, 650);
+      await settings.setResponse(VisualizerResponse.balanced);
+      expect(settings.riseTime.inMilliseconds, 100);
+      expect(settings.fallTime.inMilliseconds, 420);
+      await settings.setResponse(VisualizerResponse.fast);
+      expect(settings.riseTime.inMilliseconds, 55);
+      expect(settings.fallTime.inMilliseconds, 260);
+    },
+  );
+
   testWidgets('source painter repaints when a real frame changes', (
     tester,
   ) async {

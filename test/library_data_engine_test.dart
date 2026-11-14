@@ -159,7 +159,7 @@ void main() {
       expect(playCountReads, source.length);
     });
 
-    test('re-evaluates favorite-dependent results after dynamic revision', () {
+    test('re-evaluates favorite-dependent results after favorite revision', () {
       final engine = LibraryDataEngine();
       engine.rebuild(
         tracks: <MediaTrack>[
@@ -179,12 +179,45 @@ void main() {
         isFavorite: (track) => track.id == favoriteId,
         playCount: (_) => 0,
         lastPlayed: (_) => null,
-        dynamicRevision: revision,
+        favoriteRevision: revision,
       );
 
       expect(query(0).single.id, 'one');
       favoriteId = 'two';
       expect(query(1).single.id, 'two');
+    });
+
+    test('unrelated play-count updates reuse non-history query results', () {
+      final engine = LibraryDataEngine();
+      engine.rebuild(
+        tracks: <MediaTrack>[
+          _track(id: 'a', title: 'Alpha', folder: '/Music'),
+          _track(id: 'b', title: 'Beta', folder: '/Music'),
+        ],
+        hiddenTrackIds: const <String>[],
+      );
+      final source = engine.snapshot.visibleAudioTracks;
+      var mostPlayedId = 'b';
+
+      List<MediaTrack> query(LibrarySort sort, int historyRevision) =>
+          engine.queryTracks(
+            source: source,
+            sort: sort,
+            filters: const <LibraryFilter>{},
+            query: '',
+            isFavorite: (_) => false,
+            playCount: (id) => id == mostPlayedId ? 2 : 1,
+            lastPlayed: (_) => null,
+            playHistoryRevision: historyRevision,
+          );
+
+      final alphabetical = query(LibrarySort.nameAZ, 0);
+      mostPlayedId = 'a';
+      expect(query(LibrarySort.nameAZ, 1), same(alphabetical));
+
+      expect(query(LibrarySort.mostPlayed, 1).first.id, 'a');
+      mostPlayedId = 'b';
+      expect(query(LibrarySort.mostPlayed, 2).first.id, 'b');
     });
   });
 }

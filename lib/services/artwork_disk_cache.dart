@@ -307,7 +307,6 @@ class ArtworkDiskCache {
         }
       }
       deleteClock.stop();
-    } catch (error) {
     } finally {
       _trimInProgress = false;
       if (identical(_trimCompleter, maintenanceCompleter)) {

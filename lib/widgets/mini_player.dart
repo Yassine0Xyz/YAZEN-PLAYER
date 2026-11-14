@@ -104,8 +104,9 @@ class _MiniPlayerState extends State<MiniPlayer> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           _paletteTrackKey != trackKey ||
-          _paletteThemeKey != themeKey)
+          _paletteThemeKey != themeKey) {
         return;
+      }
       unawaited(
         ArtworkPaletteService.instance.setCurrentTrack(
           track,
@@ -311,7 +312,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                           tooltip: 'Queue',
                                           icon: Icons.queue_music_rounded,
                                           color: tokens.textSecondary,
-                                          onPressed: onQueue!,
+                                          onPressed: onQueue,
                                         ),
                                       if (!compact && onRepeat != null)
                                         _DockAction(
@@ -326,14 +327,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                               repeatModeIsEnabled(repeatMode)
                                                   ? tokens.accent
                                                   : tokens.textSecondary,
-                                          onPressed: onRepeat!,
+                                          onPressed: onRepeat,
                                         ),
                                       if (onPrevious != null)
                                         _DockAction(
                                           tooltip: 'Previous',
                                           icon: Icons.skip_previous_rounded,
                                           color: tokens.textSecondary,
-                                          onPressed: onPrevious!,
+                                          onPressed: onPrevious,
                                         ),
                                       PlayPauseMorph(
                                         playing: isPlaying,
@@ -352,7 +353,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                           tooltip: 'Next',
                                           icon: Icons.skip_next_rounded,
                                           color: tokens.textSecondary,
-                                          onPressed: onNext!,
+                                          onPressed: onNext,
                                         ),
                                       _DockAction(
                                         tooltip: 'Stop and close mini player',
@@ -365,7 +366,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                   ),
                                   if (positionStream != null)
                                     _MiniProgress(
-                                      positionStream: positionStream!,
+                                      positionStream: positionStream,
                                       duration: duration,
                                     )
                                   else if (progress != null)

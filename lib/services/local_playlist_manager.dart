@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/media_track.dart';
 import 'media_track_codec.dart';
+import 'folder_identity.dart' as folder_identity;
 
 class EchoPlaylist {
   const EchoPlaylist({
@@ -115,6 +116,7 @@ class LocalPlaylistManager extends ChangeNotifier {
   static const _historyKey = 'yazen.play_history.v1';
   static const _metadataKey = 'yazen.track_metadata.v1';
   static const _hiddenKey = 'yazen.hidden_tracks.v1';
+  static const _excludedFoldersKey = 'yazen.excluded_folders.v1';
 
   SharedPreferences? _preferences;
   final Future<bool> Function(String key, String value)? _writeStringOverride;
@@ -125,15 +127,25 @@ class LocalPlaylistManager extends ChangeNotifier {
   final Map<String, DateTime> _lastPlayed = <String, DateTime>{};
   Map<String, Map<String, String>> _metadata = <String, Map<String, String>>{};
   Set<String> _hiddenIds = <String>{};
+  Set<String> _excludedFolders = <String>{};
+  List<String> _excludedFoldersView = const <String>[];
   bool _isReady = false;
   Future<void> _writeChain = Future<void>.value();
   int _libraryOverlayRevision = 0;
+  int _favoriteRevision = 0;
+  int _playHistoryRevision = 0;
 
   bool get isReady => _isReady;
   int get libraryOverlayRevision => _libraryOverlayRevision;
+  int get favoriteRevision => _favoriteRevision;
+  int get playHistoryRevision => _playHistoryRevision;
   List<EchoPlaylist> get playlists => _playlists;
   List<MediaTrack> get favorites => _favorites;
   Set<String> get hiddenIds => Set<String>.unmodifiable(_hiddenIds);
+  List<String> get excludedFolders => _excludedFoldersView;
+
+  bool isFolderExcluded(String folder) =>
+      folder_identity.isFolderExcluded(folder, _excludedFolders);
 
   bool isFavorite(MediaTrack track) => _favoriteIds.contains(track.id);
 
@@ -160,11 +172,19 @@ class LocalPlaylistManager extends ChangeNotifier {
       _playCounts = _decodeIntMap(_preferences!.getString(_historyKey));
       _metadata = _decodeMetadata(_preferences!.getString(_metadataKey));
       _hiddenIds = _decodeStringSet(_preferences!.getString(_hiddenKey));
+      _excludedFolders = <String>{
+        for (final folder in _decodeStringSet(
+          _preferences!.getString(_excludedFoldersKey),
+        ))
+          if (folder_identity.normalizeFolderIdentity(folder).isNotEmpty)
+            folder_identity.normalizeFolderIdentity(folder),
+      };
     } on FormatException {
       _playlists = const <EchoPlaylist>[];
       _favorites = const <MediaTrack>[];
       _invalidateFavoriteIds();
     }
+    _refreshExcludedFoldersView();
     _isReady = true;
     // The controller may have indexed songs before this async initialization;
     // publish one overlay revision so metadata and hidden IDs are applied.
@@ -175,6 +195,63 @@ class LocalPlaylistManager extends ChangeNotifier {
   int playCount(String trackId) => _playCounts[trackId] ?? 0;
 
   DateTime? lastPlayed(String trackId) => _lastPlayed[trackId];
+
+  Future<void> excludeFolder(String folder) async {
+    _ensureReady();
+    final identity = folder_identity.normalizeFolderIdentity(folder);
+    if (identity.isEmpty) {
+      throw ArgumentError.value(folder, 'folder', 'Must be a non-empty path.');
+    }
+    if (_excludedFolders.contains(identity)) return;
+    await _setFolderExcluded(identity, excluded: true);
+  }
+
+  Future<void> includeFolder(String folder) async {
+    _ensureReady();
+    final identity = folder_identity.normalizeFolderIdentity(folder);
+    if (identity.isEmpty || !_excludedFolders.contains(identity)) return;
+    await _setFolderExcluded(identity, excluded: false);
+  }
+
+  Future<void> _setFolderExcluded(
+    String folder, {
+    required bool excluded,
+  }) async {
+    final previous = Set<String>.of(_excludedFolders);
+    if (excluded) {
+      _excludedFolders.add(folder);
+    } else {
+      _excludedFolders.remove(folder);
+    }
+    _refreshExcludedFoldersView();
+    _libraryOverlayRevision++;
+    notifyListeners();
+    try {
+      await _persist();
+    } catch (error, stackTrace) {
+      _excludedFolders = previous;
+      _refreshExcludedFoldersView();
+      _libraryOverlayRevision++;
+      notifyListeners();
+      try {
+        await _persist();
+      } catch (rollbackError) {
+        Error.throwWithStackTrace(
+          StateError(
+            'Unable to save folder exclusions ($error); restoring the '
+            'previous exclusions also failed ($rollbackError).',
+          ),
+          stackTrace,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  void _refreshExcludedFoldersView() {
+    final folders = _excludedFolders.toList(growable: false)..sort();
+    _excludedFoldersView = List<String>.unmodifiable(folders);
+  }
 
   List<MediaTrack> applyMetadata(Iterable<MediaTrack> tracks) => tracks
       .map((track) {
@@ -193,6 +270,7 @@ class LocalPlaylistManager extends ChangeNotifier {
     _ensureReady();
     _playCounts[track.id] = playCount(track.id) + 1;
     _lastPlayed[track.id] = DateTime.now();
+    _playHistoryRevision++;
     notifyListeners();
     await _persist();
   }
@@ -265,6 +343,7 @@ class LocalPlaylistManager extends ChangeNotifier {
     }
     _favorites = List<MediaTrack>.unmodifiable(next);
     _invalidateFavoriteIds();
+    _favoriteRevision++;
     notifyListeners();
     await _persist();
   }
@@ -370,6 +449,7 @@ class LocalPlaylistManager extends ChangeNotifier {
     for (final track in tracks) {
       if (!next.any((item) => item.id == track.id)) next.add(track);
     }
+    if (next.length != _favorites.length) _favoriteRevision++;
     _favorites = List<MediaTrack>.unmodifiable(next);
     _invalidateFavoriteIds();
     notifyListeners();
@@ -511,6 +591,7 @@ class LocalPlaylistManager extends ChangeNotifier {
 
   Future<void> clearFavorites() async {
     _ensureReady();
+    if (_favorites.isNotEmpty) _favoriteRevision++;
     _favorites = const <MediaTrack>[];
     _invalidateFavoriteIds();
     notifyListeners();
@@ -564,6 +645,7 @@ class LocalPlaylistManager extends ChangeNotifier {
         }),
         _metadataKey: jsonEncode(_metadata),
         _hiddenKey: jsonEncode(_hiddenIds.toList()),
+        _excludedFoldersKey: jsonEncode(_excludedFoldersView),
       };
       for (final entry in snapshot.entries) {
         if (!await _writeString(entry.key, entry.value)) {
@@ -601,8 +683,11 @@ class LocalPlaylistManager extends ChangeNotifier {
     if (value == null) return <String, int>{};
     try {
       final decoded = jsonDecode(value);
-      final counts = decoded is Map ? decoded['counts'] : decoded;
-      final last = decoded is Map ? decoded['lastPlayed'] : null;
+      final hasHistoryEnvelope =
+          decoded is Map &&
+          (decoded.containsKey('counts') || decoded.containsKey('lastPlayed'));
+      final counts = hasHistoryEnvelope ? decoded['counts'] : decoded;
+      final last = hasHistoryEnvelope ? decoded['lastPlayed'] : null;
       if (last is Map) {
         for (final entry in last.entries) {
           final date = DateTime.tryParse(entry.value.toString());
