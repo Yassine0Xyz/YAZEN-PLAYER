@@ -9,8 +9,7 @@ import '../../../models/media_track.dart';
 
 final List<LibraryTab> _visibleLibraryTabs = List<LibraryTab>.unmodifiable(
   LibraryTab.values.where(
-    (tab) =>
-        tab != LibraryTab.recentlyPlayed && tab != LibraryTab.mostPlayed,
+    (tab) => tab != LibraryTab.recentlyPlayed && tab != LibraryTab.mostPlayed,
   ),
 );
 

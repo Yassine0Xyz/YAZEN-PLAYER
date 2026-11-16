@@ -390,7 +390,8 @@ class _LocalMediaSnapshot {
             ? controller.recentlyPlayedTracks
             : const <MediaTrack>[];
     final mostPlayedTracks =
-        selectedTab == LibraryTab.playlists || selectedTab == LibraryTab.mostPlayed
+        selectedTab == LibraryTab.playlists ||
+                selectedTab == LibraryTab.mostPlayed
             ? controller.mostPlayedTracks
             : const <MediaTrack>[];
     return _LocalMediaSnapshot(
@@ -521,42 +522,75 @@ class _HistoryTracksView extends StatelessWidget {
     if (tracks.isEmpty) {
       return Center(
         child: Text(
-          mostPlayed ? 'No songs played more than once yet' : 'No recently played songs yet',
+          mostPlayed
+              ? 'No songs played more than once yet'
+              : 'No recently played songs yet',
           textAlign: TextAlign.center,
-          style: TextStyle(color: context.read<ThemeProvider>().tokens.textSecondary),
+          style: TextStyle(
+            color: context.read<ThemeProvider>().tokens.textSecondary,
+          ),
         ),
       );
     }
-    return Column(children: <Widget>[
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        child: Row(children: <Widget>[
-          Expanded(child: Text('${tracks.length} songs', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800))),
-          IconButton(tooltip: 'Play all', onPressed: () => controller.playTrackQueue(tracks), icon: const Icon(Icons.play_arrow_rounded)),
-        ]),
-      ),
-      Expanded(child: LayoutBuilder(builder: (context, constraints) {
-        final compact = constraints.maxWidth < 470;
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 118),
-          itemCount: tracks.length,
-          itemBuilder: (context, index) {
-            final track = tracks[index];
-            final subtitle = mostPlayed ? '${manager.playCount(track.id)} played | ${track.artist}' : null;
-            return TrackListTile(
-              key: ValueKey<String>('history-${mostPlayed ? 'most' : 'recent'}-${track.id}'),
-              track: track,
-              compact: compact,
-              onTap: () => controller.playTrackQueue(tracks, initialIndex: index),
-              isFavorite: manager.isFavorite(track),
-              onFavorite: () => manager.toggleFavorite(track),
-              onAddToPlaylist: () => showAddToPlaylistSheet(context, track),
-              subtitleOverride: subtitle,
-            );
-          },
-        );
-      })),
-    ]);
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '${tracks.length} songs',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Play all',
+                onPressed: () => controller.playTrackQueue(tracks),
+                icon: const Icon(Icons.play_arrow_rounded),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 470;
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 118),
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  final subtitle =
+                      mostPlayed
+                          ? '${manager.playCount(track.id)} played | ${track.artist}'
+                          : null;
+                  return TrackListTile(
+                    key: ValueKey<String>(
+                      'history-${mostPlayed ? 'most' : 'recent'}-${track.id}',
+                    ),
+                    track: track,
+                    compact: compact,
+                    onTap:
+                        () => controller.playTrackQueue(
+                          tracks,
+                          initialIndex: index,
+                        ),
+                    isFavorite: manager.isFavorite(track),
+                    onFavorite: () => manager.toggleFavorite(track),
+                    onAddToPlaylist:
+                        () => showAddToPlaylistSheet(context, track),
+                    subtitleOverride: subtitle,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -2268,9 +2302,9 @@ class _PlaylistsView extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Your collections',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
               ),
               FilledButton.tonalIcon(
@@ -2286,19 +2320,27 @@ class _PlaylistsView extends StatelessWidget {
           final title = index == 1 ? 'Recently played' : 'Most played';
           final isRecent = index == 1;
           return _CollectionCard(
-            key: ValueKey<String>(isRecent ? 'collection:recently-played' : 'collection:most-played'),
+            key: ValueKey<String>(
+              isRecent
+                  ? 'collection:recently-played'
+                  : 'collection:most-played',
+            ),
             icon: isRecent ? Icons.history_rounded : Icons.trending_up_rounded,
             artworkTrack: tracks.isEmpty ? null : tracks.first,
-            artwork: tracks.isEmpty
-                ? null
-                : ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: YazenMediaArtwork(track: tracks.first, size: 108),
-                  ),
+            artwork:
+                tracks.isEmpty
+                    ? null
+                    : ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: YazenMediaArtwork(track: tracks.first, size: 108),
+                    ),
             title: title,
-            subtitle: tracks.isEmpty
-                ? (isRecent ? 'No recent tracks yet' : 'Play songs more than once to see them here')
-                : '',
+            subtitle:
+                tracks.isEmpty
+                    ? (isRecent
+                        ? 'No recent tracks yet'
+                        : 'Play songs more than once to see them here')
+                    : '',
             count: tracks.length,
             previewTracks: tracks.take(3).toList(growable: false),
             onTap: isRecent ? onOpenRecentlyPlayed : onOpenMostPlayed,
@@ -2309,9 +2351,10 @@ class _PlaylistsView extends StatelessWidget {
             key: const ValueKey<String>('collection:favorites'),
             icon: Icons.favorite_rounded,
             artworkTrack: favorites.isEmpty ? null : favorites.last,
-            artwork: favorites.isEmpty
-                ? null
-                : YazenMediaArtwork(track: favorites.last, size: 82),
+            artwork:
+                favorites.isEmpty
+                    ? null
+                    : YazenMediaArtwork(track: favorites.last, size: 82),
             title: 'Favorites',
             subtitle: 'Tracks you want to keep close',
             count: favorites.length,
@@ -2325,14 +2368,19 @@ class _PlaylistsView extends StatelessWidget {
             key: ValueKey<String>('collection:${playlist.id}'),
             icon: Icons.queue_music_rounded,
             artworkTrack: playlist.coverTrack,
-            artwork: playlist.coverTrack == null
-                ? null
-                : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
+            artwork:
+                playlist.coverTrack == null
+                    ? null
+                    : YazenMediaArtwork(track: playlist.coverTrack!, size: 82),
             title: playlist.name,
             subtitle: 'Custom playlist',
             count: playlist.tracks.length,
-            onTap: () => Navigator.of(context).push(PlaylistDetailsScreen.route(playlist.id)),
-            onDelete: () => controller.playlistManager.deletePlaylist(playlist.id),
+            onTap:
+                () => Navigator.of(
+                  context,
+                ).push(PlaylistDetailsScreen.route(playlist.id)),
+            onDelete:
+                () => controller.playlistManager.deletePlaylist(playlist.id),
           );
         }
         final deviceIndex = customIndex - customPlaylists.length;
@@ -2343,13 +2391,16 @@ class _PlaylistsView extends StatelessWidget {
           title: playlist.playlist,
           subtitle: 'Device playlist',
           count: playlist.numOfSongs,
-          onTap: () => Navigator.of(context).push(
-            LocalEntityTracksScreen.route(
-              title: playlist.playlist,
-              subtitle: 'Tracks from this device playlist will appear here.',
-              loadTracks: () => controller.tracksForDevicePlaylist(playlist.id),
-            ),
-          ),
+          onTap:
+              () => Navigator.of(context).push(
+                LocalEntityTracksScreen.route(
+                  title: playlist.playlist,
+                  subtitle:
+                      'Tracks from this device playlist will appear here.',
+                  loadTracks:
+                      () => controller.tracksForDevicePlaylist(playlist.id),
+                ),
+              ),
         );
       },
     );
@@ -2511,14 +2562,21 @@ class _CollectionCardState extends State<_CollectionCard> {
                             padding: const EdgeInsets.only(top: 3),
                             child: Row(
                               children: <Widget>[
-                                Icon(Icons.music_note_rounded, size: 16, color: secondary),
+                                Icon(
+                                  Icons.music_note_rounded,
+                                  size: 16,
+                                  color: secondary,
+                                ),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
                                     track.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(color: secondary, fontSize: 12),
+                                    style: TextStyle(
+                                      color: secondary,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ],
