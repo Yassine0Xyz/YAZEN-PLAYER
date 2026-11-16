@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/playback_energy_service.dart';
+import '../services/visualizer_data_hub.dart';
 import '../services/artwork_palette_service.dart';
 import '../services/dynamic_color_settings.dart';
 import '../services/visualizer_settings.dart';
@@ -15,6 +16,16 @@ enum AudioVisualizerProfile { compact, full }
 @visibleForTesting
 double visualizerWaveAmplitude(double level, double height) =>
     math.max(0.0, height * 0.5 - 2.0) * level.clamp(0.0, 1.0).toDouble();
+
+@visibleForTesting
+double visualizerSmoothingAlpha(
+  double elapsedSeconds,
+  double timeConstantSeconds,
+) {
+  if (elapsedSeconds <= 0) return 0;
+  if (timeConstantSeconds <= 0) return 1;
+  return 1.0 - math.exp(-elapsedSeconds / timeConstantSeconds);
+}
 
 /// A source-driven spectrum view for local audio.
 ///
@@ -72,6 +83,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   ]);
   final _visualizerSettings = VisualizerSettings.instance;
   final PlaybackEnergyService _energyService = PlaybackEnergyService.instance;
+  final VisualizerDataHub _dataHub = VisualizerDataHub.instance;
   PlaybackEnergyConsumer? _energyConsumer;
   bool _energyVisible = true;
 
@@ -104,7 +116,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     if (widget.playing) _renderTicker.start();
     _visualizerSettings.addListener(_onVisualizerSettingsChanged);
     unawaited(_visualizerSettings.load());
-    _energyService.energy.addListener(_onEnergyChanged);
+    _dataHub.frame.addListener(_onDataFrame);
     _energyConsumer = _energyService.attachConsumer(
       sourceUri: widget.sourceUri,
       positionMs: _livePosition.inMilliseconds,
@@ -115,6 +127,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _bindPositionStream();
     _bindSpeedStream();
     _resetBands();
+    _onDataFrame();
   }
 
   @override
@@ -161,6 +174,16 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final visible = TickerMode.valuesOf(context).enabled;
     if (visible != _energyVisible) {
       _energyVisible = visible;
+      if (!visible) {
+        _lastTick = null;
+        _renderTicker.stop();
+      } else if (widget.playing &&
+          _visualizerSettings.enabled &&
+          _hasRealSignal &&
+          !_renderTicker.isActive) {
+        _lastTick = null;
+        _renderTicker.start();
+      }
       _updateEnergyConsumer();
     }
   }
@@ -246,11 +269,26 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     );
   }
 
-  void _onEnergyChanged() {
+  void _onDataFrame() {
     if (!_visualizerSettings.enabled) return;
-    final energy = _energyService.energy.value;
-    if (energy.available && energy.bands.isNotEmpty) {
-      _setRealFrame(energy.bands);
+    final frame = _dataHub.frame.value;
+    if (frame.status == VisualizerFrameStatus.live && frame.bands.isNotEmpty) {
+      if (widget.sourceUri != null && frame.sourceId != widget.sourceUri) {
+        return;
+      }
+      _setRealFrame(frame.bands);
+      return;
+    }
+    if (frame.status == VisualizerFrameStatus.preparing ||
+        frame.status == VisualizerFrameStatus.suspended) {
+      if (frame.retainedBands.isNotEmpty &&
+          (frame.sourceId == null || frame.sourceId == widget.sourceUri)) {
+        _setRealFrame(frame.retainedBands);
+      }
+      if (frame.status == VisualizerFrameStatus.suspended) {
+        _lastTick = null;
+        _renderTicker.stop();
+      }
       return;
     }
     if (!_hasRealSignal) return;
@@ -310,8 +348,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     final fallSeconds =
         _visualizerSettings.fallTime.inMicroseconds /
         Duration.microsecondsPerSecond;
-    final riseAlpha = 1.0 - math.exp(-dt / riseSeconds);
-    final fallAlpha = 1.0 - math.exp(-dt / fallSeconds);
+    final riseAlpha = visualizerSmoothingAlpha(dt, riseSeconds);
+    final fallAlpha = visualizerSmoothingAlpha(dt, fallSeconds);
     final count = math.max(1, widget.barCount);
     if (_displayLevels.length != count) {
       _displayLevels = List<double>.filled(count, 0.0);
@@ -411,7 +449,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void dispose() {
     _visualizerSettings.removeListener(_onVisualizerSettingsChanged);
-    _energyService.energy.removeListener(_onEnergyChanged);
+    _dataHub.frame.removeListener(_onDataFrame);
     _energyConsumer?.dispose();
     _positionSubscription?.cancel();
     _speedSubscription?.cancel();

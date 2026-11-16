@@ -20,6 +20,8 @@ int estimatePlaybackPositionMs({
   return math.max(0, positionMs + advancedMs);
 }
 
+enum AudioEnergyStatus { idle, live, preparing, suspended, unavailable }
+
 @immutable
 class AudioEnergy {
   const AudioEnergy({
@@ -30,6 +32,11 @@ class AudioEnergy {
     required this.available,
     this.beat = 0,
     this.bands = const <double>[],
+    this.status = AudioEnergyStatus.live,
+    this.sourceId,
+    this.epoch = 0,
+    this.positionMs,
+    this.timestamp,
   });
 
   const AudioEnergy.idle()
@@ -39,7 +46,12 @@ class AudioEnergy {
       treble = 0,
       available = false,
       beat = 0,
-      bands = const <double>[];
+      bands = const <double>[],
+      status = AudioEnergyStatus.idle,
+      sourceId = null,
+      epoch = 0,
+      positionMs = null,
+      timestamp = null;
 
   final double level;
   final double bass;
@@ -48,12 +60,36 @@ class AudioEnergy {
   final bool available;
   final double beat;
   final List<double> bands;
+  final AudioEnergyStatus status;
+  final String? sourceId;
+  final int epoch;
+  final int? positionMs;
+  final DateTime? timestamp;
 }
 
 abstract interface class PcmSpectrumSource {
   Future<bool> start(String sourceUri);
-  Future<List<double>?> read(int positionMs);
+  Future<PcmSpectrumReadResult> read(int positionMs);
   Future<void> stop();
+}
+
+enum PcmSpectrumReadState { live, preparing, unavailable }
+
+@immutable
+class PcmSpectrumReadResult {
+  const PcmSpectrumReadResult.live(this.bands)
+    : state = PcmSpectrumReadState.live;
+
+  const PcmSpectrumReadResult.preparing()
+    : state = PcmSpectrumReadState.preparing,
+      bands = const <double>[];
+
+  const PcmSpectrumReadResult.unavailable()
+    : state = PcmSpectrumReadState.unavailable,
+      bands = const <double>[];
+
+  final PcmSpectrumReadState state;
+  final List<double> bands;
 }
 
 class PlatformPcmSpectrumSource implements PcmSpectrumSource {
@@ -73,23 +109,33 @@ class PlatformPcmSpectrumSource implements PcmSpectrumSource {
   }
 
   @override
-  Future<List<double>?> read(int positionMs) async {
+  Future<PcmSpectrumReadResult> read(int positionMs) async {
     final response =
         Platform.isLinux
             ? LinuxPcmSpectrumService.instance.read(positionMs)
             : await _channel.invokeMethod<dynamic>('readPcm', <String, Object?>{
               'positionMs': positionMs,
             });
-    if (response is! Map<dynamic, dynamic> || response['state'] != 'live') {
-      return null;
+    if (response is! Map<dynamic, dynamic>) {
+      return const PcmSpectrumReadResult.unavailable();
+    }
+    if (response['state'] == 'preparing') {
+      return const PcmSpectrumReadResult.preparing();
+    }
+    if (response['state'] != 'live') {
+      return const PcmSpectrumReadResult.unavailable();
     }
     final rawBands = response['bands'];
-    if (rawBands is! List<dynamic>) return null;
+    if (rawBands is! List<dynamic>) {
+      return const PcmSpectrumReadResult.unavailable();
+    }
     final bands = rawBands
         .whereType<num>()
         .map((value) => value.toDouble().clamp(0.0, 1.0))
         .toList(growable: false);
-    return bands.isEmpty ? null : bands;
+    return bands.isEmpty
+        ? const PcmSpectrumReadResult.unavailable()
+        : PcmSpectrumReadResult.live(bands);
   }
 
   @override
@@ -157,6 +203,8 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
 
   static final PlaybackEnergyService instance = PlaybackEnergyService();
   static const Duration _pollInterval = Duration(milliseconds: 40);
+  static const Duration _preparingGrace = Duration(milliseconds: 80);
+  static const int _positionDiscontinuityToleranceMs = 120;
   static const Duration _attack = Duration(milliseconds: 80);
   static const Duration _release = Duration(milliseconds: 600);
 
@@ -172,11 +220,18 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   Future<void> _lifecycleTail = Future<void>.value();
   String? _activeUri;
   int? _activeConsumerId;
+  int _sourceEpoch = 0;
+  int? _readInFlightEpoch;
   int _nextConsumerId = 0;
   int _revision = 0;
   bool _appResumed = true;
-  bool _readInFlight = false;
+  bool _retainSnapshotWhenNoConsumer = false;
   DateTime? _lastFrameAt;
+  DateTime? _lastLiveAt;
+  String? _lastLiveUri;
+  int? _lastLiveConsumerId;
+  int? _lastLivePositionMs;
+  double _lastLiveSpeed = 1.0;
 
   ValueListenable<AudioEnergy> get energy => _energy;
   @visibleForTesting
@@ -205,6 +260,10 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appResumed = state == AppLifecycleState.resumed;
+    if (!_appResumed) {
+      _retainSnapshotWhenNoConsumer = true;
+      _invalidateActiveSignal(status: AudioEnergyStatus.suspended);
+    }
     _scheduleSync();
   }
 
@@ -218,9 +277,22 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   }) {
     final consumer = _consumers[id];
     if (consumer == null) return;
-    if (sourceUri != null) consumer.sourceUri = sourceUri;
+    final previousEffectivePosition = consumer.effectivePositionMs;
+    AudioEnergyStatus? invalidationStatus;
+    if (sourceUri != null && sourceUri != consumer.sourceUri) {
+      if (id == _activeConsumerId) invalidationStatus = AudioEnergyStatus.idle;
+      _retainSnapshotWhenNoConsumer = false;
+      consumer.sourceUri = sourceUri;
+    }
     if (positionMs != null) {
-      consumer.positionMs = math.max(0, positionMs);
+      final safePositionMs = math.max(0, positionMs);
+      final positionError = (safePositionMs - previousEffectivePosition).abs();
+      if (id == _activeConsumerId &&
+          consumer.playing &&
+          positionError > _positionDiscontinuityToleranceMs) {
+        invalidationStatus ??= AudioEnergyStatus.preparing;
+      }
+      consumer.positionMs = safePositionMs;
       consumer.positionAnchorAt = consumer.playing ? DateTime.now() : null;
     }
     if (speed != null && speed != consumer.speed) {
@@ -230,15 +302,62 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
       consumer.speed = speed.clamp(0.25, 3.0).toDouble();
     }
     if (playing != null && playing != consumer.playing) {
+      if (!playing && id == _activeConsumerId) {
+        invalidationStatus = AudioEnergyStatus.idle;
+        _retainSnapshotWhenNoConsumer = false;
+      }
       consumer.positionAnchorAt = playing ? DateTime.now() : null;
       consumer.playing = playing;
     }
-    if (visible != null) consumer.visible = visible;
+    if (visible != null) {
+      if (!visible && id == _activeConsumerId) {
+        invalidationStatus ??= AudioEnergyStatus.suspended;
+        _retainSnapshotWhenNoConsumer = true;
+      }
+      consumer.visible = visible;
+    }
+    if (invalidationStatus != null) {
+      _invalidateActiveSignal(status: invalidationStatus);
+    }
     _scheduleSync();
   }
 
+  /// Invalidates the current spectrum frame before an explicit player seek.
+  /// The PCM source remains active and the next read is requested at [target].
+  void invalidateForSeek(Duration target) {
+    final consumer =
+        _activeConsumerId == null ? null : _consumers[_activeConsumerId];
+    if (consumer != null) {
+      consumer.positionMs = math.max(0, target.inMilliseconds);
+      consumer.positionAnchorAt = consumer.playing ? DateTime.now() : null;
+    }
+    _invalidateActiveSignal(status: AudioEnergyStatus.preparing);
+  }
+
+  void _invalidateActiveSignal({
+    AudioEnergyStatus status = AudioEnergyStatus.unavailable,
+  }) {
+    _sourceEpoch++;
+    _clearLastLiveFrame();
+    _publishUnavailable(status: status);
+  }
+
+  void _clearLastLiveFrame() {
+    _lastFrameAt = null;
+    _lastLiveAt = null;
+    _lastLiveUri = null;
+    _lastLiveConsumerId = null;
+    _lastLivePositionMs = null;
+    _lastLiveSpeed = 1.0;
+  }
+
   void _detachConsumer(int id) {
-    if (_consumers.remove(id) == null) return;
+    final removed = _consumers.remove(id);
+    if (removed == null) return;
+    if (id == _activeConsumerId && removed.playing) {
+      _retainSnapshotWhenNoConsumer = true;
+      _invalidateActiveSignal(status: AudioEnergyStatus.suspended);
+    }
     _scheduleSync();
   }
 
@@ -254,18 +373,31 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
   Future<void> _synchronizeSource() async {
     final desired = _desiredConsumer();
     if (desired == null) {
-      await _deactivateSource();
+      final hasPlayingHiddenConsumer = _consumers.values.any(
+        (consumer) => consumer.playing && consumer.sourceUri == _activeUri,
+      );
+      final status =
+          !_appResumed ||
+                  _retainSnapshotWhenNoConsumer ||
+                  hasPlayingHiddenConsumer
+              ? AudioEnergyStatus.suspended
+              : AudioEnergyStatus.idle;
+      await _deactivateSource(status: status);
+      _retainSnapshotWhenNoConsumer = false;
       return;
     }
 
     final uri = desired.value.sourceUri!;
     if (_activeUri == uri) {
+      if (_activeConsumerId != null && _activeConsumerId != desired.key) {
+        _invalidateActiveSignal(status: AudioEnergyStatus.preparing);
+      }
       _activeConsumerId = desired.key;
       return;
     }
 
     final revision = _revision;
-    await _deactivateSource();
+    if (_activeUri != null) await _deactivateSource();
     final started = await _source.start(uri);
     if (!started) {
       _publishUnavailable();
@@ -278,7 +410,7 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
 
     _activeUri = uri;
     _activeConsumerId = desired.key;
-    _lastFrameAt = null;
+    _clearLastLiveFrame();
     _pollTimer = Timer.periodic(_pollInterval, (_) => unawaited(_readFrame()));
     unawaited(_readFrame());
   }
@@ -297,44 +429,113 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
     return null;
   }
 
-  Future<void> _deactivateSource() async {
+  Future<void> _deactivateSource({
+    AudioEnergyStatus status = AudioEnergyStatus.idle,
+  }) async {
     _pollTimer?.cancel();
     _pollTimer = null;
     final wasActive = _activeUri != null;
     _activeUri = null;
     _activeConsumerId = null;
-    _readInFlight = false;
-    _lastFrameAt = null;
-    _publishUnavailable();
+    _invalidateActiveSignal(status: status);
     if (wasActive) await _source.stop();
   }
 
   Future<void> _readFrame() async {
-    if (_readInFlight || _activeUri == null) return;
-    final consumer =
-        _activeConsumerId == null ? null : _consumers[_activeConsumerId];
-    if (consumer == null) return;
-    _readInFlight = true;
     final uri = _activeUri;
+    final consumerId = _activeConsumerId;
+    if (uri == null || consumerId == null) return;
+    final readEpoch = _sourceEpoch;
+    if (_readInFlightEpoch == readEpoch) return;
+    final consumer = _consumers[consumerId];
+    if (consumer == null) return;
+    final requestedPositionMs = consumer.effectivePositionMs;
+    final readSpeed = consumer.speed;
+    _readInFlightEpoch = readEpoch;
     try {
-      final bands = await _source.read(consumer.effectivePositionMs);
-      if (uri != _activeUri || _activeConsumerId == null) return;
-      if (bands == null || bands.isEmpty) {
-        _publishUnavailable();
-      } else {
-        _publishBands(bands);
+      final result = await _source.read(requestedPositionMs);
+      if (!_readIsCurrent(readEpoch, uri, consumerId)) return;
+      switch (result.state) {
+        case PcmSpectrumReadState.live:
+          if (result.bands.isEmpty) {
+            _clearLastLiveFrame();
+            _publishUnavailable(status: AudioEnergyStatus.unavailable);
+          } else {
+            _lastLiveAt = DateTime.now();
+            _lastLiveUri = uri;
+            _lastLiveConsumerId = consumerId;
+            _lastLivePositionMs = requestedPositionMs;
+            _lastLiveSpeed = readSpeed;
+            _publishBands(
+              result.bands,
+              sourceUri: uri,
+              epoch: readEpoch,
+              positionMs: requestedPositionMs,
+            );
+          }
+        case PcmSpectrumReadState.preparing:
+          if (!_canRetainPreparingFrame(
+            uri: uri,
+            consumerId: consumerId,
+            requestedPositionMs: requestedPositionMs,
+          )) {
+            _clearLastLiveFrame();
+            _publishUnavailable(status: AudioEnergyStatus.preparing);
+          }
+        case PcmSpectrumReadState.unavailable:
+          _clearLastLiveFrame();
+          _publishUnavailable(status: AudioEnergyStatus.unavailable);
       }
     } on MissingPluginException {
-      _publishUnavailable();
+      _clearLastLiveFrame();
+      _publishUnavailable(status: AudioEnergyStatus.unavailable);
       _scheduleSync();
     } on PlatformException {
-      _publishUnavailable();
+      _clearLastLiveFrame();
+      _publishUnavailable(status: AudioEnergyStatus.unavailable);
     } finally {
-      _readInFlight = false;
+      if (_readInFlightEpoch == readEpoch) _readInFlightEpoch = null;
     }
   }
 
-  void _publishBands(List<double> bands) {
+  bool _readIsCurrent(int epoch, String uri, int consumerId) {
+    if (epoch != _sourceEpoch ||
+        uri != _activeUri ||
+        consumerId != _activeConsumerId) {
+      return false;
+    }
+    final desired = _desiredConsumer();
+    return desired?.key == consumerId && desired?.value.sourceUri == uri;
+  }
+
+  bool _canRetainPreparingFrame({
+    required String uri,
+    required int consumerId,
+    required int requestedPositionMs,
+  }) {
+    final lastLiveAt = _lastLiveAt;
+    final lastPositionMs = _lastLivePositionMs;
+    if (!_energy.value.available ||
+        lastLiveAt == null ||
+        lastPositionMs == null ||
+        _lastLiveUri != uri ||
+        _lastLiveConsumerId != consumerId) {
+      return false;
+    }
+    final elapsed = DateTime.now().difference(lastLiveAt);
+    if (elapsed > _preparingGrace) return false;
+    final expectedPositionMs =
+        lastPositionMs + elapsed.inMilliseconds * _lastLiveSpeed;
+    return (requestedPositionMs - expectedPositionMs).abs() <=
+        _positionDiscontinuityToleranceMs;
+  }
+
+  void _publishBands(
+    List<double> bands, {
+    required String sourceUri,
+    required int epoch,
+    required int positionMs,
+  }) {
     final targets = _summarize(bands);
     final now = DateTime.now();
     final elapsed =
@@ -354,6 +555,11 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
       available: true,
       beat: beat,
       bands: List<double>.unmodifiable(bands),
+      status: AudioEnergyStatus.live,
+      sourceId: sourceUri,
+      epoch: epoch,
+      positionMs: positionMs,
+      timestamp: now,
     );
   }
 
@@ -391,10 +597,15 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
     return (current + (target - current) * alpha).clamp(0.0, 1.0);
   }
 
-  void _publishUnavailable() {
+  void _publishUnavailable({
+    AudioEnergyStatus status = AudioEnergyStatus.unavailable,
+  }) {
+    _clearLastLiveFrame();
     _beatDetector.reset();
+    _lastFrameAt = null;
     final current = _energy.value;
     if (!current.available &&
+        current.status == status &&
         current.level == 0 &&
         current.bass == 0 &&
         current.mid == 0 &&
@@ -402,7 +613,16 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
         current.bands.isEmpty) {
       return;
     }
-    _energy.value = const AudioEnergy.idle();
+    _energy.value = AudioEnergy(
+      level: 0,
+      bass: 0,
+      mid: 0,
+      treble: 0,
+      available: false,
+      status: status,
+      sourceId: _activeUri,
+      epoch: _sourceEpoch,
+    );
   }
 
   @visibleForTesting

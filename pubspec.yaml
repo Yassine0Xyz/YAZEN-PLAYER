@@ -48,6 +48,9 @@ flutter:
   assets:
     - assets/yazen_app_icon_master.png
 
+  shaders:
+    - shaders/visualizer_fluid.frag
+
   fonts:
     - family: Plus Jakarta Sans
       fonts:

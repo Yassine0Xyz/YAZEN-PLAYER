@@ -155,11 +155,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         selected: <LibraryLayoutMode>{
                           displaySettings.layoutMode,
                         },
-                        onSelectionChanged:
-                            _preferencesLoaded
-                                ? (selected) =>
-                                    _setLibraryLayout(selected.first)
-                                : null,
+                        onSelectionChanged: _preferencesLoaded
+                            ? (selected) => _setLibraryLayout(selected.first)
+                            : null,
                       ),
                     ),
                     Divider(color: tokens.divider, height: 1),
@@ -189,12 +187,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text('Compact'),
                           ),
                         ],
-                        onChanged:
-                            _preferencesLoaded
-                                ? (value) {
-                                  if (value != null) _setLibraryDensity(value);
-                                }
-                                : null,
+                        onChanged: _preferencesLoaded
+                            ? (value) {
+                                if (value != null) _setLibraryDensity(value);
+                              }
+                            : null,
                       ),
                     ),
                   ],
@@ -211,10 +208,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _PreferenceSwitch(
                   icon: Icons.equalizer_rounded,
                   title: 'Equalizer',
-                  subtitle:
-                      controller.audioHandler.equalizerAvailable
-                          ? 'Use the active Android audio effect profile'
-                          : 'Unavailable on this device; playback remains stable',
+                  subtitle: controller.audioHandler.equalizerAvailable
+                      ? 'Use the active Android audio effect profile'
+                      : 'Unavailable on this device; playback remains stable',
                   value: _equalizerEnabled,
                   enabled:
                       _preferencesLoaded &&
@@ -251,12 +247,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       DropdownMenuItem(value: 1.5, child: Text('1.50×')),
                       DropdownMenuItem(value: 2.0, child: Text('2.00×')),
                     ],
-                    onChanged:
-                        _preferencesLoaded
-                            ? (value) {
-                              if (value != null) _setSpeed(controller, value);
-                            }
-                            : null,
+                    onChanged: _preferencesLoaded
+                        ? (value) {
+                            if (value != null) _setSpeed(controller, value);
+                          }
+                        : null,
                   ),
                 ),
                 Divider(color: tokens.divider, height: 1),
@@ -270,11 +265,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: StreamBuilder<Duration?>(
                     stream: controller.audioHandler.sleepTimerRemainingStream,
                     initialData: controller.audioHandler.sleepTimerRemaining,
-                    builder:
-                        (context, snapshot) => Text(
-                          _sleepTimerLabel(controller, snapshot.data),
-                          style: TextStyle(color: tokens.textSecondary),
-                        ),
+                    builder: (context, snapshot) => Text(
+                      _sleepTimerLabel(controller, snapshot.data),
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
                   ),
                   trailing: TextButton(
                     onPressed: () => _chooseSleepTimer(controller),
@@ -324,46 +318,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(
-                        Icons.dashboard_customize_outlined,
+                        Icons.layers_outlined,
                         color: tokens.accent,
                       ),
                       title: const Text(
-                        'Visualizer style',
+                        'Visualizer engine',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       subtitle: Text(
-                        _visualizerStyleLabel(settings.style),
+                        settings.engine == VisualizerEngineKind.legacy
+                            ? 'Classic Flutter'
+                            : 'Advanced Flutter',
                         style: TextStyle(color: tokens.textSecondary),
                       ),
-                      trailing: DropdownButton<VisualizerStyle>(
-                        value: settings.style,
-                        items: const <DropdownMenuItem<VisualizerStyle>>[
+                      trailing: DropdownButton<VisualizerEngineKind>(
+                        value: settings.engine,
+                        items: const <DropdownMenuItem<VisualizerEngineKind>>[
                           DropdownMenuItem(
-                            value: VisualizerStyle.bars,
-                            child: Text('Bars'),
+                            value: VisualizerEngineKind.legacy,
+                            child: Text('Classic'),
                           ),
                           DropdownMenuItem(
-                            value: VisualizerStyle.wave,
-                            child: Text('Wave'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.mirror,
-                            child: Text('Mirror'),
-                          ),
-                          DropdownMenuItem(
-                            value: VisualizerStyle.columns,
-                            child: Text('Columns'),
+                            value: VisualizerEngineKind.advanced,
+                            child: Text('Advanced'),
                           ),
                         ],
-                        onChanged:
-                            settings.loaded
-                                ? (value) {
-                                  if (value != null) settings.setStyle(value);
-                                }
-                                : null,
+                        onChanged: settings.loaded
+                            ? (value) {
+                                if (value != null) settings.setEngine(value);
+                              }
+                            : null,
                       ),
                     ),
                     Divider(color: tokens.divider, height: 1),
+                    if (settings.engine == VisualizerEngineKind.legacy)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.dashboard_customize_outlined,
+                          color: tokens.accent,
+                        ),
+                        title: const Text(
+                          'Classic style',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text(
+                          _visualizerStyleLabel(settings.style),
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                        trailing: DropdownButton<VisualizerStyle>(
+                          value: settings.style,
+                          items: const <DropdownMenuItem<VisualizerStyle>>[
+                            DropdownMenuItem(
+                              value: VisualizerStyle.bars,
+                              child: Text('Bars'),
+                            ),
+                            DropdownMenuItem(
+                              value: VisualizerStyle.wave,
+                              child: Text('Wave'),
+                            ),
+                            DropdownMenuItem(
+                              value: VisualizerStyle.columns,
+                              child: Text('Columns'),
+                            ),
+                            DropdownMenuItem(
+                              value: VisualizerStyle.mirror,
+                              child: Text('Mirror'),
+                            ),
+                          ],
+                          onChanged: settings.loaded
+                              ? (value) {
+                                  if (value != null) settings.setStyle(value);
+                                }
+                              : null,
+                        ),
+                      )
+                    else
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.auto_awesome, color: tokens.accent),
+                        title: const Text(
+                          'Advanced style',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text(
+                          _advancedVisualizerStyleLabel(settings.advancedStyle),
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                        trailing: DropdownButton<AdvancedVisualizerStyle>(
+                          value: settings.advancedStyle,
+                          items:
+                              const <DropdownMenuItem<AdvancedVisualizerStyle>>[
+                                DropdownMenuItem(
+                                  value: AdvancedVisualizerStyle.aurora,
+                                  child: Text('Aurora'),
+                                ),
+                                DropdownMenuItem(
+                                  value: AdvancedVisualizerStyle.particles,
+                                  child: Text('Particles'),
+                                ),
+                                DropdownMenuItem(
+                                  value: AdvancedVisualizerStyle.fluid,
+                                  child: Text('Fluid'),
+                                ),
+                              ],
+                          onChanged: settings.loaded
+                              ? (value) {
+                                  if (value != null) {
+                                    settings.setAdvancedStyle(value);
+                                  }
+                                }
+                              : null,
+                        ),
+                      ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(
@@ -385,10 +452,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       max: 1.8,
                       divisions: 12,
                       label: '${(settings.sensitivity * 100).round()}%',
-                      onChanged:
-                          settings.loaded
-                              ? (value) => settings.setSensitivity(value)
-                              : null,
+                      onChanged: settings.loaded
+                          ? (value) => settings.setSensitivity(value)
+                          : null,
                     ),
                     Divider(color: tokens.divider, height: 1),
                     ListTile(
@@ -418,14 +484,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text('Fast'),
                           ),
                         ],
-                        onChanged:
-                            settings.loaded
-                                ? (value) {
-                                  if (value != null) {
-                                    settings.setResponse(value);
-                                  }
+                        onChanged: settings.loaded
+                            ? (value) {
+                                if (value != null) {
+                                  settings.setResponse(value);
                                 }
-                                : null,
+                              }
+                            : null,
                       ),
                     ),
                     Divider(color: tokens.divider, height: 1),
@@ -450,10 +515,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       max: 0.08,
                       divisions: 16,
                       label: settings.noiseGate.toStringAsFixed(3),
-                      onChanged:
-                          settings.loaded
-                              ? (value) => settings.setNoiseGate(value)
-                              : null,
+                      onChanged: settings.loaded
+                          ? (value) => settings.setNoiseGate(value)
+                          : null,
                     ),
                     Divider(color: tokens.divider, height: 1),
                     _PreferenceSwitch(
@@ -566,6 +630,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VisualizerStyle.columns => 'Columns',
     VisualizerStyle.mirror => 'Mirror',
   };
+
+  String _advancedVisualizerStyleLabel(AdvancedVisualizerStyle style) =>
+      switch (style) {
+        AdvancedVisualizerStyle.aurora => 'Aurora',
+        AdvancedVisualizerStyle.particles => 'Particles',
+        AdvancedVisualizerStyle.fluid => 'Fluid',
+      };
   String _responseLabel(VisualizerResponse response) {
     switch (response) {
       case VisualizerResponse.smooth:
@@ -592,31 +663,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _chooseSleepTimer(HybridMusicController controller) async {
     final choice = await showModalBottomSheet<Object?>(
       context: context,
-      builder:
-          (context) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                ListTile(
-                  title: const Text('Off'),
-                  onTap: () => Navigator.pop(context, 0),
-                ),
-                ListTile(
-                  title: const Text('End of current track'),
-                  onTap:
-                      () => Navigator.pop(
-                        context,
-                        SleepTimerMode.endOfCurrentTrack,
-                      ),
-                ),
-                for (final value in <int>[15, 30, 60, 90])
-                  ListTile(
-                    title: Text('$value minutes'),
-                    onTap: () => Navigator.pop(context, value),
-                  ),
-              ],
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              title: const Text('Off'),
+              onTap: () => Navigator.pop(context, 0),
             ),
-          ),
+            ListTile(
+              title: const Text('End of current track'),
+              onTap: () =>
+                  Navigator.pop(context, SleepTimerMode.endOfCurrentTrack),
+            ),
+            for (final value in <int>[15, 30, 60, 90])
+              ListTile(
+                title: Text('$value minutes'),
+                onTap: () => Navigator.pop(context, value),
+              ),
+          ],
+        ),
+      ),
     );
     if (choice == null) return;
     if (choice is SleepTimerMode) {
@@ -713,8 +780,8 @@ class _ThemeOption extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = ThemeTokens.fromPreset(preset);
     return InkWell(
-      onTap:
-          () => RadioGroup.maybeOf<EchoThemePreset>(context)?.onChanged(preset),
+      onTap: () =>
+          RadioGroup.maybeOf<EchoThemePreset>(context)?.onChanged(preset),
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),

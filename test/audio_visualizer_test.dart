@@ -33,18 +33,43 @@ void main() {
     expect(visualizerWaveAmplitude(1.0, 12), 4);
   });
   test(
-    'balanced and fast visualizer responses react quickly to the audio',
+    'response candidates keep attack fixed and progressively soften release',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final settings = VisualizerSettings.instance;
       await settings.setResponse(VisualizerResponse.balanced);
       expect(settings.riseTime.inMilliseconds, 30);
-      expect(settings.fallTime.inMilliseconds, 68);
+      expect(settings.fallTime.inMilliseconds, 130);
       await settings.setResponse(VisualizerResponse.fast);
-      expect(settings.riseTime.inMilliseconds, 18);
-      expect(settings.fallTime.inMilliseconds, 42);
+      expect(settings.riseTime.inMilliseconds, 30);
+      expect(settings.fallTime.inMilliseconds, 75);
+      await settings.setResponse(VisualizerResponse.smooth);
+      expect(settings.riseTime.inMilliseconds, 30);
+      expect(settings.fallTime.inMilliseconds, 180);
     },
   );
+
+  test('fall candidates slow only the fall coefficient; rise stays fixed', () {
+    const frameSeconds = 0.040;
+    const currentFallSeconds = 0.068;
+    final currentFallAlpha = visualizerSmoothingAlpha(
+      frameSeconds,
+      currentFallSeconds,
+    );
+    final candidateFallAlphas = <double>[
+      visualizerSmoothingAlpha(frameSeconds, 0.180),
+      visualizerSmoothingAlpha(frameSeconds, 0.130),
+      visualizerSmoothingAlpha(frameSeconds, 0.075),
+    ];
+    expect(candidateFallAlphas[0], lessThan(candidateFallAlphas[1]));
+    expect(candidateFallAlphas[1], lessThan(candidateFallAlphas[2]));
+    expect(candidateFallAlphas[2], lessThan(currentFallAlpha));
+
+    final riseAlphaBefore = visualizerSmoothingAlpha(frameSeconds, 0.030);
+    final riseAlphaAfter = visualizerSmoothingAlpha(frameSeconds, 0.030);
+    expect(riseAlphaAfter, riseAlphaBefore);
+    expect(visualizerSmoothingAlpha(0, 0.130), 0);
+  });
 
   testWidgets('source painter repaints when a real frame changes', (
     tester,

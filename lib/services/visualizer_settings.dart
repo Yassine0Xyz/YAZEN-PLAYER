@@ -5,6 +5,10 @@ enum VisualizerResponse { smooth, balanced, fast }
 
 enum VisualizerStyle { bars, wave, columns, mirror }
 
+enum VisualizerEngineKind { legacy, advanced }
+
+enum AdvancedVisualizerStyle { aurora, particles, fluid }
+
 /// Legacy enum-index migration: [bars0,wave1,circular2,mirror3,line4,
 /// halo5,columns6,ribbon7,orbit8,pulse9,ridge10].
 VisualizerStyle visualizerStyleFromLegacyIndex(int? index) => switch (index) {
@@ -25,12 +29,16 @@ class VisualizerSettings extends ChangeNotifier {
   static const _enabledKey = 'yazen.visualizer.enabled';
   static const _styleKey = 'yazen.visualizer.style.v2';
   static const _legacyStyleKey = 'yazen.visualizer.style';
+  static const _engineKey = 'yazen.visualizer.engine.v1';
+  static const _advancedStyleKey = 'yazen.visualizer.advanced_style.v1';
 
   double _sensitivity = 1.0;
   VisualizerResponse _response = VisualizerResponse.balanced;
   double _noiseGate = 0.005;
   bool _enabled = true;
   VisualizerStyle _style = VisualizerStyle.bars;
+  VisualizerEngineKind _engine = VisualizerEngineKind.legacy;
+  AdvancedVisualizerStyle _advancedStyle = AdvancedVisualizerStyle.aurora;
   bool _loaded = false;
 
   double get sensitivity => _sensitivity;
@@ -39,6 +47,8 @@ class VisualizerSettings extends ChangeNotifier {
   bool get loaded => _loaded;
   bool get enabled => _enabled;
   VisualizerStyle get style => _style;
+  VisualizerEngineKind get engine => _engine;
+  AdvancedVisualizerStyle get advancedStyle => _advancedStyle;
 
   Future<void> load() async {
     if (_loaded) return;
@@ -56,6 +66,18 @@ class VisualizerSettings extends ChangeNotifier {
       0.08,
     );
     _enabled = preferences.getBool(_enabledKey) ?? true;
+    _engine =
+        VisualizerEngineKind.values
+            .where((value) => value.name == preferences.getString(_engineKey))
+            .firstOrNull ??
+        VisualizerEngineKind.legacy;
+    _advancedStyle =
+        AdvancedVisualizerStyle.values
+            .where(
+              (value) => value.name == preferences.getString(_advancedStyleKey),
+            )
+            .firstOrNull ??
+        AdvancedVisualizerStyle.aurora;
     final savedStyle = preferences.getString(_styleKey);
     _style =
         VisualizerStyle.values
@@ -86,6 +108,22 @@ class VisualizerSettings extends ChangeNotifier {
     await preferences.setString(_styleKey, value.name);
   }
 
+  Future<void> setEngine(VisualizerEngineKind value) async {
+    if (_engine == value) return;
+    _engine = value;
+    notifyListeners();
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_engineKey, value.name);
+  }
+
+  Future<void> setAdvancedStyle(AdvancedVisualizerStyle value) async {
+    if (_advancedStyle == value) return;
+    _advancedStyle = value;
+    notifyListeners();
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_advancedStyleKey, value.name);
+  }
+
   Future<void> setSensitivity(double value) async {
     _sensitivity = value.clamp(0.6, 1.8);
     notifyListeners();
@@ -107,25 +145,18 @@ class VisualizerSettings extends ChangeNotifier {
     await preferences.setDouble(_noiseGateKey, _noiseGate);
   }
 
-  Duration get riseTime {
-    switch (_response) {
-      case VisualizerResponse.smooth:
-        return const Duration(milliseconds: 62);
-      case VisualizerResponse.balanced:
-        return const Duration(milliseconds: 30);
-      case VisualizerResponse.fast:
-        return const Duration(milliseconds: 18);
-    }
-  }
+  /// Kept constant while comparing the three user-requested release curves.
+  /// The fall candidates are provisional until manually evaluated on Android.
+  Duration get riseTime => const Duration(milliseconds: 30);
 
   Duration get fallTime {
     switch (_response) {
       case VisualizerResponse.smooth:
-        return const Duration(milliseconds: 125);
+        return const Duration(milliseconds: 180);
       case VisualizerResponse.balanced:
-        return const Duration(milliseconds: 68);
+        return const Duration(milliseconds: 130);
       case VisualizerResponse.fast:
-        return const Duration(milliseconds: 42);
+        return const Duration(milliseconds: 75);
     }
   }
 }

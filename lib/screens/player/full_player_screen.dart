@@ -17,10 +17,13 @@ import '../../services/artwork_palette_service.dart';
 import '../../services/dynamic_color_settings.dart';
 import '../../services/ambient_color_flow_settings.dart';
 import '../../services/visualizer_settings.dart';
+import '../../services/playback_energy_service.dart';
 import '../../widgets/lyrics_view.dart';
 import '../../widgets/echo_motion.dart';
 import '../../widgets/ambient_color_flow.dart';
 import '../../widgets/audio_visualizer.dart';
+import '../../widgets/advanced_visualizer_engine.dart';
+import '../../widgets/visualizer_engine_manager.dart';
 import '../../widgets/media_artwork.dart';
 import '../../widgets/play_pause_morph.dart';
 import '../effects/equalizer_screen.dart';
@@ -349,15 +352,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   Future<void> _seekBy(HybridAudioHandler handler, Duration delta) async {
+    await _seekTo(handler, handler.player.position + delta);
+  }
+
+  Future<void> _seekTo(HybridAudioHandler handler, Duration target) async {
     final duration = handler.player.duration ?? Duration.zero;
-    final target = handler.player.position + delta;
-    await handler.seek(
-      target < Duration.zero
-          ? Duration.zero
-          : target > duration
-          ? duration
-          : target,
-    );
+    final safeTarget =
+        target < Duration.zero
+            ? Duration.zero
+            : target > duration
+            ? duration
+            : target;
+    PlaybackEnergyService.instance.invalidateForSeek(safeTarget);
+    await handler.seek(safeTarget);
   }
 
   Future<void> _toggleFavorite(
@@ -411,7 +418,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               lyricsLoader: () => _loadLyrics(controller, item),
               onRetry: _retryLyrics,
               positionStream: handler.player.positionStream,
-              onLineTap: handler.seek,
+              onLineTap: (position) => unawaited(_seekTo(handler, position)),
             ),
       ),
     );
@@ -476,34 +483,202 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         onChanged: settings.loaded ? settings.setEnabled : null,
                       ),
                       Text(
-                        'Style',
+                        'Renderer',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Choose one engine; only that renderer is active.',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: VisualizerEngineKind.values
+                            .map(
+                              (engine) => ChoiceChip(
+                                label: Text(
+                                  engine == VisualizerEngineKind.legacy
+                                      ? 'Classic'
+                                      : 'Advanced',
+                                ),
+                                selected: settings.engine == engine,
+                                onSelected:
+                                    settings.loaded
+                                        ? (_) => settings.setEngine(engine)
+                                        : null,
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                      Text(
+                        settings.engine == VisualizerEngineKind.legacy
+                            ? 'Classic style'
+                            : 'Advanced style',
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: VisualizerStyle.values
-                            .map(
-                              (style) => ChoiceChip(
-                                label: Text(switch (style) {
-                                  VisualizerStyle.bars => 'Bars',
-                                  VisualizerStyle.wave => 'Wave',
-                                  VisualizerStyle.mirror => 'Mirror',
-                                  VisualizerStyle.columns => 'Columns',
-                                }),
-                                selected: settings.style == style,
-                                onSelected:
-                                    settings.loaded
-                                        ? (_) => settings.setStyle(style)
-                                        : null,
+                      if (settings.engine == VisualizerEngineKind.legacy)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: VisualizerStyle.values
+                              .map(
+                                (style) => ChoiceChip(
+                                  label: Text(switch (style) {
+                                    VisualizerStyle.bars => 'Bars',
+                                    VisualizerStyle.wave => 'Wave',
+                                    VisualizerStyle.mirror => 'Mirror',
+                                    VisualizerStyle.columns => 'Columns',
+                                  }),
+                                  selected: settings.style == style,
+                                  onSelected:
+                                      settings.loaded
+                                          ? (_) => settings.setStyle(style)
+                                          : null,
+                                ),
+                              )
+                              .toList(growable: false),
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: AdvancedVisualizerStyle.values
+                                  .map((style) {
+                                    final selected =
+                                        settings.advancedStyle == style;
+                                    final label = switch (style) {
+                                      AdvancedVisualizerStyle.aurora =>
+                                        'Aurora',
+                                      AdvancedVisualizerStyle.particles =>
+                                        'Particles',
+                                      AdvancedVisualizerStyle.fluid => 'Fluid',
+                                    };
+                                    return Semantics(
+                                      button: true,
+                                      selected: selected,
+                                      label: '$label visualizer style',
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(14),
+                                        onTap:
+                                            settings.loaded
+                                                ? () => settings
+                                                    .setAdvancedStyle(style)
+                                                : null,
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 180,
+                                          ),
+                                          width: 96,
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                selected
+                                                    ? tokens.accent.withValues(
+                                                      alpha: 0.12,
+                                                    )
+                                                    : tokens.surface.withValues(
+                                                      alpha: 0.72,
+                                                    ),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            border: Border.all(
+                                              color:
+                                                  selected
+                                                      ? tokens.accent
+                                                          .withValues(
+                                                            alpha: 0.72,
+                                                          )
+                                                      : tokens.divider,
+                                              width: selected ? 1.2 : 0.8,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              SizedBox(
+                                                height: 34,
+                                                width: double.infinity,
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  child:
+                                                      AdvancedVisualizerStylePreview(
+                                                        style: style,
+                                                        color: tokens.accent,
+                                                      ),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 5),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      label,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        color:
+                                                            selected
+                                                                ? tokens
+                                                                    .textPrimary
+                                                                : tokens
+                                                                    .textSecondary,
+                                                        fontSize: 10.5,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (selected)
+                                                    Icon(
+                                                      Icons
+                                                          .check_circle_rounded,
+                                                      size: 13,
+                                                      color: tokens.accent,
+                                                    ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  })
+                                  .toList(growable: false),
+                            ),
+                            const SizedBox(height: 7),
+                            Text(
+                              switch (settings.advancedStyle) {
+                                AdvancedVisualizerStyle.aurora =>
+                                  'Soft atmospheric curtains, shaped by the music.',
+                                AdvancedVisualizerStyle.particles =>
+                                  'A sparse constellation moves with each band.',
+                                AdvancedVisualizerStyle.fluid =>
+                                  'Layered liquid-glass waves follow the spectrum.',
+                              },
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 11,
                               ),
-                            )
-                            .toList(growable: false),
-                      ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 );
@@ -764,7 +939,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                           ),
                                         ),
                                       ),
-                                      AudioVisualizer(
+                                      VisualizerEngineManager(
                                         playing: isPlaying,
                                         sourceUri:
                                             item.extras?['source']
@@ -782,7 +957,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         speedStream: handler.player.speedStream,
                                         initialSpeed: handler.playbackSpeed,
                                         duration: handler.player.duration,
-                                        onSeek: handler.seek,
+                                        onSeek:
+                                            (position) => unawaited(
+                                              _seekTo(handler, position),
+                                            ),
                                         height: 62,
                                         barCount: 36,
                                         profile: AudioVisualizerProfile.full,
@@ -855,7 +1033,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                           setState(
                                             () => _draggedPosition = null,
                                           );
-                                          await handler.seek(
+                                          await _seekTo(
+                                            handler,
                                             Duration(
                                               milliseconds: value.round(),
                                             ),
