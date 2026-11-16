@@ -54,6 +54,34 @@ void main() {
     repaint.dispose();
   });
 
+  test(
+    'Fluid Fragment Shader compiles and paints with live band uniforms',
+    () async {
+      final program = await ui.FragmentProgram.fromAsset(
+        'shaders/visualizer_fluid.frag',
+      );
+      final shader = program.fragmentShader();
+      final repaint = ValueNotifier<int>(0);
+      final painter = AdvancedVisualizerPainter(
+        repaint: repaint,
+        style: AdvancedVisualizerStyle.fluid,
+        color: Colors.cyan,
+        levels: List<double>.generate(32, (index) => index / 31),
+        peaks: List<double>.filled(32, 0.7),
+        particles: List<double>.generate(48, (index) => (index % 9) / 9),
+        time: 2.5,
+        hasSignal: true,
+        palette: const <Color>[Colors.teal, Colors.blue, Colors.purple],
+        fluidShader: shader,
+      );
+      final recorder = ui.PictureRecorder();
+      painter.paint(ui.Canvas(recorder), const Size(360, 96));
+      recorder.endRecording().dispose();
+      shader.dispose();
+      repaint.dispose();
+    },
+  );
+
   testWidgets('all Advanced style preview cards paint in a compact layout', (
     tester,
   ) async {
