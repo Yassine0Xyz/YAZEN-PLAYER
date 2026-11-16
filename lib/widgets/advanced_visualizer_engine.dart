@@ -110,7 +110,7 @@ class _AdvancedVisualizerEngineState extends State<AdvancedVisualizerEngine>
         shader.dispose();
         return;
       }
-      _fluidShader = shader;
+      setState(() => _fluidShader = shader);
       _paintSignal.value++;
     } catch (_) {
       // Retain the Canvas-based Fluid renderer as a fallback.
@@ -251,7 +251,8 @@ class _AdvancedVisualizerEngineState extends State<AdvancedVisualizerEngine>
           0,
           bands.length - 1,
         );
-        return bands[source].clamp(0.0, 1.0).toDouble();
+        final value = bands[source];
+        return value.isFinite ? value.clamp(0.0, 1.0).toDouble() : 0.0;
       }, growable: false);
 
   void _clearMotion() {
@@ -399,6 +400,34 @@ class AdvancedVisualizerPainter extends CustomPainter {
     )!.withValues(alpha: alpha);
   }
 
+  double _bandEnergy(double start, double end) {
+    if (levels.isEmpty) return 0;
+    final first =
+        (levels.length * start).floor().clamp(0, levels.length - 1).toInt();
+    final last =
+        math
+            .max(first + 1, (levels.length * end).ceil())
+            .clamp(first + 1, levels.length)
+            .toInt();
+    var sum = 0.0;
+    for (var i = first; i < last; i++) {
+      final value = levels[i];
+      if (value.isFinite) sum += value.clamp(0.0, 1.0).toDouble();
+    }
+    return sum / (last - first);
+  }
+
+  double _peakAt(double normalizedIndex) {
+    if (peaks.isEmpty) return 0;
+    final index =
+        (normalizedIndex * (peaks.length - 1))
+            .round()
+            .clamp(0, peaks.length - 1)
+            .toInt();
+    final value = peaks[index];
+    return value.isFinite ? value.clamp(0.0, 1.0).toDouble() : 0;
+  }
+
   Path _smoothLine(List<Offset> points) {
     final path = Path()..moveTo(points.first.dx, points.first.dy);
     _appendSmoothPoints(path, points);
@@ -437,27 +466,50 @@ class AdvancedVisualizerPainter extends CustomPainter {
 
   void _paintAuroraStars(Canvas canvas, Size size) {
     final paint = Paint()..strokeCap = StrokeCap.round;
-    for (var index = 0; index < 13; index++) {
+    final bass = _bandEnergy(0, 0.22);
+    for (var index = 0; index < 23; index++) {
       final seed = (index * 47 + 13) % 101;
       final x = size.width * seed / 101;
-      final y = size.height * (0.06 + (index * 29 % 37) / 180);
-      final pulse = 0.55 + 0.45 * math.sin(time * 0.7 + index * 1.9);
-      final radius = 0.55 + (index % 4) * 0.18;
+      final y = size.height * (0.035 + (index * 29 % 43) / 165);
+      final pulse =
+          0.42 + 0.58 * math.sin(time * (0.5 + bass) + index * 1.9).abs();
+      final radius = 0.45 + (index % 5) * 0.14;
       paint
-        ..strokeWidth = index % 3 == 0 ? 0.65 : 0.45
+        ..strokeWidth = index % 4 == 0 ? 0.72 : 0.42
         ..color = Colors.white.withValues(
-          alpha: (hasSignal ? 0.28 : 0.11) * pulse,
+          alpha: (hasSignal ? 0.38 : 0.13) * pulse,
         );
       canvas.drawLine(Offset(x - radius, y), Offset(x + radius, y), paint);
-      if (index % 3 == 0) {
+      if (index % 4 == 0) {
         canvas.drawLine(Offset(x, y - radius), Offset(x, y + radius), paint);
       }
+    }
+    final filament =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.45
+          ..color = _tone(0.72, alpha: hasSignal ? 0.09 : 0.025);
+    for (var index = 0; index < 4; index++) {
+      final x = size.width * (0.14 + index * 0.235);
+      final y = size.height * (0.15 + (index.isEven ? 0.02 : 0.07));
+      final path =
+          Path()
+            ..moveTo(x - size.width * 0.055, y)
+            ..quadraticBezierTo(
+              x,
+              y + size.height * (0.08 + bass * 0.08),
+              x + size.width * 0.055,
+              y + size.height * 0.01,
+            );
+      canvas.drawPath(path, filament);
     }
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
     switch (style) {
       case AdvancedVisualizerStyle.aurora:
         _paintAurora(canvas, size);
@@ -466,155 +518,250 @@ class AdvancedVisualizerPainter extends CustomPainter {
       case AdvancedVisualizerStyle.fluid:
         _paintFluid(canvas, size);
     }
+    canvas.restore();
   }
 
   void _paintAurora(Canvas canvas, Size size) {
-    final count = math.max(30, levels.length);
-    for (var glow = 0; glow < 3; glow++) {
+    final count = math.max(96, levels.length * 3);
+    final bass = _bandEnergy(0, 0.22);
+    final mids = _bandEnergy(0.22, 0.68);
+    final highs = _bandEnergy(0.68, 1);
+
+    // Atmospheric light volumes behind the ribbons.
+    for (var glow = 0; glow < 6; glow++) {
+      final phase = time * (0.10 + glow * 0.012) + glow * 1.71;
       final center = Offset(
-        size.width * (0.18 + glow * 0.31),
-        size.height * (0.46 + (glow.isOdd ? 0.08 : -0.04)),
+        size.width * (0.06 + glow * 0.174) + math.sin(phase) * size.width * 0.035,
+        size.height * (0.40 + math.sin(phase * 0.7) * 0.12),
       );
-      canvas.drawCircle(
-        center,
-        size.height * 0.9,
-        Paint()
-          ..shader = RadialGradient(
-            colors: <Color>[
-              _tone(glow * 0.34, alpha: hasSignal ? 0.12 : 0.045),
-              _tone(glow * 0.34, alpha: 0),
-            ],
-          ).createShader(
-            Rect.fromCircle(center: center, radius: size.height * 0.9),
-          ),
-      );
+      final radius = size.height * (0.72 + bass * 0.38);
+      canvas.drawCircle(center, radius, Paint()
+        ..shader = RadialGradient(colors: <Color>[
+          _tone(glow / 5, alpha: hasSignal ? 0.19 : 0.045),
+          _tone((glow + 2) / 8, alpha: 0),
+        ]).createShader(Rect.fromCircle(center: center, radius: radius)));
     }
-    for (var layer = 0; layer < 3; layer++) {
-      final edge = <Offset>[];
-      final innerEdge = <Offset>[];
-      final baseline = size.height * (0.63 + layer * 0.095);
+
+    // Five translucent aurora curtains with independent phase and frequency response.
+    for (var layer = 0; layer < 5; layer++) {
+      final upper = <Offset>[];
+      final lower = <Offset>[];
+      final depth = layer / 4;
+      final baseline = size.height * (0.35 + depth * 0.37);
       for (var i = 0; i < count; i++) {
-        final x = size.width * i / (count - 1);
-        final band = levels.isEmpty ? 0.0 : levels[i % levels.length];
-        final slow = math.sin(i * 0.14 + time * (0.42 + layer * 0.07));
-        final secondary = math.sin(i * 0.29 - time * 0.21 + layer * 0.8);
-        final audioLift = band * size.height * (0.17 + layer * 0.035);
-        final y =
-            baseline -
-            audioLift -
-            slow * size.height * (0.11 + layer * 0.017) -
-            secondary * size.height * 0.025;
-        edge.add(Offset(x, y));
-        innerEdge.add(
-          Offset(
-            x,
-            y +
-                size.height * (0.18 + layer * 0.025) +
-                math.sin(i * 0.17 + time * 0.3) * size.height * 0.025,
-          ),
-        );
+        final u = i / (count - 1);
+        final x = size.width * u;
+        final bandIndex = (u * math.max(0, levels.length - 1)).round()
+            .clamp(0, math.max(0, levels.length - 1))
+            .toInt();
+        final band = levels.isEmpty ? 0.0 : levels[bandIndex].clamp(0.0, 1.0).toDouble();
+        final peak = _peakAt(u);
+        final envelope = math.pow(math.sin(math.pi * u), 0.48).toDouble();
+        final longWave = math.sin(u * 8.2 + time * (0.25 + depth * 0.10) + layer * 1.37);
+        final crossWave = math.sin(u * 15.5 - time * 0.19 + longWave * 0.8 + layer);
+        final microWave = math.sin(u * 37.0 + time * 0.31 + layer * 2.1);
+        final audio = (band * (0.10 + mids * 0.045) + peak * 0.025) * envelope;
+        final displacement = longWave * (0.105 + depth * 0.035)
+            + crossWave * (0.035 + highs * 0.018)
+            + microWave * 0.009 - audio * (0.65 + bass * 0.45);
+        final y = baseline - displacement * size.height;
+        upper.add(Offset(x, y));
+        lower.add(Offset(x, y + size.height * (0.15 + depth * 0.095)
+            + math.sin(u * 6.0 + time * 0.17 + layer) * size.height * 0.025));
       }
-      final curtain = _smoothRibbon(edge, innerEdge);
-      final tint = _tone(0.18 + layer * 0.31);
-      canvas.drawPath(
-        curtain,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              tint.withValues(alpha: hasSignal ? 0.28 - layer * 0.035 : 0.10),
-              _tone(0.72 - layer * 0.18, alpha: hasSignal ? 0.13 : 0.04),
-            ],
-          ).createShader(Offset.zero & size),
-      );
-      final crest = _smoothLine(edge);
-      canvas.drawPath(
-        crest,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = layer == 0 ? 0.8 : 0.55
-          ..strokeCap = StrokeCap.round
-          ..color = tint.withValues(alpha: hasSignal ? 0.20 : 0.08),
-      );
+      final ribbon = _smoothRibbon(upper, lower);
+      final tint = _tone(0.08 + depth * 0.82);
+      canvas.drawPath(ribbon, Paint()
+        ..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: <Color>[
+            tint.withValues(alpha: hasSignal ? 0.42 - depth * 0.12 : 0.07),
+            _tone(0.55 + depth * 0.25, alpha: hasSignal ? 0.17 : 0.025),
+            _tone(0.92 - depth * 0.18, alpha: hasSignal ? 0.055 : 0.012),
+          ]).createShader(Offset.zero & size));
+
+      // Soft luminous crest, followed by a fine spectral edge.
+      final crest = _smoothLine(upper);
+      canvas.drawPath(crest, Paint()..style = PaintingStyle.stroke
+        ..strokeWidth = 3.8 - depth * 2.3
+        ..strokeCap = StrokeCap.round
+        ..color = tint.withValues(alpha: hasSignal ? 0.10 : 0.018)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.5));
+      canvas.drawPath(crest, Paint()..style = PaintingStyle.stroke
+        ..strokeWidth = 0.85 - depth * 0.28
+        ..strokeCap = StrokeCap.round
+        ..shader = LinearGradient(colors: <Color>[
+          _tone(0.04, alpha: hasSignal ? 0.24 : 0.035),
+          Colors.white.withValues(alpha: hasSignal ? 0.86 - depth * 0.34 : 0.10),
+          _tone(0.92, alpha: hasSignal ? 0.48 : 0.04),
+        ]).createShader(Offset.zero & size));
+
+      // Fine filaments suspended inside the curtain; bass bends them, highs sparkle.
+      if (layer < 3) {
+        final strandPaint = Paint()..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+        final strandCount = 34 - layer * 6;
+        for (var strand = 0; strand < strandCount; strand++) {
+          final u = (strand + 0.5) / strandCount;
+          final sample = (u * (count - 1)).round();
+          final a = upper[sample];
+          final b = lower[sample];
+          final sway = math.sin(time * 0.24 + strand * 1.73 + layer) * size.width * 0.012;
+          final path = Path()..moveTo(a.dx, a.dy)
+            ..cubicTo(a.dx + sway, a.dy + size.height * 0.07,
+              b.dx - sway * 0.75, b.dy - size.height * 0.05, b.dx, b.dy);
+          final level = levels.isEmpty ? 0.0 : levels[(u * (levels.length - 1)).round()];
+          strandPaint..strokeWidth = 0.34 + level * 0.7
+            ..color = _tone(u, alpha: hasSignal ? 0.08 + level * 0.30 + highs * 0.07 : 0.025);
+          canvas.drawPath(path, strandPaint);
+        }
+      }
     }
-    _paintAuroraStars(canvas, size);
+
+    // Tiny drifting stars and audio-triggered glints.
+    final starPaint = Paint()..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 42; i++) {
+      final seed = (i * 47 + 13) % 101;
+      final drift = time * (0.003 + (i % 5) * 0.001);
+      final x = size.width * ((seed / 101 + drift) % 1.0);
+      final y = size.height * (0.025 + (i * 29 % 83) / 112);
+      final pulse = 0.25 + 0.75 * math.sin(time * (0.55 + highs) + i * 1.91).abs();
+      final r = 0.45 + (i % 4) * 0.17;
+      starPaint..strokeWidth = i % 7 == 0 ? 0.9 : 0.48
+        ..color = Colors.white.withValues(alpha: (hasSignal ? 0.42 : 0.10) * pulse);
+      canvas.drawLine(Offset(x-r, y), Offset(x+r, y), starPaint);
+      if (i % 7 == 0) canvas.drawLine(Offset(x, y-r), Offset(x, y+r), starPaint);
+    }
   }
 
   void _paintParticles(Canvas canvas, Size size) {
-    final core = Paint()..style = PaintingStyle.fill;
-    final highlight = Paint()..style = PaintingStyle.fill;
-    final outline =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.7;
+    final center = Offset(size.width * 0.5, size.height * 0.52);
+    final bass = _bandEnergy(0, 0.24);
+    final mids = _bandEnergy(0.24, 0.68);
+    final highs = _bandEnergy(0.68, 1);
+    final maxNodes = math.min(24, particles.length ~/ 2);
     final nodes = <Offset>[];
     final radii = <double>[];
-    const columns = 6;
-    for (var i = 0; i + 1 < particles.length; i += 2) {
-      final index = i ~/ 2;
-      final band = levels.isEmpty ? 0.0 : levels[index % levels.length];
-      final column = index % columns;
-      final row = index ~/ columns;
-      final x =
-          (column + 0.5) * size.width / columns +
-          (particles[i] - 0.5) * size.width * 0.14 +
-          math.sin(time * 0.22 + index * 0.71) * size.width * 0.009;
-      final y =
-          (row + 0.5) * size.height / 4.5 +
-          size.height * 0.04 +
-          (particles[i + 1] - 0.5) * size.height * 0.10 -
-          band * size.height * 0.14 +
-          math.sin(time * 0.19 + index * 0.53) * size.height * 0.018;
-      nodes.add(Offset(x, y));
-      radii.add(1.25 + band * 2.05);
+    final nodeBands = <double>[];
+    const orbitCount = 3;
+    const nodesPerOrbit = 8;
+
+    // Deep orbital haze.
+    final hazeRect = Rect.fromCircle(center: center, radius: size.width * 0.36);
+    canvas.drawCircle(center, size.height * (0.42 + bass * 0.08), Paint()
+      ..shader = RadialGradient(colors: <Color>[
+        _tone(0.56, alpha: hasSignal ? 0.18 + bass * 0.10 : 0.035),
+        _tone(0.82, alpha: 0),
+      ]).createShader(hazeRect));
+
+    // Elliptical orbital planes with a subtle 3D tilt and broken luminous arcs.
+    for (var orbit = 0; orbit < orbitCount; orbit++) {
+      final rect = Rect.fromCenter(center: center,
+        width: size.width * (0.43 + orbit * 0.205),
+        height: size.height * (0.22 + orbit * 0.115));
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate((orbit - 1) * 0.22 + math.sin(time * 0.11 + orbit) * 0.035);
+      canvas.translate(-center.dx, -center.dy);
+      final orbitColor = _tone(0.16 + orbit * 0.34, alpha: hasSignal ? 0.20 : 0.055);
+      canvas.drawOval(rect, Paint()..style = PaintingStyle.stroke..strokeWidth = 0.55..color = orbitColor);
+      final arcRect = rect.deflate(1.5);
+      canvas.drawArc(arcRect, time * (orbit.isEven ? 0.10 : -0.08) + orbit,
+        math.pi * (0.38 + mids * 0.16), false,
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0
+          ..color = _tone(0.60 + orbit * 0.12, alpha: hasSignal ? 0.38 : 0.08));
+      canvas.restore();
     }
-    final edgePaint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.7
-          ..strokeCap = StrokeCap.round;
-    const nodeCount = 24;
-    for (var index = 0; index < math.min(nodes.length, nodeCount); index++) {
-      final column = index % columns;
-      final row = index ~/ columns;
-      final links = <int>[
-        if (column < columns - 1 && row.isEven) index + 1,
-        if (row < 3 && column % 3 == 1) index + columns,
-        if (row < 3 && column == 4) index + columns - 1,
-      ];
-      for (final destination in links) {
-        if (destination >= nodes.length) continue;
-        final band = levels.isEmpty ? 0.0 : levels[index % levels.length];
-        edgePaint.color = _tone(
-          index / math.max(1, nodes.length - 1),
-          alpha: hasSignal ? 0.12 + band * 0.10 : 0.06,
-        );
-        canvas.drawLine(nodes[index], nodes[destination], edgePaint);
+
+    for (var index = 0; index < maxNodes; index++) {
+      final orbit = index ~/ nodesPerOrbit;
+      final slot = index % nodesPerOrbit;
+      final normalized = index / math.max(1, maxNodes - 1);
+      final band = levels.isEmpty ? 0.0 : levels[(normalized * (levels.length - 1)).round()];
+      final phaseSeed = particles[index * 2];
+      final direction = orbit == 1 ? -1.0 : 1.0;
+      final angle = math.pi * 2 * (slot / nodesPerOrbit)
+        + time * (0.18 + orbit * 0.055) * direction
+        + (phaseSeed - 0.5) * 0.18 + orbit * 0.63;
+      final rx = size.width * (0.215 + orbit * 0.105) * (1 + band * 0.10);
+      final ry = size.height * (0.12 + orbit * 0.075) * (1 + band * 0.16);
+      final drift = (particles[index * 2 + 1] - 0.5) * size.height * 0.055;
+      nodes.add(Offset(center.dx + math.cos(angle) * rx,
+        center.dy + math.sin(angle) * ry + drift));
+      radii.add(0.85 + band * 2.0 + _peakAt(normalized) * 0.9);
+      nodeBands.add(band);
+    }
+
+    // Connections form a living constellation, not a static wireframe.
+    final edgePaint = Paint()..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+    for (var i = 0; i < nodes.length; i++) {
+      final orbit = i ~/ nodesPerOrbit;
+      final slot = i % nodesPerOrbit;
+      final next = orbit * nodesPerOrbit + (slot + 1) % nodesPerOrbit;
+      if (next < nodes.length) {
+        final path = Path()..moveTo(nodes[i].dx, nodes[i].dy)
+          ..quadraticBezierTo(center.dx, center.dy + math.sin(time * 0.2 + slot) * size.height * 0.05,
+            nodes[next].dx, nodes[next].dy);
+        edgePaint..strokeWidth = 0.55 + nodeBands[i] * 0.35
+          ..color = _tone(i / math.max(1, nodes.length - 1),
+            alpha: hasSignal ? 0.20 + nodeBands[i] * 0.16 : 0.045);
+        canvas.drawPath(path, edgePaint);
+      }
+      if (orbit < orbitCount - 1 && slot % 2 == 0) {
+        final bridge = (orbit + 1) * nodesPerOrbit + slot;
+        if (bridge < nodes.length) {
+          edgePaint..strokeWidth = 0.42
+            ..color = _tone(0.72, alpha: hasSignal ? 0.13 + highs * 0.15 : 0.025);
+          canvas.drawLine(nodes[i], nodes[bridge], edgePaint);
+        }
       }
     }
-    for (var index = 0; index < nodes.length; index++) {
-      final band = levels.isEmpty ? 0.0 : levels[index % levels.length];
-      final radius = radii[index];
-      final tone = _tone(
-        index / math.max(1, nodes.length - 1),
-        alpha: hasSignal ? 0.78 : 0.34,
-      );
-      outline.color = tone.withValues(alpha: hasSignal ? 0.18 : 0.08);
-      core.color = tone;
-      highlight.color = Colors.white.withValues(
-        alpha: (hasSignal ? 0.58 : 0.24) * (0.35 + band * 0.4),
-      );
-      canvas.drawCircle(nodes[index], radius + 1.5, outline);
-      canvas.drawCircle(nodes[index], radius, core);
-      canvas.drawCircle(
-        Offset(
-          nodes[index].dx - radius * 0.22,
-          nodes[index].dy - radius * 0.22,
-        ),
-        math.max(0.45, radius * 0.26),
-        highlight,
-      );
+
+    // Luminous bodies: broad bloom, saturated core, and a tiny white specular point.
+    for (var i = 0; i < nodes.length; i++) {
+      final node = nodes[i];
+      final radius = radii[i];
+      final band = nodeBands[i];
+      final tone = _tone(i / math.max(1, nodes.length - 1), alpha: hasSignal ? 0.96 : 0.30);
+      final halo = radius * (4.2 + band * 1.4);
+      canvas.drawCircle(node, halo, Paint()..shader = RadialGradient(colors: <Color>[
+        tone.withValues(alpha: hasSignal ? 0.23 + band * 0.10 : 0.045),
+        tone.withValues(alpha: 0),
+      ]).createShader(Rect.fromCircle(center: node, radius: halo)));
+      canvas.drawCircle(node, radius, Paint()..color = tone.withValues(alpha: hasSignal ? 0.95 : 0.35));
+      canvas.drawCircle(Offset(node.dx - radius * 0.24, node.dy - radius * 0.25),
+        math.max(0.45, radius * 0.28), Paint()..color = Colors.white.withValues(alpha: hasSignal ? 0.92 : 0.22));
+      if (band > 0.52 || _peakAt(i / math.max(1, nodes.length - 1)) > 0.68) {
+        canvas.drawCircle(node, radius + 2.4, Paint()..style = PaintingStyle.stroke
+          ..strokeWidth = 0.55..color = Colors.white.withValues(alpha: hasSignal ? 0.52 : 0.07));
+      }
+    }
+
+    // Central reactor with concentric rings and a rotating pulse.
+    final coreRadius = size.height * (0.075 + bass * 0.045);
+    for (var ring = 0; ring < 3; ring++) {
+      final r = coreRadius * (1.35 + ring * 0.72);
+      canvas.drawCircle(center, r, Paint()..style = PaintingStyle.stroke
+        ..strokeWidth = ring == 0 ? 1.0 : 0.48
+        ..color = _tone(0.55 + ring * 0.14, alpha: hasSignal ? 0.42 - ring * 0.09 : 0.07));
+      canvas.drawArc(Rect.fromCircle(center: center, radius: r * 1.08),
+        time * (ring.isEven ? 0.35 : -0.27) + ring * 1.7,
+        math.pi * (0.35 + highs * 0.16), false,
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2
+          ..color = _tone(0.78, alpha: hasSignal ? 0.62 : 0.10));
+    }
+    canvas.drawCircle(center, coreRadius * 1.8, Paint()
+      ..shader = RadialGradient(colors: <Color>[
+        _tone(0.66, alpha: hasSignal ? 0.48 + bass * 0.22 : 0.08),
+        _tone(0.30, alpha: 0),
+      ]).createShader(Rect.fromCircle(center: center, radius: coreRadius * 1.8)));
+    canvas.drawCircle(center, coreRadius * 0.55, Paint()..color = Colors.white.withValues(alpha: hasSignal ? 0.92 : 0.20));
+
+    // Sparse drifting dust adds scale without overwhelming the constellation.
+    for (var i = 0; i < 32; i++) {
+      final x = size.width * (((i * 61 + 17) % 103) / 103);
+      final y = size.height * (((i * 37 + 11) % 97) / 97);
+      final pulse = 0.3 + 0.7 * math.sin(time * 0.6 + i * 2.1).abs();
+      canvas.drawCircle(Offset(x, y), 0.35 + (i % 3) * 0.18,
+        Paint()..color = _tone(i / 31, alpha: (hasSignal ? 0.52 : 0.12) * pulse));
     }
   }
 
@@ -622,84 +769,95 @@ class AdvancedVisualizerPainter extends CustomPainter {
     final shader = fluidShader;
     if (shader != null) {
       final tint = _tone(0.48);
-      var energy = 0.0;
-      for (final value in levels) {
-        energy += value;
+      final bass = _bandEnergy(0, 0.22);
+      final mids = _bandEnergy(0.22, 0.68);
+      final highs = _bandEnergy(0.68, 1);
+      final peakCount = math.min(peaks.length, levels.length);
+      var transient = 0.0;
+      for (var i = 0; i < peakCount; i++) {
+        transient += (peaks[i] - levels[i]).clamp(0.0, 1.0).toDouble();
       }
-      energy /= math.max(1, levels.length);
+      if (peakCount > 0) transient /= peakCount;
+      final energy = (bass * 0.42 + mids * 0.36 + highs * 0.22)
+          .clamp(0.0, 1.0).toDouble();
       shader
-        ..setFloat(0, size.width)
-        ..setFloat(1, size.height)
-        ..setFloat(2, time)
-        ..setFloat(3, energy)
-        ..setFloat(4, tint.r)
-        ..setFloat(5, tint.g)
-        ..setFloat(6, tint.b)
-        ..setFloat(7, tint.a);
+        ..setFloat(0, size.width)..setFloat(1, size.height)
+        ..setFloat(2, time)..setFloat(3, energy)
+        ..setFloat(4, tint.r)..setFloat(5, tint.g)
+        ..setFloat(6, tint.b)..setFloat(7, tint.a)
+        ..setFloat(8, hasSignal ? bass : 0)
+        ..setFloat(9, hasSignal ? mids : 0)
+        ..setFloat(10, hasSignal ? highs : 0)
+        ..setFloat(11, hasSignal ? transient.clamp(0.0, 1.0).toDouble() : 0);
       canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
       return;
     }
-    final count = math.max(32, levels.length);
-    for (var layer = 0; layer < 3; layer++) {
-      final baseline = size.height * (0.45 + layer * 0.15);
+
+    // Canvas fallback mirrors the shader's layered, marbled fluid language.
+    final count = math.max(48, levels.length * 2);
+    final bass = _bandEnergy(0, 0.22);
+    final mids = _bandEnergy(0.22, 0.68);
+    final highs = _bandEnergy(0.68, 1);
+    for (var layer = 0; layer < 5; layer++) {
+      final depth = layer / 4;
       final points = <Offset>[];
+      final lower = <Offset>[];
       for (var i = 0; i <= count; i++) {
-        final x = size.width * i / count;
-        final bandIndex =
-            ((i / count) * math.max(1, levels.length - 1)).round();
-        final band = levels.isEmpty ? 0.0 : levels[bandIndex];
-        final swell =
-            math.sin(i * 0.19 + time * (0.46 + layer * 0.12)) *
-            size.height *
-            (0.075 + layer * 0.008);
-        final ripple =
-            math.sin(i * 0.48 - time * 0.33 + layer * 1.1) *
-            size.height *
-            0.024;
-        final y =
-            baseline +
-            swell +
-            ripple -
-            band * size.height * (0.15 + layer * 0.035);
+        final u = i / count;
+        final x = size.width * u;
+        final bandIndex = (u * math.max(0, levels.length - 1)).round()
+            .clamp(0, math.max(0, levels.length - 1))
+            .toInt();
+        final band = levels.isEmpty ? 0.0 : levels[bandIndex].clamp(0.0, 1.0).toDouble();
+        final envelope = math.pow(math.sin(math.pi * u), 0.6).toDouble();
+        final broad = math.sin(u * 7.2 + time * (0.22 + depth * 0.08) + layer * 1.4);
+        final fold = math.sin(u * 16.0 - time * 0.31 + broad * 1.1 + layer);
+        final detail = math.sin(u * 34.0 + time * 0.42 + layer * 2.2);
+        final displacement = broad * (0.10 + bass * 0.045)
+            + fold * (0.035 + mids * 0.025) + detail * (0.009 + highs * 0.008)
+            - band * envelope * (0.045 + bass * 0.025);
+        final y = size.height * (0.37 + depth * 0.13) - displacement * size.height;
         points.add(Offset(x, y));
+        lower.add(Offset(x, y + size.height * (0.22 + depth * 0.035)));
       }
-      final path = _smoothRibbon(points, <Offset>[
-        Offset(size.width, size.height),
-        Offset(0, size.height),
-      ]);
-      final upper = _tone(
-        0.18 + layer * 0.29,
-        alpha: hasSignal ? 0.34 - layer * 0.055 : 0.10,
-      );
-      final middle = _tone(
-        0.78 - layer * 0.20,
-        alpha: hasSignal ? 0.19 - layer * 0.025 : 0.06,
-      );
-      final lower = _tone(0.46, alpha: hasSignal ? 0.035 : 0.015);
-      canvas.drawPath(
-        path,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[upper, middle, lower],
-            stops: const <double>[0, 0.22, 1],
-          ).createShader(Offset.zero & size),
-      );
-      canvas.drawPath(
-        _smoothLine(points),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = layer == 0 ? 0.9 : 0.55
-          ..strokeCap = StrokeCap.round
-          ..shader = LinearGradient(
-            colors: <Color>[
-              _tone(0.08, alpha: hasSignal ? 0.10 : 0.035),
-              _tone(0.56, alpha: hasSignal ? 0.52 - layer * 0.09 : 0.15),
-              _tone(0.94, alpha: hasSignal ? 0.18 : 0.05),
-            ],
-          ).createShader(Offset.zero & size),
-      );
+      final tint = _tone(0.10 + depth * 0.78);
+      final ribbon = _smoothRibbon(points, lower);
+      canvas.drawPath(ribbon, Paint()..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: <Color>[
+          tint.withValues(alpha: hasSignal ? 0.42 - depth * 0.12 : 0.07),
+          _tone(0.78 - depth * 0.22, alpha: hasSignal ? 0.20 : 0.035),
+          _tone(0.42, alpha: hasSignal ? 0.045 : 0.012),
+        ],
+      ).createShader(Offset.zero & size));
+      final crest = _smoothLine(points);
+      canvas.drawPath(crest, Paint()..style = PaintingStyle.stroke
+        ..strokeWidth = layer == 0 ? 1.0 : 0.55
+        ..strokeCap = StrokeCap.round
+        ..color = _tone(0.56 + depth * 0.20, alpha: hasSignal ? 0.56 - depth * 0.10 : 0.10));
+      canvas.drawPath(crest, Paint()..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0..strokeCap = StrokeCap.round
+        ..color = tint.withValues(alpha: hasSignal ? 0.10 : 0.018)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0));
+    }
+
+    // Suspended bubbles and caustic glints move at different spectral rates.
+    for (var i = 0; i < 15; i++) {
+      final phase = time * (0.16 + (i % 4) * 0.055) + i * 2.17;
+      final x = size.width * ((i * 37 + 13) % 101) / 101
+          + math.sin(phase) * size.width * 0.012;
+      final y = size.height * (0.18 + (i * 19 % 61) / 100)
+          + math.cos(phase * 0.8) * size.height * 0.045;
+      final radius = 0.7 + (i % 3) * 0.55 + highs * 0.45;
+      final bubble = Rect.fromCircle(center: Offset(x, y), radius: radius * 2.2);
+      canvas.drawCircle(Offset(x, y), radius * 2.2, Paint()
+        ..shader = RadialGradient(colors: <Color>[
+          _tone(i / 15, alpha: hasSignal ? 0.28 : 0.05),
+          _tone(i / 15, alpha: 0),
+        ]).createShader(bubble));
+      canvas.drawCircle(Offset(x, y), radius, Paint()
+        ..style = PaintingStyle.stroke..strokeWidth = 0.45
+        ..color = Colors.white.withValues(alpha: hasSignal ? 0.52 : 0.10));
     }
     _paintFluidCaustics(canvas, size);
   }
@@ -709,14 +867,15 @@ class AdvancedVisualizerPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 0.6;
-    for (var index = 0; index < 5; index++) {
+    for (var index = 0; index < 11; index++) {
       final x = size.width * (0.12 + index * 0.19);
-      final y = size.height * (0.27 + (index % 2) * 0.30);
-      final drift = math.sin(time * 0.24 + index * 1.6);
+      if (x > size.width) continue;
+      final y = size.height * (0.18 + (index % 3) * 0.19);
+      final drift = math.sin(time * (0.20 + index * 0.012) + index * 1.6);
       final rect = Rect.fromCenter(
         center: Offset(x + drift * size.width * 0.025, y),
-        width: size.width * (0.035 + index % 3 * 0.012),
-        height: size.height * 0.06,
+        width: size.width * (0.018 + index % 3 * 0.008),
+        height: size.height * (0.035 + index % 2 * 0.018),
       );
       paint.color = Colors.white.withValues(
         alpha: hasSignal ? 0.07 + (index % 2) * 0.025 : 0.025,
@@ -732,8 +891,10 @@ class AdvancedVisualizerPainter extends CustomPainter {
       oldDelegate.time != time ||
       oldDelegate.hasSignal != hasSignal ||
       oldDelegate.levels != levels ||
+      oldDelegate.peaks != peaks ||
       oldDelegate.particles != particles ||
-      oldDelegate.palette != palette;
+      oldDelegate.palette != palette ||
+      oldDelegate.fluidShader != fluidShader;
 }
 
 class AdvancedVisualizerStylePreview extends StatelessWidget {

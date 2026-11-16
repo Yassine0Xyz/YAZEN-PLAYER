@@ -4,42 +4,87 @@ uniform vec2 uSize;
 uniform float uTime;
 uniform float uEnergy;
 uniform vec4 uTint;
+uniform float uBass;
+uniform float uMids;
+uniform float uHighs;
+uniform float uTransient;
 
 out vec4 fragColor;
 
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float noise2(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  for (int i = 0; i < 4; i++) {
+    value += noise2(p) * amplitude;
+    p = p * 2.03 + vec2(17.1, 9.2);
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
 void main() {
   vec2 uv = FlutterFragCoord().xy / uSize;
-  float x = uv.x;
+  vec2 p = uv - 0.5;
+  p.x *= uSize.x / max(uSize.y, 1.0);
+  float t = uTime;
+  float bass = clamp(uBass, 0.0, 1.0);
+  float mids = clamp(uMids, 0.0, 1.0);
+  float highs = clamp(uHighs, 0.0, 1.0);
+  float hit = clamp(uTransient, 0.0, 1.0);
   float energy = clamp(uEnergy, 0.0, 1.0);
 
-  float driftA = sin(x * 5.2 - uTime * 0.46 + sin(x * 2.1 + uTime * 0.18) * 0.72);
-  float driftB = sin(x * 7.0 + uTime * 0.31 + cos(x * 2.8 - uTime * 0.16) * 0.58);
-  float driftC = sin(x * 3.7 - uTime * 0.23 + sin(x * 6.3 + uTime * 0.12) * 0.42);
+  // Layered advection: the two counter-rotating fields create fluid-like folds.
+  vec2 flow = vec2(
+    fbm(p * 3.0 + vec2(t * 0.10, -t * 0.06)),
+    fbm(p * 3.2 + vec2(-t * 0.07, t * 0.09))
+  );
+  vec2 q = p * (2.7 + bass * 0.32) + (flow - 0.5) * (1.1 + mids * 0.35);
+  float fieldA = fbm(q * 2.2 + vec2(t * 0.13, -t * 0.08));
+  float fieldB = fbm(q * 3.8 - vec2(t * 0.09, t * 0.12));
+  float folds = fbm(q * 6.0 + vec2(fieldB, -fieldA) * 1.8);
+  float marbling = fieldA * 0.48 + fieldB * 0.34 + folds * 0.18;
 
-  float surfaceA = 0.43 + driftA * 0.105 - energy * 0.075;
-  float surfaceB = 0.63 + driftB * 0.082 - energy * 0.045;
-  float surfaceC = 0.81 + driftC * 0.052 - energy * 0.025;
+  float ribbon1 = exp(-abs(p.y - (0.13 * sin(p.x * 4.0 - t * 0.45) + (fieldA - 0.5) * 0.25)) * (12.0 + bass * 7.0));
+  float ribbon2 = exp(-abs(p.y - (-0.08 * sin(p.x * 5.0 + t * 0.31) + (fieldB - 0.5) * 0.28)) * 18.0);
+  float ribbon3 = exp(-abs(p.y - (0.02 * sin(p.x * 8.0 - t * 0.22) + (folds - 0.5) * 0.20)) * 26.0);
+  float body = smoothstep(0.30 - bass * 0.06, 0.76, marbling + ribbon1 * 0.22 + ribbon2 * 0.13);
+  float edge = pow(clamp(ribbon1 * 0.55 + ribbon2 * 0.34 + ribbon3 * 0.25, 0.0, 1.0), 1.45);
 
-  float bodyA = 1.0 - smoothstep(surfaceA, surfaceA + 0.34, uv.y);
-  float bodyB = 1.0 - smoothstep(surfaceB, surfaceB + 0.28, uv.y);
-  float bodyC = 1.0 - smoothstep(surfaceC, surfaceC + 0.20, uv.y);
-  float crestA = exp(-abs(uv.y - surfaceA) * 78.0);
-  float crestB = exp(-abs(uv.y - surfaceB) * 92.0);
-  float crestC = exp(-abs(uv.y - surfaceC) * 108.0);
+  vec3 cyan = vec3(0.015, 0.72, 1.0);
+  vec3 azure = vec3(0.08, 0.30, 1.0);
+  vec3 violet = vec3(0.55, 0.08, 1.0);
+  vec3 magenta = vec3(1.0, 0.08, 0.72);
+  float hue = clamp(uv.x * 0.72 + fieldA * 0.28 + 0.08 * sin(t * 0.18), 0.0, 1.0);
+  vec3 palette = mix(cyan, azure, smoothstep(0.05, 0.62, hue));
+  palette = mix(palette, violet, smoothstep(0.42, 0.82, hue) * 0.88);
+  palette = mix(palette, magenta, smoothstep(0.78, 1.0, hue) * 0.70);
+  palette = mix(palette, uTint.rgb, 0.16);
 
-  vec3 teal = mix(uTint.rgb, vec3(0.16, 0.84, 0.82), 0.43);
-  vec3 blue = mix(uTint.rgb, vec3(0.25, 0.50, 0.96), 0.40);
-  vec3 violet = mix(uTint.rgb, vec3(0.68, 0.42, 0.98), 0.48);
-  float hueFlow = clamp(x * 0.72 + driftA * 0.12 + 0.12, 0.0, 1.0);
-  vec3 base = mix(teal, blue, hueFlow);
-  base = mix(base, violet, clamp(driftC * 0.18 + x * 0.28, 0.0, 0.48));
-
-  float body = bodyA * 0.22 + bodyB * 0.13 + bodyC * 0.075;
-  float highlights = crestA * 0.26 + crestB * 0.20 + crestC * 0.12;
-  float sheen = pow(max(0.0, sin(x * 13.0 - uTime * 0.22 + driftB)), 18.0)
-      * bodyA * 0.09;
-  vec3 color = base + vec3(0.58, 0.76, 0.91) * (highlights + sheen);
-  float alpha = clamp(body + highlights + sheen, 0.0, 0.66);
-
-  fragColor = vec4(color, alpha * uTint.a);
+  float caustic = pow(max(0.0, sin((fieldA * 2.0 + fieldB) * 18.0 - t * 0.65)), 13.0);
+  float shimmer = pow(max(0.0, sin(uv.x * 31.0 + folds * 11.0 - t * 0.8)), 18.0);
+  float light = edge * (0.42 + mids * 0.22 + hit * 0.35) + caustic * (0.10 + highs * 0.18) + shimmer * 0.12;
+  float depth = body * (0.18 + bass * 0.14) + ribbon2 * 0.10;
+  float sideFade = smoothstep(0.0, 0.12, uv.x) * (1.0 - smoothstep(0.88, 1.0, uv.x));
+  float verticalFade = smoothstep(0.0, 0.16, uv.y) * (1.0 - smoothstep(0.90, 1.0, uv.y));
+  float alpha = clamp((depth + light * 0.72) * sideFade * verticalFade, 0.0, 0.88) * uTint.a;
+  vec3 color = palette * (0.30 + depth * 1.25) + vec3(0.35, 0.72, 1.0) * light;
+  color += vec3(0.35, 0.10, 0.65) * (ribbon3 * 0.18 + hit * edge * 0.16);
+  fragColor = vec4(color * alpha, alpha);
 }
