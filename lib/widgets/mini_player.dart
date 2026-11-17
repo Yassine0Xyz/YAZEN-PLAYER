@@ -123,7 +123,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final isPlaying = widget.isPlaying;
     final onPlayPause = widget.onPlayPause;
     final onStop = widget.onStop;
-    final position = widget.position;
     final duration = widget.duration;
     final positionStream = widget.positionStream;
     final onPrevious = widget.onPrevious;

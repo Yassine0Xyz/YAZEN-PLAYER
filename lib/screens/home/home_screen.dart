@@ -15,7 +15,6 @@ import '../../screens/search/search_screen.dart';
 import '../../screens/settings/settings_screen.dart';
 import '../../services/library_display_settings.dart';
 import '../../widgets/echo_motion.dart';
-import '../../widgets/media_artwork.dart';
 import '../../widgets/mini_player_host.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import 'widgets/library_tabs.dart';

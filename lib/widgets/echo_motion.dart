@@ -241,7 +241,7 @@ class _EchoBreathingGlowState extends State<EchoBreathingGlow>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
-    _tickerEnabled = TickerMode.of(context);
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     _scrolling = ScrollPerformanceMode.isScrolling.value;
     _sync();
   }
@@ -330,7 +330,7 @@ class _EchoAmbientLayerState extends State<EchoAmbientLayer>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
-    _tickerEnabled = TickerMode.of(context);
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     _scrolling = ScrollPerformanceMode.isScrolling.value;
     _syncAnimation();
   }

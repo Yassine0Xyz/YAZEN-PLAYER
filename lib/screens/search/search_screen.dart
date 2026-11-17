@@ -326,7 +326,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (error, stackTrace) {
       debugPrint('Search entry activation failed: $error\n$stackTrace');
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(

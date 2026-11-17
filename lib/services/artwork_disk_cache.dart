@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'bounded_load_gate.dart';
 
@@ -307,6 +308,13 @@ class ArtworkDiskCache {
         }
       }
       deleteClock.stop();
+      if (deletedFiles > 0 || deleteFailures > 0) {
+        debugPrint(
+          'Artwork cache trim: deleted=$deletedFiles, '
+          'failures=$deleteFailures, '
+          'elapsedMs=${deleteClock.elapsedMilliseconds}',
+        );
+      }
     } finally {
       _trimInProgress = false;
       if (identical(_trimCompleter, maintenanceCompleter)) {

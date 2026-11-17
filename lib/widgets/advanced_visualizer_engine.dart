@@ -464,47 +464,6 @@ class AdvancedVisualizerPainter extends CustomPainter {
     }
   }
 
-  void _paintAuroraStars(Canvas canvas, Size size) {
-    final paint = Paint()..strokeCap = StrokeCap.round;
-    final bass = _bandEnergy(0, 0.22);
-    for (var index = 0; index < 23; index++) {
-      final seed = (index * 47 + 13) % 101;
-      final x = size.width * seed / 101;
-      final y = size.height * (0.035 + (index * 29 % 43) / 165);
-      final pulse =
-          0.42 + 0.58 * math.sin(time * (0.5 + bass) + index * 1.9).abs();
-      final radius = 0.45 + (index % 5) * 0.14;
-      paint
-        ..strokeWidth = index % 4 == 0 ? 0.72 : 0.42
-        ..color = Colors.white.withValues(
-          alpha: (hasSignal ? 0.38 : 0.13) * pulse,
-        );
-      canvas.drawLine(Offset(x - radius, y), Offset(x + radius, y), paint);
-      if (index % 4 == 0) {
-        canvas.drawLine(Offset(x, y - radius), Offset(x, y + radius), paint);
-      }
-    }
-    final filament =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.45
-          ..color = _tone(0.72, alpha: hasSignal ? 0.09 : 0.025);
-    for (var index = 0; index < 4; index++) {
-      final x = size.width * (0.14 + index * 0.235);
-      final y = size.height * (0.15 + (index.isEven ? 0.02 : 0.07));
-      final path =
-          Path()
-            ..moveTo(x - size.width * 0.055, y)
-            ..quadraticBezierTo(
-              x,
-              y + size.height * (0.08 + bass * 0.08),
-              x + size.width * 0.055,
-              y + size.height * 0.01,
-            );
-      canvas.drawPath(path, filament);
-    }
-  }
-
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
@@ -691,8 +650,9 @@ class AdvancedVisualizerPainter extends CustomPainter {
           alpha: (hasSignal ? 0.42 : 0.10) * pulse,
         );
       canvas.drawLine(Offset(x - r, y), Offset(x + r, y), starPaint);
-      if (i % 7 == 0)
+      if (i % 7 == 0) {
         canvas.drawLine(Offset(x, y - r), Offset(x, y + r), starPaint);
+      }
     }
   }
 

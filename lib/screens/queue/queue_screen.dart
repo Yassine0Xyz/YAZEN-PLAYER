@@ -17,7 +17,6 @@ class QueueScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final handler = context.read<HybridMusicController>().audioHandler;
-    final tokens = context.watch<ThemeProvider>().tokens;
     return Scaffold(
       backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
       appBar: AppBar(

@@ -19,7 +19,6 @@ class FavoritesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final manager = context.watch<LocalPlaylistManager>();
     final controller = context.read<HybridMusicController>();
-    final tokens = context.watch<ThemeProvider>().tokens;
     final tracks = manager.favorites;
     return Scaffold(
       backgroundColor: context.watch<ThemeProvider>().scaffoldBackground,
