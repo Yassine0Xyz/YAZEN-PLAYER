@@ -486,6 +486,26 @@ class AdvancedVisualizerPainter extends CustomPainter {
     final mids = _bandEnergy(0.22, 0.68);
     final highs = _bandEnergy(0.68, 1);
 
+    // A low-contrast atmospheric bed separates the aurora from a flat canvas.
+    final atmosphere = Rect.fromLTWH(
+      0,
+      size.height * 0.08,
+      size.width,
+      size.height * 0.88,
+    );
+    canvas.drawRect(
+      atmosphere,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            _tone(0.12, alpha: hasSignal ? 0.055 : 0.012),
+            _tone(0.58, alpha: hasSignal ? 0.10 : 0.018),
+            _tone(0.88, alpha: hasSignal ? 0.035 : 0.008),
+          ],
+        ).createShader(atmosphere),
+    );
     // Atmospheric light volumes behind the ribbons.
     for (var glow = 0; glow < 6; glow++) {
       final phase = time * (0.10 + glow * 0.012) + glow * 1.71;
@@ -505,6 +525,23 @@ class AdvancedVisualizerPainter extends CustomPainter {
               _tone((glow + 2) / 8, alpha: 0),
             ],
           ).createShader(Rect.fromCircle(center: center, radius: radius)),
+      );
+    }
+
+    // Fine vertical light shafts suggest height and layered atmospheric depth.
+    final shaftPaint = Paint()..strokeCap = StrokeCap.round;
+    for (var shaft = 0; shaft < 17; shaft++) {
+      final u = ((shaft * 43 + 11) % 101) / 101.0;
+      final x = u * size.width;
+      final top = size.height * (0.08 + (shaft % 4) * 0.035);
+      final bottom = size.height * (0.72 + (shaft % 5) * 0.045);
+      shaftPaint
+        ..strokeWidth = shaft % 5 == 0 ? 0.8 : 0.38
+        ..color = _tone(u, alpha: hasSignal ? 0.045 + highs * 0.035 : 0.012);
+      canvas.drawLine(
+        Offset(x, top),
+        Offset(x + math.sin(time * .12 + shaft) * 3, bottom),
+        shaftPaint,
       );
     }
 
@@ -819,6 +856,18 @@ class AdvancedVisualizerPainter extends CustomPainter {
         Paint()
           ..color = Colors.white.withValues(alpha: hasSignal ? 0.92 : 0.22),
       );
+      // A tiny orbiting companion makes the nodes feel like particles with mass.
+      final satelliteAngle = time * (0.42 + (i % 3) * 0.12) + i * 1.91;
+      final satellite = Offset(
+        node.dx + math.cos(satelliteAngle) * (radius + 2.8),
+        node.dy + math.sin(satelliteAngle) * (radius * 0.62 + 1.4),
+      );
+      canvas.drawCircle(
+        satellite,
+        0.48 + band * 0.32,
+        Paint()
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.62 : 0.10),
+      );
       if (band > 0.52 || _peakAt(i / math.max(1, nodes.length - 1)) > 0.68) {
         canvas.drawCircle(
           node,
@@ -918,6 +967,22 @@ class AdvancedVisualizerPainter extends CustomPainter {
         ..setFloat(9, hasSignal ? mids : 0)
         ..setFloat(10, hasSignal ? highs : 0)
         ..setFloat(11, hasSignal ? transient.clamp(0.0, 1.0).toDouble() : 0);
+      final paletteA = _tone(0.08);
+      final paletteB = _tone(0.52);
+      final paletteC = _tone(0.94);
+      shader
+        ..setFloat(12, paletteA.r)
+        ..setFloat(13, paletteA.g)
+        ..setFloat(14, paletteA.b)
+        ..setFloat(15, paletteA.a)
+        ..setFloat(16, paletteB.r)
+        ..setFloat(17, paletteB.g)
+        ..setFloat(18, paletteB.b)
+        ..setFloat(19, paletteB.a)
+        ..setFloat(20, paletteC.r)
+        ..setFloat(21, paletteC.g)
+        ..setFloat(22, paletteC.b)
+        ..setFloat(23, paletteC.a);
       canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
       return;
     }
@@ -927,8 +992,9 @@ class AdvancedVisualizerPainter extends CustomPainter {
     final bass = _bandEnergy(0, 0.22);
     final mids = _bandEnergy(0.22, 0.68);
     final highs = _bandEnergy(0.68, 1);
-    for (var layer = 0; layer < 5; layer++) {
-      final depth = layer / 4;
+    // Backlit translucent strata establish a volumetric liquid silhouette.
+    for (var layer = 0; layer < 6; layer++) {
+      final depth = layer / 5;
       final points = <Offset>[];
       final lower = <Offset>[];
       for (var i = 0; i <= count; i++) {
@@ -952,8 +1018,10 @@ class AdvancedVisualizerPainter extends CustomPainter {
             fold * (0.035 + mids * 0.025) +
             detail * (0.009 + highs * 0.008) -
             band * envelope * (0.045 + bass * 0.025);
+        final bodyBias = math.sin(math.pi * u).abs();
         final y =
-            size.height * (0.37 + depth * 0.13) - displacement * size.height;
+            size.height * (0.30 + depth * 0.115) -
+            displacement * size.height * (0.82 + bodyBias * 0.30);
         points.add(Offset(x, y));
         lower.add(Offset(x, y + size.height * (0.22 + depth * 0.035)));
       }
@@ -977,7 +1045,7 @@ class AdvancedVisualizerPainter extends CustomPainter {
         crest,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = layer == 0 ? 1.0 : 0.55
+          ..strokeWidth = layer == 0 ? 1.35 : 0.48
           ..strokeCap = StrokeCap.round
           ..color = _tone(
             0.56 + depth * 0.20,
@@ -992,6 +1060,39 @@ class AdvancedVisualizerPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round
           ..color = tint.withValues(alpha: hasSignal ? 0.10 : 0.018)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
+      );
+    }
+
+    // Narrow specular seams make the overlapping sheets read as a material,
+    // not simply a stack of colored ribbons.
+    for (var seam = 0; seam < 3; seam++) {
+      final points = <Offset>[];
+      final seamEnergy = _bandEnergy(seam * 0.18, seam * 0.18 + 0.22);
+      for (var i = 0; i <= count; i++) {
+        final u = i / count;
+        final x = size.width * u;
+        final envelope = math.pow(math.sin(math.pi * u), 0.7).toDouble();
+        final wave = math.sin(
+          u * (8.0 + seam * 3.1) + time * (0.18 + seam * 0.07) + seam * 1.8,
+        );
+        final ripple = math.sin(u * 23.0 - time * 0.22 + seam) * 0.018;
+        final y =
+            size.height * (0.43 + seam * 0.055) +
+            (wave * 0.055 + ripple - seamEnergy * 0.045) *
+                size.height *
+                envelope;
+        points.add(Offset(x, y));
+      }
+      final seamPath = _smoothLine(points);
+      canvas.drawPath(
+        seamPath,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = seam == 1 ? 1.05 : 0.62
+          ..strokeCap = StrokeCap.round
+          ..color = Colors.white.withValues(
+            alpha: hasSignal ? 0.28 - seam * 0.055 : 0.045,
+          ),
       );
     }
 

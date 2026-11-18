@@ -640,19 +640,47 @@ class SourceSpectrumPainter extends CustomPainter {
       final x = left + i * (barWidth + gap);
       final columnColor = _columnsColor(i / math.max(1, count - 1), value);
       final radius = Radius.circular(math.min(barWidth / 2, 8));
+      final body = Rect.fromLTWH(x, mid - height, barWidth, height);
+      final bodyRRect = RRect.fromRectAndRadius(body, radius);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, mid - height, barWidth, height),
-          radius,
-        ),
-        Paint()..color = columnColor,
+        bodyRRect,
+        Paint()..color = columnColor.withValues(alpha: 0.92),
       );
+      // A narrow bevel and a bright crown create the cut-glass pillar identity.
+      canvas.drawLine(
+        Offset(x + barWidth * 0.22, mid - height + 2),
+        Offset(x + barWidth * 0.22, mid - 2),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.30 + value * 0.24)
+          ..strokeWidth = math.max(0.55, barWidth * 0.12),
+      );
+      canvas.drawLine(
+        Offset(x + barWidth * 0.16, mid - height + 1),
+        Offset(x + barWidth * 0.84, mid - height + 1),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.42 + value * 0.30)
+          ..strokeWidth = math.max(0.65, barWidth * 0.18),
+      );
+      canvas.drawLine(
+        Offset(x + barWidth * 0.82, mid - height + 3),
+        Offset(x + barWidth * 0.82, mid - 2),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.12 + value * 0.08)
+          ..strokeWidth = math.max(0.5, barWidth * 0.10),
+      );
+      if (height > 14) {
+        canvas.drawLine(
+          Offset(x + barWidth * 0.28, mid - height * 0.56),
+          Offset(x + barWidth * 0.72, mid - height * 0.68),
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.10 + value * 0.08)
+            ..strokeWidth = math.max(0.45, barWidth * 0.08),
+        );
+      }
+      final reflection = Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42),
-          radius,
-        ),
-        Paint()..color = columnColor.withValues(alpha: 0.22),
+        RRect.fromRectAndRadius(reflection, radius),
+        Paint()..color = columnColor.withValues(alpha: 0.14),
       );
     }
     canvas.drawLine(
@@ -748,6 +776,35 @@ class SourceSpectrumPainter extends CustomPainter {
           ).createShader(Offset.zero & size),
       );
       if (hasSignal) {
+        // Two inset contour echoes give the ribbon a layered, liquid-glass edge.
+        for (var layer = 1; layer <= 2; layer++) {
+          final inset = size.height * (0.035 * layer);
+          final echo = <Offset>[];
+          for (final point in upper) {
+            final amplitude = (centerY - point.dy).abs();
+            final insetAmplitude = math.max(0.0, amplitude - inset);
+            echo.add(
+              Offset(
+                point.dx,
+                centerY - insetAmplitude * (point.dy <= centerY ? 1 : -1),
+              ),
+            );
+          }
+          final echoPaint =
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = layer == 1 ? 0.72 : 0.42
+                ..strokeCap = StrokeCap.round
+                ..color = Colors.white.withValues(alpha: 0.20 / layer);
+          canvas.drawPath(_smoothTrace(echo), echoPaint);
+          final lowerEcho = <Offset>[];
+          for (final point in lower) {
+            final amplitude = (point.dy - centerY).abs();
+            final insetAmplitude = math.max(0.0, amplitude - inset);
+            lowerEcho.add(Offset(point.dx, centerY + insetAmplitude));
+          }
+          canvas.drawPath(_smoothTrace(lowerEcho), echoPaint);
+        }
         canvas.drawPath(
           upperPath,
           Paint()
@@ -816,6 +873,56 @@ class SourceSpectrumPainter extends CustomPainter {
         );
       }
       canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);
+      if (style == VisualizerStyle.bars &&
+          hasSignal &&
+          level > 0.12 &&
+          barHeight > 5) {
+        final spine = Rect.fromLTWH(
+          rect.left + barWidth * 0.30,
+          rect.top + 2,
+          math.max(0.7, barWidth * 0.16),
+          math.max(1.0, barHeight - 4),
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(spine, Radius.circular(barWidth * 0.1)),
+          Paint()..color = Colors.white.withValues(alpha: 0.16 + level * 0.20),
+        );
+      }
+      if (style == VisualizerStyle.mirror && hasSignal && level > 0.16) {
+        final half = math.max(1.0, barHeight * 0.5);
+        final glintPaint =
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.22 + level * 0.24)
+              ..strokeWidth = math.max(0.65, barWidth * 0.18);
+        canvas.drawLine(
+          Offset(x - barWidth * 0.24, size.height * .5 - half + 1),
+          Offset(x - barWidth * 0.24, size.height * .5 - 1),
+          glintPaint,
+        );
+        canvas.drawLine(
+          Offset(x - barWidth * 0.24, size.height * .5 + 1),
+          Offset(x - barWidth * 0.24, size.height * .5 + half - 1),
+          glintPaint,
+        );
+      }
+      if (style == VisualizerStyle.bars &&
+          hasSignal &&
+          level > 0.42 &&
+          barHeight > 12) {
+        final segmentPaint =
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.14 + level * 0.12)
+              ..strokeWidth = math.max(0.55, barWidth * 0.30)
+              ..strokeCap = StrokeCap.round;
+        for (var segment = 1; segment <= 2; segment++) {
+          final y = rect.bottom - barHeight * segment / 3;
+          canvas.drawLine(
+            Offset(rect.left + barWidth * 0.22, y),
+            Offset(rect.right - barWidth * 0.22, y),
+            segmentPaint,
+          );
+        }
+      }
       if (style == VisualizerStyle.bars && hasSignal && level > 0.025) {
         final highlightY =
             baselineY - barHeight + math.min(1.5, barHeight * 0.2);
@@ -854,6 +961,48 @@ class SourceSpectrumPainter extends CustomPainter {
           paint,
         );
       }
+    }
+
+    if (style == VisualizerStyle.mirror) {
+      final center = Offset(size.width * 0.5, size.height * 0.5);
+      final coreRadius = size.height * (0.075 + energy.clamp(0.0, 1.0) * 0.045);
+      // A restrained central lens anchors the bilateral spectrum and makes
+      // Mirror read as a deliberate symmetrical instrument.
+      canvas.drawCircle(
+        center,
+        coreRadius * 2.4,
+        Paint()
+          ..shader = RadialGradient(
+            colors: <Color>[
+              _colorAt(0.5, energy).withValues(alpha: hasSignal ? 0.22 : 0.035),
+              _colorAt(0.5, energy).withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCircle(center: center, radius: coreRadius * 2.4),
+          ),
+      );
+      for (var ring = 0; ring < 2; ring++) {
+        canvas.drawCircle(
+          center,
+          coreRadius * (1.0 + ring * 0.85),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = ring == 0 ? 0.8 : 0.45
+            ..color = _colorAt(
+              0.5,
+              energy,
+            ).withValues(alpha: hasSignal ? 0.46 - ring * 0.16 : 0.08),
+        );
+      }
+      final axis =
+          Paint()
+            ..color = color.withValues(alpha: hasSignal ? 0.44 : 0.20)
+            ..strokeWidth = 1.0;
+      canvas.drawLine(
+        Offset(center.dx - coreRadius * 2.6, center.dy),
+        Offset(center.dx + coreRadius * 2.6, center.dy),
+        axis,
+      );
     }
 
     final baselinePaint =
