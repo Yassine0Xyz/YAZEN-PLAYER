@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -165,6 +167,50 @@ void main() {
       painter.paint(ui.Canvas(recorder), const Size(320, 60));
       recorder.endRecording().dispose();
     }
+    repaint.dispose();
+  });
+
+  test('each legacy style produces a distinct rendered silhouette', () async {
+    final repaint = ValueNotifier<int>(0);
+    final signatures = <String>{};
+    for (final style in VisualizerStyle.values) {
+      final painter = SourceSpectrumPainter(
+        repaint: repaint,
+        color: Colors.cyan,
+        paletteColors: const <Color>[
+          Colors.deepPurple,
+          Colors.blue,
+          Colors.teal,
+        ],
+        barCount: 32,
+        height: 64,
+        profile: AudioVisualizerProfile.full,
+        style: style,
+        levels: List<double>.generate(
+          32,
+          (index) =>
+              (0.12 + 0.78 * (0.5 + 0.5 * math.sin(index * 0.47)))
+                  .clamp(0.0, 1.0)
+                  .toDouble(),
+        ),
+        peaks: List<double>.filled(32, 0.92),
+        hasSignal: true,
+        progress: null,
+      );
+      final recorder = ui.PictureRecorder();
+      painter.paint(ui.Canvas(recorder), const Size(360, 64));
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(360, 64);
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      signatures.add(
+        base64Encode(
+          data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        ),
+      );
+      image.dispose();
+      picture.dispose();
+    }
+    expect(signatures, hasLength(4));
     repaint.dispose();
   });
 

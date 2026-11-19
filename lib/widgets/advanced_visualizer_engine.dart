@@ -481,460 +481,356 @@ class AdvancedVisualizerPainter extends CustomPainter {
   }
 
   void _paintAurora(Canvas canvas, Size size) {
-    final count = math.max(96, levels.length * 3);
     final bass = _bandEnergy(0, 0.22);
     final mids = _bandEnergy(0.22, 0.68);
     final highs = _bandEnergy(0.68, 1);
-
-    // A low-contrast atmospheric bed separates the aurora from a flat canvas.
+    final center = Offset(size.width * 0.5, size.height * 0.82);
     final atmosphere = Rect.fromLTWH(
-      0,
-      size.height * 0.08,
-      size.width,
-      size.height * 0.88,
+      -size.width * 0.08,
+      -size.height * 0.35,
+      size.width * 1.16,
+      size.height * 1.55,
     );
     canvas.drawRect(
       atmosphere,
       Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+        ..shader = RadialGradient(
+          center: const Alignment(0, 0.58),
+          radius: 0.95,
           colors: <Color>[
-            _tone(0.12, alpha: hasSignal ? 0.055 : 0.012),
-            _tone(0.58, alpha: hasSignal ? 0.10 : 0.018),
-            _tone(0.88, alpha: hasSignal ? 0.035 : 0.008),
+            _tone(0.48, alpha: hasSignal ? 0.17 + bass * 0.10 : 0.035),
+            _tone(0.82, alpha: 0),
           ],
+          stops: const <double>[0, 1],
         ).createShader(atmosphere),
     );
-    // Atmospheric light volumes behind the ribbons.
-    for (var glow = 0; glow < 6; glow++) {
-      final phase = time * (0.10 + glow * 0.012) + glow * 1.71;
-      final center = Offset(
-        size.width * (0.06 + glow * 0.174) +
-            math.sin(phase) * size.width * 0.035,
-        size.height * (0.40 + math.sin(phase * 0.7) * 0.12),
-      );
-      final radius = size.height * (0.72 + bass * 0.38);
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..shader = RadialGradient(
-            colors: <Color>[
-              _tone(glow / 5, alpha: hasSignal ? 0.19 : 0.045),
-              _tone((glow + 2) / 8, alpha: 0),
-            ],
-          ).createShader(Rect.fromCircle(center: center, radius: radius)),
-      );
-    }
 
-    // Fine vertical light shafts suggest height and layered atmospheric depth.
-    final shaftPaint = Paint()..strokeCap = StrokeCap.round;
-    for (var shaft = 0; shaft < 17; shaft++) {
-      final u = ((shaft * 43 + 11) % 101) / 101.0;
-      final x = u * size.width;
-      final top = size.height * (0.08 + (shaft % 4) * 0.035);
-      final bottom = size.height * (0.72 + (shaft % 5) * 0.045);
-      shaftPaint
-        ..strokeWidth = shaft % 5 == 0 ? 0.8 : 0.38
-        ..color = _tone(u, alpha: hasSignal ? 0.045 + highs * 0.035 : 0.012);
-      canvas.drawLine(
-        Offset(x, top),
-        Offset(x + math.sin(time * .12 + shaft) * 3, bottom),
-        shaftPaint,
-      );
-    }
-
-    // Five translucent aurora curtains with independent phase and frequency response.
-    for (var layer = 0; layer < 5; layer++) {
-      final upper = <Offset>[];
-      final lower = <Offset>[];
-      final depth = layer / 4;
-      final baseline = size.height * (0.35 + depth * 0.37);
-      for (var i = 0; i < count; i++) {
-        final u = i / (count - 1);
-        final x = size.width * u;
-        final bandIndex =
-            (u * math.max(0, levels.length - 1))
-                .round()
-                .clamp(0, math.max(0, levels.length - 1))
-                .toInt();
-        final band =
-            levels.isEmpty ? 0.0 : levels[bandIndex].clamp(0.0, 1.0).toDouble();
-        final peak = _peakAt(u);
-        final envelope = math.pow(math.sin(math.pi * u), 0.48).toDouble();
-        final longWave = math.sin(
-          u * 8.2 + time * (0.25 + depth * 0.10) + layer * 1.37,
-        );
-        final crossWave = math.sin(
-          u * 15.5 - time * 0.19 + longWave * 0.8 + layer,
-        );
-        final microWave = math.sin(u * 37.0 + time * 0.31 + layer * 2.1);
-        final audio = (band * (0.10 + mids * 0.045) + peak * 0.025) * envelope;
-        final displacement =
-            longWave * (0.105 + depth * 0.035) +
-            crossWave * (0.035 + highs * 0.018) +
-            microWave * 0.009 -
-            audio * (0.65 + bass * 0.45);
-        final y = baseline - displacement * size.height;
-        upper.add(Offset(x, y));
-        lower.add(
+    // Tall, separated aurora veils rise from a shared horizon, each with a
+    // different width, crest and internal fold. This replaces stacked ribbons.
+    const veils = 7;
+    for (var veil = 0; veil < veils; veil++) {
+      final u = veil / (veils - 1);
+      final x0 = size.width * (0.04 + u * 0.91);
+      final width = size.width * (0.13 + (veil % 3) * 0.035);
+      final phase = veil * 1.73;
+      final points = <Offset>[];
+      final inner = <Offset>[];
+      const steps = 38;
+      for (var step = 0; step <= steps; step++) {
+        final v = step / steps;
+        final rise = math.pow(v, 0.84).toDouble();
+        final sway =
+            math.sin(v * 4.3 + time * 0.16 + phase) * size.width * 0.018 +
+            math.sin(v * 10.0 - time * 0.09 + phase * 0.7) * size.width * 0.006;
+        final audioBend =
+            _levelAtAurora(u, v) * size.height * (0.045 + bass * 0.06);
+        final x = x0 + sway + math.sin(v * 2.4 + phase) * width * 0.18;
+        final y =
+            size.height * (0.93 - rise * (0.62 + (veil % 3) * 0.075)) -
+            audioBend;
+        points.add(Offset(x, y));
+        inner.add(
           Offset(
-            x,
-            y +
-                size.height * (0.15 + depth * 0.095) +
-                math.sin(u * 6.0 + time * 0.17 + layer) * size.height * 0.025,
+            x + width * (0.34 + 0.08 * math.sin(v * 5 + phase)),
+            y + size.height * (0.13 + mids * 0.035),
           ),
         );
       }
-      final ribbon = _smoothRibbon(upper, lower);
-      final tint = _tone(0.08 + depth * 0.82);
+      final path = _smoothRibbon(points, inner);
+      final tint = _tone(u * 0.82 + 0.06);
       canvas.drawPath(
-        ribbon,
+        path,
         Paint()
           ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.bottomLeft,
+            end: Alignment.topRight,
             colors: <Color>[
-              tint.withValues(alpha: hasSignal ? 0.42 - depth * 0.12 : 0.07),
-              _tone(0.55 + depth * 0.25, alpha: hasSignal ? 0.17 : 0.025),
-              _tone(0.92 - depth * 0.18, alpha: hasSignal ? 0.055 : 0.012),
-            ],
-          ).createShader(Offset.zero & size),
-      );
-
-      // Soft luminous crest, followed by a fine spectral edge.
-      final crest = _smoothLine(upper);
-      canvas.drawPath(
-        crest,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.8 - depth * 2.3
-          ..strokeCap = StrokeCap.round
-          ..color = tint.withValues(alpha: hasSignal ? 0.10 : 0.018)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.5),
-      );
-      canvas.drawPath(
-        crest,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.85 - depth * 0.28
-          ..strokeCap = StrokeCap.round
-          ..shader = LinearGradient(
-            colors: <Color>[
-              _tone(0.04, alpha: hasSignal ? 0.24 : 0.035),
-              Colors.white.withValues(
-                alpha: hasSignal ? 0.86 - depth * 0.34 : 0.10,
+              tint.withValues(alpha: hasSignal ? 0.02 : 0.008),
+              tint.withValues(alpha: hasSignal ? 0.27 + bass * 0.08 : 0.035),
+              _tone(
+                (u + 0.42).clamp(0.0, 1.0).toDouble(),
+                alpha: hasSignal ? 0.13 : 0.018,
               ),
-              _tone(0.92, alpha: hasSignal ? 0.48 : 0.04),
             ],
           ).createShader(Offset.zero & size),
       );
-
-      // Fine filaments suspended inside the curtain; bass bends them, highs sparkle.
-      if (layer < 3) {
-        final strandPaint =
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeCap = StrokeCap.round;
-        final strandCount = 34 - layer * 6;
-        for (var strand = 0; strand < strandCount; strand++) {
-          final u = (strand + 0.5) / strandCount;
-          final sample = (u * (count - 1)).round();
-          final a = upper[sample];
-          final b = lower[sample];
-          final sway =
-              math.sin(time * 0.24 + strand * 1.73 + layer) *
-              size.width *
-              0.012;
-          final path =
-              Path()
-                ..moveTo(a.dx, a.dy)
-                ..cubicTo(
-                  a.dx + sway,
-                  a.dy + size.height * 0.07,
-                  b.dx - sway * 0.75,
-                  b.dy - size.height * 0.05,
-                  b.dx,
-                  b.dy,
-                );
-          final level =
-              levels.isEmpty ? 0.0 : levels[(u * (levels.length - 1)).round()];
-          strandPaint
-            ..strokeWidth = 0.34 + level * 0.7
-            ..color = _tone(
-              u,
-              alpha: hasSignal ? 0.08 + level * 0.30 + highs * 0.07 : 0.025,
-            );
-          canvas.drawPath(path, strandPaint);
+      canvas.drawPath(
+        _smoothLine(points),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.15 + highs * 0.5
+          ..strokeCap = StrokeCap.round
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.48 : 0.045),
+      );
+      if (veil % 2 == 0) {
+        final fold = <Offset>[];
+        for (var step = 0; step <= steps; step++) {
+          final v = step / steps;
+          final point = points[step];
+          fold.add(
+            Offset(
+              point.dx + width * (0.17 + 0.04 * math.sin(v * 8 + phase)),
+              point.dy + size.height * 0.055,
+            ),
+          );
         }
+        canvas.drawPath(
+          _smoothLine(fold),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.55
+            ..color = tint.withValues(alpha: hasSignal ? 0.46 : 0.035),
+        );
       }
     }
 
-    // Tiny drifting stars and audio-triggered glints.
-    final starPaint = Paint()..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 42; i++) {
-      final seed = (i * 47 + 13) % 101;
-      final drift = time * (0.003 + (i % 5) * 0.001);
-      final x = size.width * ((seed / 101 + drift) % 1.0);
-      final y = size.height * (0.025 + (i * 29 % 83) / 112);
-      final pulse =
-          0.25 + 0.75 * math.sin(time * (0.55 + highs) + i * 1.91).abs();
-      final r = 0.45 + (i % 4) * 0.17;
-      starPaint
-        ..strokeWidth = i % 7 == 0 ? 0.9 : 0.48
-        ..color = Colors.white.withValues(
-          alpha: (hasSignal ? 0.42 : 0.10) * pulse,
+    // A broken horizon and a handful of star-like spectral flares give scale.
+    canvas.drawLine(
+      Offset(size.width * 0.06, center.dy),
+      Offset(size.width * 0.94, center.dy),
+      Paint()
+        ..shader = LinearGradient(
+          colors: <Color>[
+            _tone(0, alpha: 0),
+            _tone(0.55, alpha: hasSignal ? 0.52 : 0.08),
+            _tone(1, alpha: 0),
+          ],
+        ).createShader(Offset.zero & size)
+        ..strokeWidth = 0.7,
+    );
+    for (var i = 0; i < 13; i++) {
+      final u = (i * 37 + 11) % 101 / 101;
+      final x = size.width * u;
+      final y = size.height * (0.10 + ((i * 19) % 61) / 100);
+      final pulse = 0.35 + 0.65 * math.sin(time * 0.35 + i * 2.1).abs();
+      final radius = 0.65 + (i % 3) * 0.35 + highs * 0.4;
+      final star =
+          Paint()
+            ..color = Colors.white.withValues(
+              alpha: (hasSignal ? 0.72 : 0.10) * pulse,
+            );
+      canvas.drawCircle(Offset(x, y), radius, star);
+      if (i % 4 == 0) {
+        canvas.drawLine(
+          Offset(x - radius * 2.4, y),
+          Offset(x + radius * 2.4, y),
+          star..strokeWidth = 0.55,
         );
-      canvas.drawLine(Offset(x - r, y), Offset(x + r, y), starPaint);
-      if (i % 7 == 0) {
-        canvas.drawLine(Offset(x, y - r), Offset(x, y + r), starPaint);
+        canvas.drawLine(
+          Offset(x, y - radius * 2.4),
+          Offset(x, y + radius * 2.4),
+          star..strokeWidth = 0.55,
+        );
       }
     }
   }
 
+  double _levelAtAurora(double horizontal, double vertical) {
+    if (levels.isEmpty) return 0;
+    final index =
+        (horizontal * (levels.length - 1))
+            .round()
+            .clamp(0, levels.length - 1)
+            .toInt();
+    return levels[index].clamp(0.0, 1.0).toDouble() * (0.35 + vertical * 0.65);
+  }
+
   void _paintParticles(Canvas canvas, Size size) {
-    final center = Offset(size.width * 0.5, size.height * 0.52);
     final bass = _bandEnergy(0, 0.24);
     final mids = _bandEnergy(0.24, 0.68);
-    final highs = _bandEnergy(0.68, 1);
-    final maxNodes = math.min(24, particles.length ~/ 2);
-    final nodes = <Offset>[];
-    final radii = <double>[];
-    final nodeBands = <double>[];
-    const orbitCount = 3;
-    const nodesPerOrbit = 8;
-
-    // Deep orbital haze.
-    final hazeRect = Rect.fromCircle(center: center, radius: size.width * 0.36);
-    canvas.drawCircle(
-      center,
-      size.height * (0.42 + bass * 0.08),
+    final center = Offset(size.width * 0.5, size.height * 0.5);
+    final clusterRadius = size.height * (0.30 + bass * 0.10);
+    final nebulaRect = Rect.fromCenter(
+      center: center,
+      width: size.width * 0.82,
+      height: size.height * 1.12,
+    );
+    canvas.drawOval(
+      nebulaRect,
       Paint()
         ..shader = RadialGradient(
           colors: <Color>[
-            _tone(0.56, alpha: hasSignal ? 0.18 + bass * 0.10 : 0.035),
-            _tone(0.82, alpha: 0),
+            _tone(0.50, alpha: hasSignal ? 0.22 : 0.035),
+            _tone(0.82, alpha: hasSignal ? 0.08 : 0.012),
+            _tone(0.2, alpha: 0),
           ],
-        ).createShader(hazeRect),
+          stops: const <double>[0, 0.48, 1],
+        ).createShader(nebulaRect),
     );
 
-    // Elliptical orbital planes with a subtle 3D tilt and broken luminous arcs.
-    for (var orbit = 0; orbit < orbitCount; orbit++) {
-      final rect = Rect.fromCenter(
-        center: center,
-        width: size.width * (0.43 + orbit * 0.205),
-        height: size.height * (0.22 + orbit * 0.115),
-      );
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate((orbit - 1) * 0.22 + math.sin(time * 0.11 + orbit) * 0.035);
-      canvas.translate(-center.dx, -center.dy);
-      final orbitColor = _tone(
-        0.16 + orbit * 0.34,
-        alpha: hasSignal ? 0.20 : 0.055,
-      );
-      canvas.drawOval(
-        rect,
+    // Three asymmetric spiral arms form a star nursery rather than orbital rings.
+    const arms = 3;
+    const nodesPerArm = 18;
+    final nodes = <Offset>[];
+    final radii = <double>[];
+    final strengths = <double>[];
+    for (var arm = 0; arm < arms; arm++) {
+      final armPoints = <Offset>[];
+      for (var slot = 0; slot < nodesPerArm; slot++) {
+        final u = slot / (nodesPerArm - 1);
+        final seedIndex =
+            (arm * nodesPerArm + slot) % math.max(1, particles.length).toInt();
+        final seed = particles.isEmpty ? 0.5 : particles[seedIndex];
+        final band =
+            levels.isEmpty ? 0.0 : levels[(u * (levels.length - 1)).round()];
+        final angle =
+            arm * math.pi * 2 / arms +
+            u * 4.7 +
+            time * (arm.isEven ? 0.10 : -0.075) +
+            (seed - 0.5) * 0.24;
+        final radius = size.width * (0.045 + u * 0.37) * (1 + band * 0.08);
+        final flatten = size.height / math.max(size.width, 1.0).toDouble();
+        final offset = Offset(
+          math.cos(angle) * radius,
+          math.sin(angle) * radius * (0.42 + flatten * 0.30),
+        );
+        final point = center + offset;
+        armPoints.add(point);
+        nodes.add(point);
+        radii.add(0.55 + seed * 0.9 + band * 1.45 + _peakAt(u) * 0.6);
+        strengths.add(band);
+      }
+      final armPath = _smoothLine(armPoints);
+      canvas.drawPath(
+        armPath,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.55
-          ..color = orbitColor,
-      );
-      final arcRect = rect.deflate(1.5);
-      canvas.drawArc(
-        arcRect,
-        time * (orbit.isEven ? 0.10 : -0.08) + orbit,
-        math.pi * (0.38 + mids * 0.16),
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0
-          ..color = _tone(0.60 + orbit * 0.12, alpha: hasSignal ? 0.38 : 0.08),
-      );
-      canvas.restore();
-    }
-
-    for (var index = 0; index < maxNodes; index++) {
-      final orbit = index ~/ nodesPerOrbit;
-      final slot = index % nodesPerOrbit;
-      final normalized = index / math.max(1, maxNodes - 1);
-      final band =
-          levels.isEmpty
-              ? 0.0
-              : levels[(normalized * (levels.length - 1)).round()];
-      final phaseSeed = particles[index * 2];
-      final direction = orbit == 1 ? -1.0 : 1.0;
-      final angle =
-          math.pi * 2 * (slot / nodesPerOrbit) +
-          time * (0.18 + orbit * 0.055) * direction +
-          (phaseSeed - 0.5) * 0.18 +
-          orbit * 0.63;
-      final rx = size.width * (0.215 + orbit * 0.105) * (1 + band * 0.10);
-      final ry = size.height * (0.12 + orbit * 0.075) * (1 + band * 0.16);
-      final drift = (particles[index * 2 + 1] - 0.5) * size.height * 0.055;
-      nodes.add(
-        Offset(
-          center.dx + math.cos(angle) * rx,
-          center.dy + math.sin(angle) * ry + drift,
-        ),
-      );
-      radii.add(0.85 + band * 2.0 + _peakAt(normalized) * 0.9);
-      nodeBands.add(band);
-    }
-
-    // Connections form a living constellation, not a static wireframe.
-    final edgePaint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < nodes.length; i++) {
-      final orbit = i ~/ nodesPerOrbit;
-      final slot = i % nodesPerOrbit;
-      final next = orbit * nodesPerOrbit + (slot + 1) % nodesPerOrbit;
-      if (next < nodes.length) {
-        final path =
-            Path()
-              ..moveTo(nodes[i].dx, nodes[i].dy)
-              ..quadraticBezierTo(
-                center.dx,
-                center.dy + math.sin(time * 0.2 + slot) * size.height * 0.05,
-                nodes[next].dx,
-                nodes[next].dy,
-              );
-        edgePaint
-          ..strokeWidth = 0.55 + nodeBands[i] * 0.35
+          ..strokeWidth = size.height * 0.075
+          ..strokeCap = StrokeCap.round
           ..color = _tone(
-            i / math.max(1, nodes.length - 1),
-            alpha: hasSignal ? 0.20 + nodeBands[i] * 0.16 : 0.045,
-          );
-        canvas.drawPath(path, edgePaint);
-      }
-      if (orbit < orbitCount - 1 && slot % 2 == 0) {
-        final bridge = (orbit + 1) * nodesPerOrbit + slot;
-        if (bridge < nodes.length) {
-          edgePaint
-            ..strokeWidth = 0.42
-            ..color = _tone(
-              0.72,
-              alpha: hasSignal ? 0.13 + highs * 0.15 : 0.025,
-            );
-          canvas.drawLine(nodes[i], nodes[bridge], edgePaint);
-        }
-      }
+            arm / (arms - 1),
+            alpha: hasSignal ? 0.055 + mids * 0.035 : 0.008,
+          )
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+      );
+      canvas.drawPath(
+        armPath,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.65
+          ..strokeCap = StrokeCap.round
+          ..color = _tone(arm / (arms - 1), alpha: hasSignal ? 0.34 : 0.035),
+      );
     }
 
-    // Luminous bodies: broad bloom, saturated core, and a tiny white specular point.
+    // Local star clusters are connected selectively; empty space remains visible.
     for (var i = 0; i < nodes.length; i++) {
-      final node = nodes[i];
-      final radius = radii[i];
-      final band = nodeBands[i];
-      final tone = _tone(
-        i / math.max(1, nodes.length - 1),
-        alpha: hasSignal ? 0.96 : 0.30,
-      );
-      final halo = radius * (4.2 + band * 1.4);
-      canvas.drawCircle(
-        node,
-        halo,
-        Paint()
-          ..shader = RadialGradient(
-            colors: <Color>[
-              tone.withValues(alpha: hasSignal ? 0.23 + band * 0.10 : 0.045),
-              tone.withValues(alpha: 0),
-            ],
-          ).createShader(Rect.fromCircle(center: node, radius: halo)),
-      );
-      canvas.drawCircle(
-        node,
-        radius,
-        Paint()..color = tone.withValues(alpha: hasSignal ? 0.95 : 0.35),
-      );
-      canvas.drawCircle(
-        Offset(node.dx - radius * 0.24, node.dy - radius * 0.25),
-        math.max(0.45, radius * 0.28),
-        Paint()
-          ..color = Colors.white.withValues(alpha: hasSignal ? 0.92 : 0.22),
-      );
-      // A tiny orbiting companion makes the nodes feel like particles with mass.
-      final satelliteAngle = time * (0.42 + (i % 3) * 0.12) + i * 1.91;
-      final satellite = Offset(
-        node.dx + math.cos(satelliteAngle) * (radius + 2.8),
-        node.dy + math.sin(satelliteAngle) * (radius * 0.62 + 1.4),
-      );
-      canvas.drawCircle(
-        satellite,
-        0.48 + band * 0.32,
-        Paint()
-          ..color = Colors.white.withValues(alpha: hasSignal ? 0.62 : 0.10),
-      );
-      if (band > 0.52 || _peakAt(i / math.max(1, nodes.length - 1)) > 0.68) {
-        canvas.drawCircle(
-          node,
-          radius + 2.4,
+      if (i % 3 == 0 && i + 2 < nodes.length) {
+        final strength = strengths[i];
+        canvas.drawLine(
+          nodes[i],
+          nodes[i + 2],
           Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 0.55
-            ..color = Colors.white.withValues(alpha: hasSignal ? 0.52 : 0.07),
+            ..color = _tone(
+              i / nodes.length,
+              alpha: hasSignal ? 0.12 + strength * 0.15 : 0.018,
+            )
+            ..strokeWidth = 0.42,
+        );
+      }
+      if (i % 7 == 0 && i + nodesPerArm < nodes.length) {
+        canvas.drawLine(
+          nodes[i],
+          nodes[i + nodesPerArm],
+          Paint()
+            ..color = _tone(0.8, alpha: hasSignal ? 0.11 : 0.014)
+            ..strokeWidth = 0.38,
         );
       }
     }
 
-    // Central reactor with concentric rings and a rotating pulse.
-    final coreRadius = size.height * (0.075 + bass * 0.045);
-    for (var ring = 0; ring < 3; ring++) {
-      final r = coreRadius * (1.35 + ring * 0.72);
+    for (var i = 0; i < nodes.length; i++) {
+      final point = nodes[i];
+      final radius = radii[i];
+      final strength = strengths[i];
+      final tint = _tone(i / math.max(1, nodes.length - 1));
+      final halo = radius * (3.2 + strength * 2.0);
       canvas.drawCircle(
-        center,
-        r,
+        point,
+        halo,
         Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = ring == 0 ? 1.0 : 0.48
-          ..color = _tone(
-            0.55 + ring * 0.14,
-            alpha: hasSignal ? 0.42 - ring * 0.09 : 0.07,
-          ),
+          ..shader = RadialGradient(
+            colors: <Color>[
+              tint.withValues(alpha: hasSignal ? 0.26 : 0.025),
+              tint.withValues(alpha: 0),
+            ],
+          ).createShader(Rect.fromCircle(center: point, radius: halo)),
       );
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: r * 1.08),
-        time * (ring.isEven ? 0.35 : -0.27) + ring * 1.7,
-        math.pi * (0.35 + highs * 0.16),
-        false,
+      canvas.drawCircle(
+        point,
+        radius,
+        Paint()..color = tint.withValues(alpha: hasSignal ? 0.96 : 0.20),
+      );
+      if (strength > 0.48 || i % 11 == 0) {
+        canvas.drawCircle(
+          point,
+          radius + 1.2,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.42
+            ..color = Colors.white.withValues(alpha: hasSignal ? 0.52 : 0.035),
+        );
+      }
+      canvas.drawCircle(
+        point + Offset(-radius * 0.25, -radius * 0.25),
+        math.max(0.35, radius * 0.24).toDouble(),
         Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2
-          ..color = _tone(0.78, alpha: hasSignal ? 0.62 : 0.10),
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.82 : 0.10),
       );
     }
+
+    // A compact stellar core, with a four-point flare and spectral corona.
+    final core = clusterRadius * (0.22 + bass * 0.10);
+    final coreRect = Rect.fromCircle(center: center, radius: core * 2.5);
     canvas.drawCircle(
       center,
-      coreRadius * 1.8,
+      core * 2.5,
       Paint()
         ..shader = RadialGradient(
           colors: <Color>[
-            _tone(0.66, alpha: hasSignal ? 0.48 + bass * 0.22 : 0.08),
-            _tone(0.30, alpha: 0),
+            _tone(0.62, alpha: hasSignal ? 0.44 : 0.05),
+            _tone(0.28, alpha: 0),
           ],
-        ).createShader(
-          Rect.fromCircle(center: center, radius: coreRadius * 1.8),
-        ),
+        ).createShader(coreRect),
     );
     canvas.drawCircle(
       center,
-      coreRadius * 0.55,
-      Paint()..color = Colors.white.withValues(alpha: hasSignal ? 0.92 : 0.20),
+      core,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[
+            Colors.white.withValues(alpha: hasSignal ? 0.95 : 0.18),
+            _tone(0.58, alpha: hasSignal ? 0.92 : 0.12),
+            _tone(0.9, alpha: 0.02),
+          ],
+        ).createShader(Rect.fromCircle(center: center, radius: core)),
+    );
+    final flare =
+        Paint()
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.76 : 0.07)
+          ..strokeWidth = 0.65
+          ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(center.dx - core * 2.1, center.dy),
+      Offset(center.dx + core * 2.1, center.dy),
+      flare,
+    );
+    canvas.drawLine(
+      Offset(center.dx, center.dy - core * 2.1),
+      Offset(center.dx, center.dy + core * 2.1),
+      flare,
     );
 
-    // Sparse drifting dust adds scale without overwhelming the constellation.
-    for (var i = 0; i < 32; i++) {
-      final x = size.width * (((i * 61 + 17) % 103) / 103);
-      final y = size.height * (((i * 37 + 11) % 97) / 97);
-      final pulse = 0.3 + 0.7 * math.sin(time * 0.6 + i * 2.1).abs();
+    // Sparse background dust, kept small so it reads as depth not visual noise.
+    for (var i = 0; i < 26; i++) {
+      final x = size.width * ((i * 53 + 17) % 101) / 101;
+      final y = size.height * ((i * 31 + 9) % 97) / 97;
+      final pulse = 0.35 + 0.65 * math.sin(time * 0.42 + i * 1.7).abs();
       canvas.drawCircle(
         Offset(x, y),
-        0.35 + (i % 3) * 0.18,
+        0.28 + (i % 3) * 0.16,
         Paint()
-          ..color = _tone(i / 31, alpha: (hasSignal ? 0.52 : 0.12) * pulse),
+          ..color = _tone(i / 25, alpha: (hasSignal ? 0.38 : 0.06) * pulse),
       );
     }
   }
@@ -946,7 +842,7 @@ class AdvancedVisualizerPainter extends CustomPainter {
       final bass = _bandEnergy(0, 0.22);
       final mids = _bandEnergy(0.22, 0.68);
       final highs = _bandEnergy(0.68, 1);
-      final peakCount = math.min(peaks.length, levels.length);
+      final peakCount = math.min(peaks.length, levels.length).toInt();
       var transient = 0.0;
       for (var i = 0; i < peakCount; i++) {
         transient += (peaks[i] - levels[i]).clamp(0.0, 1.0).toDouble();
@@ -967,170 +863,126 @@ class AdvancedVisualizerPainter extends CustomPainter {
         ..setFloat(9, hasSignal ? mids : 0)
         ..setFloat(10, hasSignal ? highs : 0)
         ..setFloat(11, hasSignal ? transient.clamp(0.0, 1.0).toDouble() : 0);
-      final paletteA = _tone(0.08);
-      final paletteB = _tone(0.52);
-      final paletteC = _tone(0.94);
-      shader
-        ..setFloat(12, paletteA.r)
-        ..setFloat(13, paletteA.g)
-        ..setFloat(14, paletteA.b)
-        ..setFloat(15, paletteA.a)
-        ..setFloat(16, paletteB.r)
-        ..setFloat(17, paletteB.g)
-        ..setFloat(18, paletteB.b)
-        ..setFloat(19, paletteB.a)
-        ..setFloat(20, paletteC.r)
-        ..setFloat(21, paletteC.g)
-        ..setFloat(22, paletteC.b)
-        ..setFloat(23, paletteC.a);
       canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
       return;
     }
 
-    // Canvas fallback mirrors the shader's layered, marbled fluid language.
-    final count = math.max(48, levels.length * 2);
+    // Canvas fallback uses the same broad folded-liquid silhouette as the shader.
+    final count = math.max(56, math.min(112, levels.length * 3)).toInt();
     final bass = _bandEnergy(0, 0.22);
-    final mids = _bandEnergy(0.22, 0.68);
     final highs = _bandEnergy(0.68, 1);
-    // Backlit translucent strata establish a volumetric liquid silhouette.
-    for (var layer = 0; layer < 6; layer++) {
-      final depth = layer / 5;
-      final points = <Offset>[];
+    final center = Offset(size.width * 0.5, size.height * 0.52);
+    final bodyRect = Rect.fromCenter(
+      center: center,
+      width: size.width * 0.94,
+      height: size.height * (0.84 + bass * 0.10),
+    );
+    canvas.drawOval(
+      bodyRect,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[
+            _tone(0.52, alpha: hasSignal ? 0.30 : 0.035),
+            _tone(0.82, alpha: hasSignal ? 0.13 : 0.015),
+            _tone(0.12, alpha: 0),
+          ],
+          stops: const <double>[0.05, 0.58, 1],
+        ).createShader(bodyRect),
+    );
+
+    for (var layer = 0; layer < 4; layer++) {
+      final depth = layer / 3;
+      final upper = <Offset>[];
       final lower = <Offset>[];
       for (var i = 0; i <= count; i++) {
         final u = i / count;
         final x = size.width * u;
-        final bandIndex =
-            (u * math.max(0, levels.length - 1))
-                .round()
-                .clamp(0, math.max(0, levels.length - 1))
-                .toInt();
         final band =
-            levels.isEmpty ? 0.0 : levels[bandIndex].clamp(0.0, 1.0).toDouble();
-        final envelope = math.pow(math.sin(math.pi * u), 0.6).toDouble();
-        final broad = math.sin(
-          u * 7.2 + time * (0.22 + depth * 0.08) + layer * 1.4,
-        );
-        final fold = math.sin(u * 16.0 - time * 0.31 + broad * 1.1 + layer);
-        final detail = math.sin(u * 34.0 + time * 0.42 + layer * 2.2);
+            levels.isEmpty ? 0.0 : levels[(u * (levels.length - 1)).round()];
+        final envelope = math.pow(math.sin(math.pi * u), 0.42).toDouble();
+        final warp =
+            math.sin(u * 8.0 + time * 0.13 + layer * 1.6) * 0.11 +
+            math.sin(u * 18.0 - time * 0.09 + layer) * 0.035;
+        final fold = math.sin(u * 26.0 + time * 0.17 + depth * 4) * 0.018;
         final displacement =
-            broad * (0.10 + bass * 0.045) +
-            fold * (0.035 + mids * 0.025) +
-            detail * (0.009 + highs * 0.008) -
-            band * envelope * (0.045 + bass * 0.025);
-        final bodyBias = math.sin(math.pi * u).abs();
+            warp + fold - band * envelope * (0.055 + bass * 0.05);
         final y =
-            size.height * (0.30 + depth * 0.115) -
-            displacement * size.height * (0.82 + bodyBias * 0.30);
-        points.add(Offset(x, y));
-        lower.add(Offset(x, y + size.height * (0.22 + depth * 0.035)));
+            size.height * (0.28 + depth * 0.11) + displacement * size.height;
+        upper.add(Offset(x, y));
+        lower.add(Offset(x, y + size.height * (0.19 + depth * 0.045)));
       }
-      final tint = _tone(0.10 + depth * 0.78);
-      final ribbon = _smoothRibbon(points, lower);
+      final path = _smoothRibbon(upper, lower);
+      final tint = _tone(0.12 + depth * 0.72);
       canvas.drawPath(
-        ribbon,
+        path,
         Paint()
           ..shader = LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: <Color>[
-              tint.withValues(alpha: hasSignal ? 0.42 - depth * 0.12 : 0.07),
-              _tone(0.78 - depth * 0.22, alpha: hasSignal ? 0.20 : 0.035),
-              _tone(0.42, alpha: hasSignal ? 0.045 : 0.012),
+              tint.withValues(alpha: hasSignal ? 0.32 - depth * 0.045 : 0.025),
+              _tone(0.78 - depth * 0.20, alpha: hasSignal ? 0.22 : 0.018),
+              _tone(0.38, alpha: hasSignal ? 0.045 : 0.006),
             ],
           ).createShader(Offset.zero & size),
       );
-      final crest = _smoothLine(points);
+      final crest = _smoothLine(upper);
       canvas.drawPath(
         crest,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = layer == 0 ? 1.35 : 0.48
-          ..strokeCap = StrokeCap.round
-          ..color = _tone(
-            0.56 + depth * 0.20,
-            alpha: hasSignal ? 0.56 - depth * 0.10 : 0.10,
-          ),
-      );
-      canvas.drawPath(
-        crest,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.0
-          ..strokeCap = StrokeCap.round
-          ..color = tint.withValues(alpha: hasSignal ? 0.10 : 0.018)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
-      );
-    }
-
-    // Narrow specular seams make the overlapping sheets read as a material,
-    // not simply a stack of colored ribbons.
-    for (var seam = 0; seam < 3; seam++) {
-      final points = <Offset>[];
-      final seamEnergy = _bandEnergy(seam * 0.18, seam * 0.18 + 0.22);
-      for (var i = 0; i <= count; i++) {
-        final u = i / count;
-        final x = size.width * u;
-        final envelope = math.pow(math.sin(math.pi * u), 0.7).toDouble();
-        final wave = math.sin(
-          u * (8.0 + seam * 3.1) + time * (0.18 + seam * 0.07) + seam * 1.8,
-        );
-        final ripple = math.sin(u * 23.0 - time * 0.22 + seam) * 0.018;
-        final y =
-            size.height * (0.43 + seam * 0.055) +
-            (wave * 0.055 + ripple - seamEnergy * 0.045) *
-                size.height *
-                envelope;
-        points.add(Offset(x, y));
-      }
-      final seamPath = _smoothLine(points);
-      canvas.drawPath(
-        seamPath,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = seam == 1 ? 1.05 : 0.62
+          ..strokeWidth = (layer == 0 ? 1.3 : 0.65)
           ..strokeCap = StrokeCap.round
           ..color = Colors.white.withValues(
-            alpha: hasSignal ? 0.28 - seam * 0.055 : 0.045,
+            alpha: hasSignal ? 0.56 - depth * 0.08 : 0.035,
           ),
       );
+      if (layer < 2) {
+        final inner = upper
+            .map((point) => Offset(point.dx, point.dy + size.height * 0.055))
+            .toList(growable: false);
+        canvas.drawPath(
+          _smoothLine(inner),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.45
+            ..color = tint.withValues(alpha: hasSignal ? 0.48 : 0.025),
+        );
+      }
     }
+    _paintFluidCaustics(canvas, size);
 
-    // Suspended bubbles and caustic glints move at different spectral rates.
-    for (var i = 0; i < 15; i++) {
-      final phase = time * (0.16 + (i % 4) * 0.055) + i * 2.17;
+    // Irregular suspended droplets catch the palette light.
+    for (var i = 0; i < 11; i++) {
+      final phase = time * (0.10 + (i % 4) * 0.035) + i * 2.13;
       final x =
-          size.width * ((i * 37 + 13) % 101) / 101 +
+          size.width * ((i * 43 + 9) % 101) / 101 +
           math.sin(phase) * size.width * 0.012;
       final y =
-          size.height * (0.18 + (i * 19 % 61) / 100) +
-          math.cos(phase * 0.8) * size.height * 0.045;
-      final radius = 0.7 + (i % 3) * 0.55 + highs * 0.45;
-      final bubble = Rect.fromCircle(
-        center: Offset(x, y),
-        radius: radius * 2.2,
-      );
+          size.height * (0.20 + (i * 17 % 60) / 100) +
+          math.cos(phase) * size.height * 0.035;
+      final radius = 0.65 + (i % 3) * 0.45 + highs * 0.3;
+      final rect = Rect.fromCircle(center: Offset(x, y), radius: radius * 2.3);
       canvas.drawCircle(
         Offset(x, y),
-        radius * 2.2,
+        radius * 2.3,
         Paint()
           ..shader = RadialGradient(
             colors: <Color>[
-              _tone(i / 15, alpha: hasSignal ? 0.28 : 0.05),
-              _tone(i / 15, alpha: 0),
+              _tone(i / 10, alpha: hasSignal ? 0.23 : 0.02),
+              _tone(i / 10, alpha: 0),
             ],
-          ).createShader(bubble),
+          ).createShader(rect),
       );
       canvas.drawCircle(
         Offset(x, y),
         radius,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.45
-          ..color = Colors.white.withValues(alpha: hasSignal ? 0.52 : 0.10),
+          ..strokeWidth = 0.42
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.56 : 0.035),
       );
     }
-    _paintFluidCaustics(canvas, size);
   }
 
   void _paintFluidCaustics(Canvas canvas, Size size) {

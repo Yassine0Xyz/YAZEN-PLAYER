@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -33,6 +35,45 @@ void main() {
       repaint.dispose();
     },
   );
+
+  test('each advanced style produces a distinct rendered silhouette', () async {
+    final repaint = ValueNotifier<int>(0);
+    final signatures = <String>{};
+    for (final style in AdvancedVisualizerStyle.values) {
+      final painter = AdvancedVisualizerPainter(
+        repaint: repaint,
+        style: style,
+        color: Colors.cyan,
+        levels: List<double>.generate(
+          40,
+          (index) =>
+              (0.08 + 0.82 * (0.5 + 0.5 * math.sin(index * 0.31)))
+                  .clamp(0.0, 1.0)
+                  .toDouble(),
+        ),
+        peaks: List<double>.filled(40, 0.94),
+        particles: List<double>.generate(48, (index) => (index % 11) / 11),
+        time: 1.35,
+        hasSignal: true,
+        palette: const <Color>[Colors.deepPurple, Colors.blue, Colors.teal],
+        fluidShader: null,
+      );
+      final recorder = ui.PictureRecorder();
+      painter.paint(ui.Canvas(recorder), const Size(360, 64));
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(360, 64);
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      signatures.add(
+        base64Encode(
+          data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        ),
+      );
+      image.dispose();
+      picture.dispose();
+    }
+    expect(signatures, hasLength(3));
+    repaint.dispose();
+  });
 
   test('Fluid paints with the Canvas fallback when shader is absent', () {
     final repaint = ValueNotifier<int>(0);

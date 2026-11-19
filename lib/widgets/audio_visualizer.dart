@@ -592,16 +592,6 @@ class SourceSpectrumPainter extends CustomPainter {
     )!.withValues(alpha: (0.72 + energy.clamp(0.0, 1.0).toDouble() * 0.28));
   }
 
-  double _columnsSample(double u) {
-    if (levels.isEmpty) return 0;
-    final shaped =
-        (math.pow(u.clamp(0.0, 1.0), 0.5).toDouble() * (levels.length - 1))
-            .toDouble();
-    final index = shaped.floor();
-    final next = math.min(levels.length - 1, index + 1).toInt();
-    return levels[index] + (levels[next] - levels[index]) * (shaped - index);
-  }
-
   Path _smoothTrace(List<Offset> points) {
     final path = Path();
     if (points.isEmpty) return path;
@@ -620,417 +610,447 @@ class SourceSpectrumPainter extends CustomPainter {
     return path;
   }
 
-  void _paintColumnsColumns(Canvas canvas, Size size) {
-    final count = profile == AudioVisualizerProfile.full ? 52 : 32;
-    final gap = math.max(2.0, size.width * 0.006);
-    final span = size.width * 0.9;
-    final barWidth = (span - gap * (count - 1)) / count;
-    final left = (size.width - span) / 2;
-    final mid = size.height * 0.58;
-    final maxHeight = size.height * 0.46;
+  Path _closedPolygon(List<Offset> points) {
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    return path..close();
+  }
+
+  double _levelAt(double u) {
+    if (!hasSignal || levels.isEmpty) return 0;
+    final position = u.clamp(0.0, 1.0).toDouble() * (levels.length - 1);
+    final index = position.floor();
+    final next = math.min(levels.length - 1, index + 1).toInt();
+    final a = levels[index].clamp(0.0, 1.0).toDouble();
+    final b = levels[next].clamp(0.0, 1.0).toDouble();
+    return a + (b - a) * (position - index);
+  }
+
+  void _paintEnergyArchitecture(Canvas canvas, Size size) {
+    final count =
+        math.min(barCount, math.max(12, (size.width / 5.2).floor())).toInt();
+    final gap = math.max(1.25, size.width * 0.0032).toDouble();
+    final width = (size.width - gap * (count - 1)) / count;
+    final baseline = size.height - 2.5;
+    final maxHeight = size.height * 0.88;
+    final palette =
+        paletteColors.length > 1 ? paletteColors : <Color>[color, color];
+    final bodyShader = LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: <Color>[
+        palette.first.withValues(alpha: 0.72),
+        palette[palette.length ~/ 2].withValues(alpha: 0.98),
+        palette.last.withValues(alpha: 0.94),
+      ],
+      stops: const <double>[0, 0.58, 1],
+    ).createShader(Offset.zero & size);
+    final bodyPaint = Paint()..shader = bodyShader;
+    final edgePaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = 0.65;
+    final facetPaint = Paint();
+
+    // A quiet foundation gives the spectrum a designed, architectural anchor.
+    canvas.drawLine(
+      Offset(size.width * 0.025, baseline),
+      Offset(size.width * 0.975, baseline),
+      Paint()
+        ..color = color.withValues(alpha: hasSignal ? 0.24 : 0.10)
+        ..strokeWidth = 0.8,
+    );
+
     for (var i = 0; i < count; i++) {
-      final value = _columnsSample(i / math.max(1, count - 1));
-      final height =
+      final u = count == 1 ? 0.5 : i / (count - 1);
+      final level = _levelAt(u);
+      final peak =
+          hasSignal && peaks.isNotEmpty
+              ? peaks[(u * (peaks.length - 1)).round()]
+                  .clamp(0.0, 1.0)
+                  .toDouble()
+              : 0.0;
+      final h =
           math
-              .max(
-                3.0,
-                (0.08 + math.pow(value, 0.7).toDouble() * 0.92) * maxHeight,
-              )
+              .max(1.4, maxHeight * math.pow(level, 0.82).toDouble())
               .toDouble();
-      final x = left + i * (barWidth + gap);
-      final columnColor = _columnsColor(i / math.max(1, count - 1), value);
-      final radius = Radius.circular(math.min(barWidth / 2, 8));
-      final body = Rect.fromLTWH(x, mid - height, barWidth, height);
-      final bodyRRect = RRect.fromRectAndRadius(body, radius);
-      canvas.drawRRect(
-        bodyRRect,
-        Paint()..color = columnColor.withValues(alpha: 0.92),
+      final x = i * (width + gap);
+      final inset = width * 0.12;
+      final shoulder = math.min(width * 0.22, 2.4).toDouble();
+      final top = baseline - h;
+      final silhouette = _closedPolygon(<Offset>[
+        Offset(x + inset, baseline),
+        Offset(x + width - inset, baseline),
+        Offset(x + width - inset, top + shoulder),
+        Offset(x + width * 0.76, top),
+        Offset(x + width * 0.24, top),
+        Offset(x + inset, top + shoulder),
+      ]);
+      canvas.drawPath(silhouette, bodyPaint);
+
+      // Two deliberately different facets prevent the old bamboo-stick look.
+      final leftFacet = _closedPolygon(<Offset>[
+        Offset(x + inset, baseline),
+        Offset(x + width * 0.24, top),
+        Offset(x + width * 0.39, top + h * 0.12),
+        Offset(x + width * 0.39, baseline),
+      ]);
+      facetPaint.color = Colors.white.withValues(
+        alpha: hasSignal ? 0.12 : 0.025,
       );
-      // A narrow bevel and a bright crown create the cut-glass pillar identity.
-      canvas.drawLine(
-        Offset(x + barWidth * 0.22, mid - height + 2),
-        Offset(x + barWidth * 0.22, mid - 2),
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.30 + value * 0.24)
-          ..strokeWidth = math.max(0.55, barWidth * 0.12),
+      canvas.drawPath(leftFacet, facetPaint);
+      final rightFacet = _closedPolygon(<Offset>[
+        Offset(x + width * 0.76, top),
+        Offset(x + width - inset, top + shoulder),
+        Offset(x + width - inset, baseline),
+        Offset(x + width * 0.64, baseline),
+      ]);
+      facetPaint.color = Colors.black.withValues(
+        alpha: hasSignal ? 0.13 : 0.035,
       );
-      canvas.drawLine(
-        Offset(x + barWidth * 0.16, mid - height + 1),
-        Offset(x + barWidth * 0.84, mid - height + 1),
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.42 + value * 0.30)
-          ..strokeWidth = math.max(0.65, barWidth * 0.18),
-      );
-      canvas.drawLine(
-        Offset(x + barWidth * 0.82, mid - height + 3),
-        Offset(x + barWidth * 0.82, mid - 2),
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.12 + value * 0.08)
-          ..strokeWidth = math.max(0.5, barWidth * 0.10),
-      );
-      if (height > 14) {
+      canvas.drawPath(rightFacet, facetPaint);
+
+      // Fine segmented energy seams are embedded in the body, not stacked capsules.
+      if (h > 12 && level > 0.035) {
+        final segmentCount = math.min(5, math.max(1, (h / 12).floor()));
+        for (var segment = 1; segment <= segmentCount; segment++) {
+          final y = baseline - h * segment / (segmentCount + 1);
+          canvas.drawLine(
+            Offset(x + width * 0.28, y),
+            Offset(x + width * 0.72, y),
+            Paint()
+              ..color = Colors.white.withValues(alpha: hasSignal ? 0.17 : 0.025)
+              ..strokeWidth = math.max(0.45, width * 0.055),
+          );
+        }
+      }
+      edgePaint.color = Colors.white.withValues(alpha: hasSignal ? 0.28 : 0.04);
+      canvas.drawPath(silhouette, edgePaint);
+      if (peak > level + 0.08) {
+        final markerY = baseline - maxHeight * peak;
         canvas.drawLine(
-          Offset(x + barWidth * 0.28, mid - height * 0.56),
-          Offset(x + barWidth * 0.72, mid - height * 0.68),
+          Offset(x + width * 0.22, markerY),
+          Offset(x + width * 0.78, markerY),
           Paint()
-            ..color = Colors.white.withValues(alpha: 0.10 + value * 0.08)
-            ..strokeWidth = math.max(0.45, barWidth * 0.08),
+            ..color = _colorAt(u, peak).withValues(alpha: 0.72)
+            ..strokeWidth = 1.0,
         );
       }
-      final reflection = Rect.fromLTWH(x, mid + 4, barWidth, height * 0.42);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(reflection, radius),
-        Paint()..color = columnColor.withValues(alpha: 0.14),
+    }
+  }
+
+  void _paintLiquidRibbon(Canvas canvas, Size size) {
+    final count = math.max(48, math.min(112, barCount * 2)).toInt();
+    final center = size.height * 0.52;
+    final palette =
+        paletteColors.length > 1 ? paletteColors : <Color>[color, color];
+    final colors = <Color>[
+      palette.first.withValues(alpha: 0.08),
+      palette[palette.length ~/ 2].withValues(alpha: 0.44),
+      palette.last.withValues(alpha: 0.20),
+    ];
+    final upper = <Offset>[];
+    final lower = <Offset>[];
+    final innerUpper = <Offset>[];
+    final innerLower = <Offset>[];
+    for (var i = 0; i <= count; i++) {
+      final u = i / count;
+      final x = size.width * u;
+      final level = _levelAt(u);
+      final envelope = math.pow(math.sin(math.pi * u), 0.42).toDouble();
+      final amplitude = size.height * (0.035 + level * 0.43) * envelope;
+      final contour =
+          math.sin(u * 9.2 + sceneTime * 0.18) * size.height * 0.035 +
+          math.sin(u * 21.0 - sceneTime * 0.12) * size.height * 0.012;
+      upper.add(Offset(x, center - amplitude + contour));
+      lower.add(Offset(x, center + amplitude * 0.74 + contour * 0.55));
+      innerUpper.add(Offset(x, center - amplitude * 0.58 + contour * 0.75));
+      innerLower.add(Offset(x, center + amplitude * 0.40 + contour * 0.35));
+    }
+    final outer = Path()..addPath(_smoothTrace(upper), Offset.zero);
+    outer.lineTo(lower.last.dx, lower.last.dy);
+    for (final point in lower.reversed) {
+      outer.lineTo(point.dx, point.dy);
+    }
+    outer.close();
+    canvas.drawPath(
+      outer,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: colors,
+        ).createShader(Offset.zero & size),
+    );
+
+    final inner = Path()..addPath(_smoothTrace(innerUpper), Offset.zero);
+    inner.lineTo(innerLower.last.dx, innerLower.last.dy);
+    for (final point in innerLower.reversed) {
+      inner.lineTo(point.dx, point.dy);
+    }
+    inner.close();
+    canvas.drawPath(
+      inner,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            palette.last.withValues(alpha: 0.02),
+            palette.first.withValues(alpha: hasSignal ? 0.24 : 0.02),
+          ],
+        ).createShader(Offset.zero & size),
+    );
+
+    for (var layer = 0; layer < 3; layer++) {
+      final points = <Offset>[];
+      for (var i = 0; i <= count; i++) {
+        final u = i / count;
+        final level = _levelAt(u);
+        final envelope = math.pow(math.sin(math.pi * u), 0.5).toDouble();
+        final offset = (layer - 1) * size.height * (0.09 + level * 0.07);
+        points.add(
+          Offset(
+            size.width * u,
+            center +
+                offset -
+                math.sin(
+                      u * (7.0 + layer * 2.4) +
+                          sceneTime * (0.12 + layer * 0.03),
+                    ) *
+                    size.height *
+                    (0.025 + level * 0.06) *
+                    envelope,
+          ),
+        );
+      }
+      canvas.drawPath(
+        _smoothTrace(points),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = layer == 1 ? 1.35 : 0.65
+          ..strokeCap = StrokeCap.round
+          ..color = (layer == 1 ? Colors.white : _colorAt(layer / 2, energy))
+              .withValues(alpha: hasSignal ? (layer == 1 ? 0.76 : 0.34) : 0.06),
+      );
+    }
+  }
+
+  void _paintCrystalColumns(Canvas canvas, Size size) {
+    final count = profile == AudioVisualizerProfile.full ? 30 : 18;
+    final gap = math.max(2.0, size.width * 0.006).toDouble();
+    final span = size.width * 0.94;
+    final width = (span - gap * (count - 1)) / count;
+    final left = (size.width - span) / 2;
+    final baseline = size.height * 0.82;
+    for (var i = 0; i < count; i++) {
+      final u = i / math.max(1, count - 1);
+      final level = _levelAt(u);
+      final h = size.height * (0.12 + math.pow(level, 0.72).toDouble() * 0.70);
+      final x = left + i * (width + gap);
+      final bevel = math.min(width * 0.28, 2.2).toDouble();
+      final top = baseline - h;
+      final front = _closedPolygon(<Offset>[
+        Offset(x + bevel, baseline),
+        Offset(x + width - bevel, baseline),
+        Offset(x + width - bevel, top + bevel),
+        Offset(x + width * 0.5, top),
+        Offset(x + bevel, top + bevel),
+      ]);
+      final tint = _columnsColor(u, level);
+      canvas.drawPath(
+        front,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.bottomLeft,
+            end: Alignment.topRight,
+            colors: <Color>[
+              tint.withValues(alpha: 0.28),
+              tint,
+              Colors.white.withValues(alpha: 0.78),
+            ],
+          ).createShader(Rect.fromLTWH(x, top, width, h)),
+      );
+      canvas.drawPath(
+        _closedPolygon(<Offset>[
+          Offset(x + bevel, baseline),
+          Offset(x + width * 0.5, top),
+          Offset(x + width * 0.5, baseline),
+        ]),
+        Paint()
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.18 : 0.025),
+      );
+      canvas.drawPath(
+        _closedPolygon(<Offset>[
+          Offset(x + width * 0.5, top),
+          Offset(x + width - bevel, top + bevel),
+          Offset(x + width * 0.5, top + h * 0.10),
+        ]),
+        Paint()
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.38 : 0.04),
+      );
+      canvas.drawPath(
+        front,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.65
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.42 : 0.06),
+      );
+      final reflection = Rect.fromLTWH(
+        x + width * 0.16,
+        baseline + 1.5,
+        width * 0.68,
+        h * 0.18,
+      );
+      canvas.drawRect(
+        reflection,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              tint.withValues(alpha: 0.20),
+              tint.withValues(alpha: 0),
+            ],
+          ).createShader(reflection),
       );
     }
     canvas.drawLine(
-      Offset(left, mid),
-      Offset(left + span, mid),
+      Offset(left, baseline),
+      Offset(left + span, baseline),
       Paint()
-        ..color = _columnsColor(0.9, energy, core: true).withValues(alpha: 0.28)
-        ..strokeWidth = 1,
+        ..color = color.withValues(alpha: 0.28)
+        ..strokeWidth = 0.8,
+    );
+  }
+
+  void _paintMirrorGeometry(Canvas canvas, Size size) {
+    final count =
+        math.min(barCount, math.max(16, (size.width / 4.4).floor())).toInt();
+    final gap = math.max(1.1, size.width * 0.0028).toDouble();
+    final width = (size.width - gap * (count - 1)) / count;
+    final center = size.height * 0.5;
+    final maxHalf = size.height * 0.43;
+    final palette =
+        paletteColors.length > 1 ? paletteColors : <Color>[color, color];
+    canvas.drawLine(
+      Offset(0, center),
+      Offset(size.width, center),
+      Paint()
+        ..color = color.withValues(alpha: 0.26)
+        ..strokeWidth = 0.8,
+    );
+    for (var i = 0; i < count; i++) {
+      final u = i / math.max(1, count - 1);
+      final level = _levelAt(u);
+      final half =
+          math.max(1.0, maxHalf * math.pow(level, 0.78).toDouble()).toDouble();
+      final x = i * (width + gap);
+      final midX = x + width * 0.5;
+      final waist = width * 0.12;
+      final diamond = _closedPolygon(<Offset>[
+        Offset(midX, center - half),
+        Offset(x + width - waist, center - half * 0.56),
+        Offset(x + width * 0.84, center),
+        Offset(x + width - waist, center + half * 0.56),
+        Offset(midX, center + half),
+        Offset(x + waist, center + half * 0.56),
+        Offset(x + width * 0.16, center),
+        Offset(x + waist, center - half * 0.56),
+      ]);
+      final tint = _colorAt(u, level);
+      canvas.drawPath(
+        diamond,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              palette.last.withValues(alpha: 0.95),
+              tint.withValues(alpha: 0.58),
+              palette.first.withValues(alpha: 0.95),
+            ],
+          ).createShader(Offset.zero & size),
+      );
+      canvas.drawPath(
+        _closedPolygon(<Offset>[
+          Offset(midX, center - half),
+          Offset(midX, center),
+          Offset(x + width * 0.16, center),
+          Offset(x + waist, center - half * 0.56),
+        ]),
+        Paint()
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.18 : 0.02),
+      );
+      canvas.drawPath(
+        diamond,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.55
+          ..color = Colors.white.withValues(alpha: hasSignal ? 0.38 : 0.04),
+      );
+    }
+    final coreRadius = size.height * 0.095;
+    canvas.drawCircle(
+      Offset(size.width * 0.5, center),
+      coreRadius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[
+            Colors.white.withValues(alpha: 0.42),
+            color.withValues(alpha: 0.02),
+          ],
+        ).createShader(
+          Rect.fromCircle(
+            center: Offset(size.width * 0.5, center),
+            radius: coreRadius,
+          ),
+        ),
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.5, center),
+      coreRadius * 0.36,
+      Paint()..color = Colors.white.withValues(alpha: hasSignal ? 0.82 : 0.16),
     );
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0 || barCount <= 0) return;
-    if (style == VisualizerStyle.columns) {
-      _paintColumnsColumns(canvas, size);
-      return;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    switch (style) {
+      case VisualizerStyle.bars:
+        _paintEnergyArchitecture(canvas, size);
+        break;
+      case VisualizerStyle.wave:
+        _paintLiquidRibbon(canvas, size);
+        break;
+      case VisualizerStyle.columns:
+        _paintCrystalColumns(canvas, size);
+        break;
+      case VisualizerStyle.mirror:
+        _paintMirrorGeometry(canvas, size);
+        break;
     }
-    final gap = math.max(
-      profile == AudioVisualizerProfile.full ? 2.0 : 2.6,
-      size.width * (profile == AudioVisualizerProfile.full ? 0.0065 : 0.009),
-    );
-    final barWidth = math.max(
-      1.6,
-      (size.width - gap * (barCount - 1)) / barCount,
-    );
-    // Leave only a soft breathing margin instead of pinning the spectrum to a
-    // hard horizontal surface.
-    final baselineY = size.height - 2.0;
-    final linePaint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round;
-    final paint = Paint()..strokeCap = StrokeCap.round;
-    final spectrumColors =
-        paletteColors.length < 2 ? <Color>[color, color] : paletteColors;
-    final spectrumShader = LinearGradient(
-      colors: spectrumColors,
-      begin: Alignment.centerLeft,
-      end: Alignment.centerRight,
-    ).createShader(Offset.zero & size);
-    final barPaint = Paint()..shader = spectrumShader;
-
-    if (style == VisualizerStyle.wave) {
-      final centerY = size.height * 0.5;
-      final upper = <Offset>[];
-      final lower = <Offset>[];
-      final maxAmplitude = visualizerWaveAmplitude(1, size.height);
-      for (var index = 0; index < barCount; index++) {
-        final x = size.width * index / math.max(1, barCount - 1);
-        final level =
-            hasSignal && index < levels.length
-                ? levels[index].clamp(0.0, 1.0).toDouble()
-                : 0.0;
-        final amplitude = maxAmplitude * level;
-        upper.add(Offset(x, centerY - amplitude));
-        lower.add(Offset(x, centerY + amplitude));
-      }
-      if (upper.isEmpty) return;
-      final upperPath = _smoothTrace(upper);
-      final lowerPath = _smoothTrace(lower);
-      final area = Path()..addPath(upperPath, Offset.zero);
-      area.lineTo(lower.last.dx, lower.last.dy);
-      final reversedLower = lower.reversed.toList(growable: false);
-      for (var i = 1; i < reversedLower.length; i++) {
-        final previous = reversedLower[i - 1];
-        final current = reversedLower[i];
-        area.quadraticBezierTo(
-          previous.dx,
-          previous.dy,
-          (previous.dx + current.dx) * 0.5,
-          (previous.dy + current.dy) * 0.5,
-        );
-      }
-      area.lineTo(reversedLower.last.dx, reversedLower.last.dy);
-      area.close();
-      final areaColors =
-          paletteColors.length < 2 ? <Color>[color, color] : paletteColors;
-      canvas.drawPath(
-        area,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: <Color>[
-              areaColors.first.withValues(alpha: hasSignal ? 0.34 : 0.0),
-              areaColors[areaColors.length ~/ 2].withValues(
-                alpha: hasSignal ? 0.16 : 0.0,
-              ),
-              areaColors.last.withValues(alpha: hasSignal ? 0.28 : 0.0),
-            ],
-          ).createShader(Offset.zero & size),
-      );
-      if (hasSignal) {
-        // Two inset contour echoes give the ribbon a layered, liquid-glass edge.
-        for (var layer = 1; layer <= 2; layer++) {
-          final inset = size.height * (0.035 * layer);
-          final echo = <Offset>[];
-          for (final point in upper) {
-            final amplitude = (centerY - point.dy).abs();
-            final insetAmplitude = math.max(0.0, amplitude - inset);
-            echo.add(
-              Offset(
-                point.dx,
-                centerY - insetAmplitude * (point.dy <= centerY ? 1 : -1),
-              ),
-            );
-          }
-          final echoPaint =
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = layer == 1 ? 0.72 : 0.42
-                ..strokeCap = StrokeCap.round
-                ..color = Colors.white.withValues(alpha: 0.20 / layer);
-          canvas.drawPath(_smoothTrace(echo), echoPaint);
-          final lowerEcho = <Offset>[];
-          for (final point in lower) {
-            final amplitude = (point.dy - centerY).abs();
-            final insetAmplitude = math.max(0.0, amplitude - inset);
-            lowerEcho.add(Offset(point.dx, centerY + insetAmplitude));
-          }
-          canvas.drawPath(_smoothTrace(lowerEcho), echoPaint);
-        }
-        canvas.drawPath(
-          upperPath,
-          Paint()
-            ..color =
-                paletteColors.isEmpty
-                    ? color.withValues(alpha: 0.18)
-                    : paletteColors.first.withValues(alpha: 0.22)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 7.0
-            ..strokeCap = StrokeCap.round
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0),
-        );
-      }
-      linePaint
-        ..shader = spectrumShader
-        ..color = Colors.white.withValues(alpha: hasSignal ? 0.70 : 0.12)
-        ..strokeWidth = 1.25;
-      canvas.drawPath(lowerPath, linePaint);
-      linePaint
-        ..shader = spectrumShader
-        ..color = Colors.white.withValues(alpha: hasSignal ? 0.98 : 0.18)
-        ..strokeWidth = math.max(2.0, size.height * 0.045);
-      canvas.drawPath(upperPath, linePaint);
-      return;
-    }
-
-    for (var index = 0; index < barCount; index++) {
-      final ratio = barCount <= 1 ? 0.0 : index / (barCount - 1);
-      final level =
-          hasSignal && index < levels.length
-              ? levels[index].clamp(0.0, 1.0).toDouble()
-              : 0.0;
-      final peak =
-          hasSignal && index < peaks.length
-              ? peaks[index].clamp(0.0, 1.0).toDouble()
-              : 0.0;
-      // Energy grows from a soft baseline, with enough headroom for rounded
-      // tops and glow instead of a rigid ceiling/cap treatment.
-      final barHeight =
-          hasSignal ? math.max(1.0, (size.height - 2.0) * level) : 1.0;
-      final x = index * (barWidth + gap) + barWidth / 2;
-      final barColor = _colorAt(ratio, level);
-      final rect =
-          style == VisualizerStyle.mirror
-              ? Rect.fromLTWH(
-                x - barWidth / 2,
-                size.height / 2 - barHeight / 2,
-                barWidth,
-                barHeight,
-              )
-              : Rect.fromLTWH(
-                x - barWidth / 2,
-                baselineY - barHeight,
-                barWidth,
-                barHeight,
-              );
-      final radius = Radius.circular(math.min(barWidth * 0.48, 5.0));
-      // Reuse one palette shader for the complete spectrum. A per-bar
-      // LinearGradient + shader allocation on every 60/90 Hz repaint was
-      // needlessly expensive on mid-range devices.
-      if (style == VisualizerStyle.bars && hasSignal && level > 0.04) {
-        final glowRect = rect.inflate(math.min(3.0, barWidth * 0.42));
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(glowRect, radius),
-          Paint()..color = barColor.withValues(alpha: 0.10 + level * 0.08),
-        );
-      }
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);
-      if (style == VisualizerStyle.bars &&
-          hasSignal &&
-          level > 0.12 &&
-          barHeight > 5) {
-        final spine = Rect.fromLTWH(
-          rect.left + barWidth * 0.30,
-          rect.top + 2,
-          math.max(0.7, barWidth * 0.16),
-          math.max(1.0, barHeight - 4),
-        );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(spine, Radius.circular(barWidth * 0.1)),
-          Paint()..color = Colors.white.withValues(alpha: 0.16 + level * 0.20),
-        );
-      }
-      if (style == VisualizerStyle.mirror && hasSignal && level > 0.16) {
-        final half = math.max(1.0, barHeight * 0.5);
-        final glintPaint =
-            Paint()
-              ..color = Colors.white.withValues(alpha: 0.22 + level * 0.24)
-              ..strokeWidth = math.max(0.65, barWidth * 0.18);
-        canvas.drawLine(
-          Offset(x - barWidth * 0.24, size.height * .5 - half + 1),
-          Offset(x - barWidth * 0.24, size.height * .5 - 1),
-          glintPaint,
-        );
-        canvas.drawLine(
-          Offset(x - barWidth * 0.24, size.height * .5 + 1),
-          Offset(x - barWidth * 0.24, size.height * .5 + half - 1),
-          glintPaint,
-        );
-      }
-      if (style == VisualizerStyle.bars &&
-          hasSignal &&
-          level > 0.42 &&
-          barHeight > 12) {
-        final segmentPaint =
-            Paint()
-              ..color = Colors.white.withValues(alpha: 0.14 + level * 0.12)
-              ..strokeWidth = math.max(0.55, barWidth * 0.30)
-              ..strokeCap = StrokeCap.round;
-        for (var segment = 1; segment <= 2; segment++) {
-          final y = rect.bottom - barHeight * segment / 3;
-          canvas.drawLine(
-            Offset(rect.left + barWidth * 0.22, y),
-            Offset(rect.right - barWidth * 0.22, y),
-            segmentPaint,
-          );
-        }
-      }
-      if (style == VisualizerStyle.bars && hasSignal && level > 0.025) {
-        final highlightY =
-            baselineY - barHeight + math.min(1.5, barHeight * 0.2);
-        paint
-          ..color = Colors.white.withValues(alpha: 0.28 + level * 0.3)
-          ..strokeWidth = math.max(1.0, barWidth * 0.42);
-        canvas.drawLine(
-          Offset(rect.left + barWidth * 0.24, highlightY),
-          Offset(rect.right - barWidth * 0.24, highlightY),
-          paint,
-        );
-      }
-      paint
-        ..color = barColor.withValues(alpha: hasSignal ? 0.82 : 0.14)
-        ..strokeWidth = math.max(1.2, barWidth * 0.7);
-
-      // Draw the cap only when it is meaningfully above this same frame's
-      // bar. The bounded peak logic above prevents a stale detached dot.
-      // Bars use a rounded, luminous top; a detached horizontal cap makes
-      // them look capped and mechanical. Keep the peak marker for Mirror,
-      // where it reads as a useful centre-line accent.
-      if (style == VisualizerStyle.mirror &&
-          hasSignal &&
-          peak - level > 0.025) {
-        paint
-          ..color = paint.color.withValues(alpha: 0.72)
-          ..strokeWidth = math.max(1.2, barWidth * 0.62);
-        final peakY =
-            style == VisualizerStyle.mirror
-                ? size.height * 0.5 - (size.height - 7.0) * peak * 0.5
-                : baselineY - (size.height - 7.0) * peak;
-        final capWidth = math.max(2.0, barWidth * 0.82);
-        canvas.drawLine(
-          Offset(x - capWidth / 2, peakY),
-          Offset(x + capWidth / 2, peakY),
-          paint,
-        );
-      }
-    }
-
-    if (style == VisualizerStyle.mirror) {
-      final center = Offset(size.width * 0.5, size.height * 0.5);
-      final coreRadius = size.height * (0.075 + energy.clamp(0.0, 1.0) * 0.045);
-      // A restrained central lens anchors the bilateral spectrum and makes
-      // Mirror read as a deliberate symmetrical instrument.
-      canvas.drawCircle(
-        center,
-        coreRadius * 2.4,
-        Paint()
-          ..shader = RadialGradient(
-            colors: <Color>[
-              _colorAt(0.5, energy).withValues(alpha: hasSignal ? 0.22 : 0.035),
-              _colorAt(0.5, energy).withValues(alpha: 0),
-            ],
-          ).createShader(
-            Rect.fromCircle(center: center, radius: coreRadius * 2.4),
-          ),
-      );
-      for (var ring = 0; ring < 2; ring++) {
-        canvas.drawCircle(
-          center,
-          coreRadius * (1.0 + ring * 0.85),
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = ring == 0 ? 0.8 : 0.45
-            ..color = _colorAt(
-              0.5,
-              energy,
-            ).withValues(alpha: hasSignal ? 0.46 - ring * 0.16 : 0.08),
-        );
-      }
-      final axis =
-          Paint()
-            ..color = color.withValues(alpha: hasSignal ? 0.44 : 0.20)
-            ..strokeWidth = 1.0;
-      canvas.drawLine(
-        Offset(center.dx - coreRadius * 2.6, center.dy),
-        Offset(center.dx + coreRadius * 2.6, center.dy),
-        axis,
-      );
-    }
-
-    final baselinePaint =
-        Paint()
-          ..color = color.withValues(alpha: hasSignal ? 0.34 : 0.20)
-          ..strokeWidth = 1.0
-          ..strokeCap = StrokeCap.round;
-    if (style == VisualizerStyle.mirror) {
-      canvas.drawLine(
-        Offset(0, size.height * 0.5),
-        Offset(size.width, size.height * 0.5),
-        baselinePaint,
-      );
-    }
-
     final progressValue = progressListenable?.value ?? progress;
     if (progressValue != null) {
-      final progressPaint =
-          Paint()
-            ..color = color.withValues(alpha: 0.48)
-            ..strokeWidth = 1.2
-            ..strokeCap = StrokeCap.round;
       canvas.drawLine(
-        Offset(0, size.height - 1),
-        Offset(size.width * progressValue, size.height - 1),
-        progressPaint,
+        Offset(0, size.height - 0.8),
+        Offset(
+          size.width * progressValue.clamp(0.0, 1.0).toDouble(),
+          size.height - 0.8,
+        ),
+        Paint()
+          ..color = color.withValues(alpha: 0.58)
+          ..strokeWidth = 1.2
+          ..strokeCap = StrokeCap.round,
       );
     }
+    canvas.restore();
   }
 
   @override
