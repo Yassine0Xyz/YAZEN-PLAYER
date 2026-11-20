@@ -26,7 +26,7 @@ void main() {
           time: 0.75,
           hasSignal: true,
           palette: const <Color>[Colors.purple, Colors.blue, Colors.teal],
-          fluidShader: null,
+          sceneShader: null,
         );
         final recorder = ui.PictureRecorder();
         painter.paint(ui.Canvas(recorder), const Size(360, 64));
@@ -56,7 +56,7 @@ void main() {
         time: 1.35,
         hasSignal: true,
         palette: const <Color>[Colors.deepPurple, Colors.blue, Colors.teal],
-        fluidShader: null,
+        sceneShader: null,
       );
       final recorder = ui.PictureRecorder();
       painter.paint(ui.Canvas(recorder), const Size(360, 64));
@@ -87,7 +87,7 @@ void main() {
       time: 1.25,
       hasSignal: false,
       palette: const <Color>[Colors.teal, Colors.blue],
-      fluidShader: null,
+      sceneShader: null,
     );
     final recorder = ui.PictureRecorder();
     painter.paint(ui.Canvas(recorder), const Size(320, 54));
@@ -96,30 +96,35 @@ void main() {
   });
 
   test(
-    'Fluid Fragment Shader compiles and paints with live band uniforms',
+    'all three scene shaders compile and paint with live band uniforms',
     () async {
-      final program = await ui.FragmentProgram.fromAsset(
+      const assets = <String>[
+        'shaders/visualizer_aurora.frag',
+        'shaders/visualizer_particles.frag',
         'shaders/visualizer_fluid.frag',
-      );
-      final shader = program.fragmentShader();
-      final repaint = ValueNotifier<int>(0);
-      final painter = AdvancedVisualizerPainter(
-        repaint: repaint,
-        style: AdvancedVisualizerStyle.fluid,
-        color: Colors.cyan,
-        levels: List<double>.generate(32, (index) => index / 31),
-        peaks: List<double>.filled(32, 0.7),
-        particles: List<double>.generate(48, (index) => (index % 9) / 9),
-        time: 2.5,
-        hasSignal: true,
-        palette: const <Color>[Colors.teal, Colors.blue, Colors.purple],
-        fluidShader: shader,
-      );
-      final recorder = ui.PictureRecorder();
-      painter.paint(ui.Canvas(recorder), const Size(360, 96));
-      recorder.endRecording().dispose();
-      shader.dispose();
-      repaint.dispose();
+      ];
+      for (var index = 0; index < assets.length; index++) {
+        final program = await ui.FragmentProgram.fromAsset(assets[index]);
+        final shader = program.fragmentShader();
+        final repaint = ValueNotifier<int>(0);
+        final painter = AdvancedVisualizerPainter(
+          repaint: repaint,
+          style: AdvancedVisualizerStyle.values[index],
+          color: Colors.cyan,
+          levels: List<double>.generate(36, (i) => (i % 9) / 9),
+          peaks: List<double>.filled(36, 0.72),
+          particles: List<double>.generate(48, (i) => (i % 13) / 13),
+          time: 2.5,
+          hasSignal: true,
+          palette: const <Color>[Colors.teal, Colors.blue, Colors.purple],
+          sceneShader: shader,
+        );
+        final recorder = ui.PictureRecorder();
+        painter.paint(ui.Canvas(recorder), const Size(360, 96));
+        recorder.endRecording().dispose();
+        shader.dispose();
+        repaint.dispose();
+      }
     },
   );
 

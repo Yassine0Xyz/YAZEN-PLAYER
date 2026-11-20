@@ -49,6 +49,8 @@ flutter:
     - assets/yazen_app_icon_master.png
 
   shaders:
+    - shaders/visualizer_aurora.frag
+    - shaders/visualizer_particles.frag
     - shaders/visualizer_fluid.frag
 
   fonts:
