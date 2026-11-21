@@ -5,7 +5,10 @@ find_library(android-lib android)
 
 if (ANDROID_ABI STREQUAL "arm64-v8a")
     add_library(lactea_capi SHARED IMPORTED)
-    set_target_properties(lactea_capi PROPERTIES IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../jniLibs/${ANDROID_ABI}/liblactea_capi.so")
+    set_target_properties(lactea_capi PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../jniLibs/${ANDROID_ABI}/liblactea_capi.so"
+        IMPORTED_SONAME "liblactea_capi.so"
+    )
     add_library(yazen_lactea_jni SHARED lactea_jni.cpp)
     target_include_directories(yazen_lactea_jni PRIVATE "${CMAKE_CURRENT_LIST_DIR}/include")
     target_compile_features(yazen_lactea_jni PRIVATE cxx_std_17)
