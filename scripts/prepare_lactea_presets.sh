@@ -34,6 +34,7 @@ printf '%s\n' "$COMMIT" > "$STAGE/UPSTREAM_COMMIT.txt"
   printf 'Source: https://github.com/M0Rf30/projectm-presets\nCommit: %s\nMilkDrop 2 (.milk): %s\nMilkDrop 3 (.milk2): %s\nTotal: %s\n' "$COMMIT" "${#MILK[@]}" "${#MILK2[@]}" "$(( ${#MILK[@]} + ${#MILK2[@]} ))"
   find "$STAGE" -maxdepth 1 -type f \( -iname '*.milk' -o -iname '*.milk2' \) -printf '%f\n' | sort
 } > "$STAGE/PRESET_INDEX.txt"
+mkdir -p "$(dirname "$DEST")"
 rm -rf "$DEST"
 mv "$STAGE" "$DEST"
 # Copy optional upstream textures while preserving paths.
