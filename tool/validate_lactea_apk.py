@@ -60,11 +60,11 @@ def validate_elf_payload(z: ZipFile) -> None:
             raise SystemExit(f"JNI library does not depend on packaged liblactea_capi.so: {sorted(jni_needed)}")
         if sonames(capi) != {"liblactea_capi.so"}:
             raise SystemExit(f"C API SONAME is missing or unexpected: {sorted(sonames(capi))}")
-        exports = readelf(capi, "--dyn-syms")
+        exports = readelf(capi, "--dyn-syms", "--wide")
         for symbol in ("lactea_config_default", "lactea_create", "lactea_destroy", "lactea_load_preset", "lactea_render_to_buffer"):
             if not re.search(rf"\b{re.escape(symbol)}$", exports, re.MULTILINE):
                 raise SystemExit(f"C API export missing from liblactea_capi.so: {symbol}")
-        jni_exports = readelf(jni, "--dyn-syms")
+        jni_exports = readelf(jni, "--dyn-syms", "--wide")
         for symbol in ("nativeCreate", "nativeDestroy", "nativeLoadPreset", "nativePushPcm", "nativeRender", "nativeResetAudio", "nativeVersion"):
             if symbol not in jni_exports:
                 raise SystemExit(f"JNI export missing from libyazen_lactea_jni.so: {symbol}")
