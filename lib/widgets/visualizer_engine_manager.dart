@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/visualizer_settings.dart';
 import 'advanced_visualizer_engine.dart';
 import 'audio_visualizer.dart';
+import 'lactea_visualizer.dart';
 
 /// Routes to exactly one renderer. The inactive engine is not kept in the tree.
 class VisualizerEngineManager extends StatefulWidget {
@@ -62,6 +63,24 @@ class _VisualizerEngineManagerState extends State<VisualizerEngineManager> {
       builder: (context, _) {
         if (_settings.loaded && !_settings.enabled) {
           return const SizedBox.shrink();
+        }
+        if (_settings.loaded &&
+            _settings.engine == VisualizerEngineKind.lactea) {
+          return LacteaVisualizer(
+            key: const ValueKey<String>('lactea-visualizer-engine'),
+            playing: widget.playing,
+            sourceUri: widget.sourceUri,
+            position: widget.position,
+            positionStream: widget.positionStream,
+            speedStream: widget.speedStream,
+            initialSpeed: widget.initialSpeed,
+            height: widget.height,
+            barCount: widget.barCount,
+            duration: widget.duration,
+            fallbackStyle: _settings.advancedStyle,
+            color: widget.color,
+            onSeek: widget.onSeek,
+          );
         }
         if (_settings.loaded &&
             _settings.engine == VisualizerEngineKind.advanced) {

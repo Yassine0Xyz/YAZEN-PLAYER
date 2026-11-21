@@ -30,9 +30,15 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.LinkedHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 class MainActivity : AudioServiceActivity() {
@@ -60,6 +66,8 @@ class MainActivity : AudioServiceActivity() {
     private var pendingDeleteResult: MethodChannel.Result? = null
     private var pendingDeleteIds: List<Int> = emptyList()
     private val pcmExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val lacteaPcmExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val lacteaPcmFeedPending = AtomicBoolean(false)
     private val artworkExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // MediaStore enumeration and thumbnail decoding must never run on Flutter's
     // platform thread. Keep the two workloads isolated so a large library scan
@@ -70,7 +78,13 @@ class MainActivity : AudioServiceActivity() {
     private var videoQueryInFlight = false
     @Volatile
     private var activityDestroyed = false
-    private var pcmGeneration = 0
+    @Volatile private var pcmGeneration = 0
+    @Volatile private var pcmWorkingFile: File? = null
+    @Volatile private var lacteaEnabled = false
+    @Volatile private var pcmCurrentUri: String? = null
+    private val lacteaSidecarRequested = AtomicBoolean(false)
+    @Volatile private var pcmLastFedPositionMs: Long? = null
+    @Volatile private var pcmLastFeedDurationMs = 40L
     private var pcmState = "idle"
     private var pcmResult: PcmSpectrumAnalyzer.Result? = null
     private var pcmProgressFrames: MutableList<FloatArray> = mutableListOf()
@@ -96,6 +110,7 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        cleanupLacteaPcmSidecars()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val filter = IntentFilter().apply {
                 VIDEO_PIP_ACTIONS.forEach(::addAction)
@@ -112,7 +127,16 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(messenger, "yazen/lactea").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isAvailable" -> result.success(LacteaNative.available)
+                "setEnabled" -> { lacteaEnabled = call.argument<Boolean>("enabled") == true; result.success(null) }
+                else -> result.notImplemented()
+            }
+        }
+        flutterEngine.platformViewsController.registry.registerViewFactory("yazen/lactea_visualizer", LacteaPlatformViewFactory(messenger))
+        MethodChannel(messenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "requestVideoPermission" -> requestVideoPermission(result)
@@ -164,6 +188,7 @@ class MainActivity : AudioServiceActivity() {
                     "startPcm" -> startPcmAnalyzer(call.argument<String>("uri"), result)
                     "readPcm" -> readPcmAnalyzer(
                         call.argument<Number>("positionMs")?.toLong() ?: 0L,
+                        call.argument<Number>("speed")?.toDouble() ?: 1.0,
                         result,
                     )
                     "stopPcm" -> {
@@ -394,80 +419,27 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun startPcmAnalyzer(uriString: String?, result: MethodChannel.Result) {
-        stopPcmAnalyzer()
-        if (uriString.isNullOrBlank()) {
-            result.success(mapOf<String, Any>("started" to false, "state" to "unavailable"))
-            return
-        }
-        val generation = ++pcmGeneration
-        val cached = pcmCache[uriString]
-        if (cached != null) {
-            pcmResult = cached
-            pcmProgressFrames = cached.frames.toMutableList()
-            pcmState = "ready"
-            pcmFailure = null
-            Log.i(
-                pcmTag,
-                "pcm cache hit uri=$uriString frames=${cached.frames.size}",
-            )
-            result.success(
-                mapOf<String, Any>(
-                    "started" to true,
-                    "mode" to "pcm_file_cache",
-                    "state" to "ready",
-                ),
-            )
-            return
-        }
-        pcmState = "preparing"
-        pcmResult = null
-        pcmProgressFrames = mutableListOf()
-        pcmFailure = null
-        Log.i(pcmTag, "pcm start requested uri=$uriString")
-        result.success(
-            mapOf<String, Any>(
-                "started" to true,
-                "mode" to "pcm_file",
-                "state" to "preparing",
-            ),
-        )
+    private fun cleanupLacteaPcmSidecars() { val dir=File(cacheDir,"lactea_pcm");runCatching{dir.listFiles()?.forEach{it.delete()};dir.mkdirs()} }
+    private fun cleanupPcmSidecarsExcept(keep:File?){val dir=File(cacheDir,"lactea_pcm");runCatching{dir.listFiles()?.forEach{if(it!=keep)it.delete()};dir.mkdirs()}}
+    private fun pcmCacheKey(uri:String)=MessageDigest.getInstance("SHA-256").digest(uri.toByteArray(Charsets.UTF_8)).joinToString(""){(it.toInt()and 255).toString(16).padStart(2,'0')}
+    private fun startPcmAnalyzer(uriString:String?,result:MethodChannel.Result){
+        stopPcmAnalyzer();if(uriString.isNullOrBlank()){result.success(mapOf<String,Any>("started" to false,"state" to "unavailable"));return}
+        pcmCurrentUri = uriString
+        lacteaSidecarRequested.set(false)
+        val generation=++pcmGeneration;val cached=pcmCache[uriString]
+        if(cached!=null&&(cached.pcmFile?.isFile==true||!lacteaEnabled)){if(lacteaEnabled)cleanupPcmSidecarsExcept(cached.pcmFile);pcmResult=cached;pcmWorkingFile=cached.pcmFile;pcmProgressFrames=cached.frames.toMutableList();pcmState="ready";pcmFailure=null;result.success(mapOf<String,Any>("started" to true,"mode" to "pcm_cache","state" to "ready"));return}
+        val pcmFile=if(lacteaEnabled)File(cacheDir,"lactea_pcm/${pcmCacheKey(uriString)}.pcm") else null
+        if(pcmFile!=null){cleanupPcmSidecarsExcept(pcmFile);pcmFile.parentFile?.mkdirs();lacteaSidecarRequested.set(true)};pcmWorkingFile=pcmFile
+        pcmState="preparing";pcmResult=null;pcmProgressFrames=mutableListOf();pcmFailure=null
+        result.success(mapOf<String,Any>("started" to true,"mode" to "pcm_file","state" to "preparing"))
         pcmExecutor.execute {
-            val analysis = PcmSpectrumAnalyzer(contentResolver) {
-                generation != pcmGeneration
-            }.analyze(Uri.parse(uriString)) { frames ->
-                mainHandler.post {
-                    if (generation != pcmGeneration) return@post
-                    pcmProgressFrames.addAll(frames)
-                }
-            }
-            mainHandler.post {
-                if (generation != pcmGeneration) return@post
-                if (analysis == null) {
-                    if (pcmProgressFrames.isEmpty()) {
-                        pcmState = "unavailable"
-                        pcmFailure = "decoder_failed"
-                    } else {
-                        pcmState = "ready"
-                    }
-                    Log.w(pcmTag, "pcm analysis unavailable uri=$uriString frames=${pcmProgressFrames.size}")
-                } else {
-                    pcmCache[uriString] = analysis
-                    pcmResult = analysis
-                    pcmProgressFrames = analysis.frames.toMutableList()
-                    pcmState = "ready"
-                    Log.i(
-                        pcmTag,
-                        "pcm ready uri=$uriString frames=${analysis.frames.size} " +
-                            "frameMs=${analysis.frameDurationMs} sampleRate=${analysis.sampleRate} " +
-                            "channels=${analysis.channels}",
-                    )
-                }
-            }
+            val analysis=PcmSpectrumAnalyzer(contentResolver){generation!=pcmGeneration}.analyze(Uri.parse(uriString),pcmOutputFile=pcmFile){frames->mainHandler.post{if(generation==pcmGeneration)pcmProgressFrames.addAll(frames)}}
+            mainHandler.post{if(generation!=pcmGeneration)return@post;lacteaSidecarRequested.set(false);if(analysis==null){pcmState=if(pcmProgressFrames.isEmpty())"unavailable" else "ready";if(pcmProgressFrames.isEmpty()){pcmFailure=if(lacteaEnabled)"lactea_pcm_decode_failed" else "decoder_failed";pcmWorkingFile?.delete();pcmWorkingFile=null}else if(pcmFile!=null){pcmWorkingFile=pcmFile}}else{pcmCache[uriString]=analysis;pcmResult=analysis;pcmWorkingFile=analysis.pcmFile;pcmProgressFrames=analysis.frames.toMutableList();pcmState="ready";pcmFailure=null;Log.i(pcmTag,"PCM ready frames=${analysis.frames.size} rate=${analysis.sampleRate}")}}
         }
     }
 
-    private fun readPcmAnalyzer(positionMs: Long, result: MethodChannel.Result) {
+    private fun readPcmAnalyzer(positionMs: Long, speed: Double, result: MethodChannel.Result) {
+        feedLacteaPcm(positionMs, speed)
         val analysis = pcmResult
         val frameDurationMs = analysis?.frameDurationMs ?: 40L
         val frames = if (analysis != null) analysis.frames else pcmProgressFrames
@@ -516,13 +488,52 @@ class MainActivity : AudioServiceActivity() {
         )
     }
 
-    private fun stopPcmAnalyzer() {
-        pcmGeneration++
-        pcmState = "idle"
-        pcmResult = null
-        pcmProgressFrames = mutableListOf()
-        pcmFailure = null
+    private fun ensureLacteaPcmSidecar() {
+        val uriString = pcmCurrentUri ?: return
+        if (!lacteaEnabled || pcmFailure == "lactea_pcm_decode_failed" || pcmWorkingFile != null || !lacteaSidecarRequested.compareAndSet(false, true)) return
+        val cached = pcmCache[uriString]
+        if (cached?.pcmFile?.isFile == true) {
+            pcmResult = cached; pcmWorkingFile = cached.pcmFile; lacteaSidecarRequested.set(false); return
+        }
+        val file = File(cacheDir, "lactea_pcm/${pcmCacheKey(uriString)}.pcm")
+        cleanupPcmSidecarsExcept(file); file.parentFile?.mkdirs()
+        val generation = ++pcmGeneration
+        pcmWorkingFile = file; pcmResult = null; pcmProgressFrames = mutableListOf(); pcmState = "preparing"; pcmFailure = null
+        pcmExecutor.execute {
+            val analysis = PcmSpectrumAnalyzer(contentResolver) { generation != pcmGeneration }
+                .analyze(Uri.parse(uriString), pcmOutputFile = file) { frames ->
+                    mainHandler.post { if (generation == pcmGeneration) pcmProgressFrames.addAll(frames) }
+                }
+            mainHandler.post {
+                if (generation != pcmGeneration) { lacteaSidecarRequested.set(false); return@post }
+                lacteaSidecarRequested.set(false)
+                if (analysis == null) {
+                    pcmState = if (pcmProgressFrames.isEmpty()) "unavailable" else "ready"
+                    if (pcmProgressFrames.isEmpty()) { pcmFailure = "lactea_pcm_decode_failed"; pcmWorkingFile?.delete(); pcmWorkingFile = null }
+                } else {
+                    pcmCache[uriString] = analysis; pcmResult = analysis; pcmWorkingFile = analysis.pcmFile
+                    pcmProgressFrames = analysis.frames.toMutableList(); pcmState = "ready"; pcmFailure = null
+                }
+            }
+        }
     }
+
+    private fun feedLacteaPcm(positionMs:Long,speed:Double){
+        if(!lacteaEnabled||LacteaSessionRegistry.activeCount==0||!LacteaNative.available)return
+        val file=pcmResult?.pcmFile?:pcmWorkingFile
+        if(file==null||!file.isFile){if(pcmWorkingFile?.isFile!=true)pcmWorkingFile=null;ensureLacteaPcmSidecar();return}
+        val rate=pcmResult?.pcmSampleRate?:22050;val duration=(40.0*speed.coerceIn(.25,3.0)).toInt().coerceIn(8,160);val pos=positionMs.coerceAtLeast(0);val generation=pcmGeneration
+        if(!lacteaPcmFeedPending.compareAndSet(false,true))return
+        lacteaPcmExecutor.execute{try{if(generation!=pcmGeneration||!file.isFile)return@execute;val start=pos*rate/1000L;val wanted=(rate.toLong()*duration/1000L).toInt().coerceIn(128,8192)
+            RandomAccessFile(file,"r").use{f->val offset=start*4L;val available=((f.length()-offset)/4L).coerceAtLeast(0);val count=minOf(wanted.toLong(),available).toInt();if(count<64||generation!=pcmGeneration)return@use
+                val bytes=ByteArray(count*4);f.seek(offset);f.readFully(bytes);if(generation!=pcmGeneration)return@use
+                val b=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);val samples=FloatArray(count*2){(b.short.toInt()/32768f).coerceIn(-1f,1f)}
+                val expected=pcmLastFedPositionMs?.plus(pcmLastFeedDurationMs);if(expected!=null&&kotlin.math.abs(pos-expected)>180L)LacteaSessionRegistry.resetAudio()
+                if(generation==pcmGeneration){LacteaSessionRegistry.pushPcm(samples,2,rate);pcmLastFedPositionMs=pos;pcmLastFeedDurationMs=count.toLong()*1000L/rate}
+            }
+        }catch(e:Exception){Log.w(pcmTag,"Lactea PCM slice failed",e)}finally{lacteaPcmFeedPending.set(false)}}
+    }
+    private fun stopPcmAnalyzer(){pcmGeneration++;pcmCurrentUri=null;lacteaSidecarRequested.set(false);pcmState="idle";pcmResult=null;pcmProgressFrames=mutableListOf();pcmFailure=null;val old=pcmWorkingFile;pcmWorkingFile=null;if(old!=null&&pcmCache.values.none{it.pcmFile==old})runCatching{old.delete()};pcmLastFedPositionMs=null;pcmLastFeedDurationMs=40L;lacteaPcmExecutor.execute{LacteaSessionRegistry.resetAudio()}}
 
     private fun videoPermission(): String = if (Build.VERSION.SDK_INT >= 33) {
         Manifest.permission.READ_MEDIA_VIDEO
@@ -952,6 +963,7 @@ class MainActivity : AudioServiceActivity() {
         videoQueryExecutor.shutdownNow()
         videoThumbnailExecutor.shutdownNow()
         pcmExecutor.shutdownNow()
+        lacteaPcmExecutor.shutdownNow()
         artworkExecutor.shutdownNow()
         super.onDestroy()
     }

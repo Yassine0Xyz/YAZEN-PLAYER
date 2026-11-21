@@ -7,6 +7,8 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
@@ -36,16 +38,20 @@ class PcmSpectrumAnalyzer(
         val frameDurationMs: Long,
         val sampleRate: Int,
         val channels: Int,
+        val pcmFile: File?,
+        val pcmSampleRate: Int,
     )
 
     fun analyze(
         uri: Uri,
         bandCount: Int = 40,
+        pcmOutputFile: File? = null,
         onFrames: ((List<FloatArray>) -> Unit)? = null,
     ): Result? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         var descriptor: ParcelFileDescriptor? = null
+        var pcmStore: RandomAccessFile? = null
         try {
             descriptor = openExtractor(extractor, uri)
             var audioTrack = -1
@@ -69,6 +75,10 @@ class PcmSpectrumAnalyzer(
 
             val initialRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE, 44100)
             val initialChannels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT, 1)
+            if (pcmOutputFile != null) {
+                pcmOutputFile.parentFile?.mkdirs()
+                pcmStore = RandomAccessFile(pcmOutputFile, "rw").apply { setLength(0L) }
+            }
             val frames = ArrayList<FloatArray>()
             val pendingCallbacks = ArrayList<FloatArray>(32)
             var sampleRate = initialRate
@@ -157,16 +167,36 @@ class PcmSpectrumAnalyzer(
                                     else -> 2
                                 }
                                 val bytesPerSample = bytesPerChannel * max(1, channels)
+                                val rawFrameCount = pcm.remaining() / bytesPerSample
+                                val rawStereo = if (pcmStore != null && rawFrameCount > 0) FloatArray(((rawFrameCount.toLong() * 22050 / sampleRate).toInt() + 2) * 2) else null
+                                var rawIndex = 0; var rawCount = 0; var rawBucket = -1L
+                                var leftSum = 0f; var rightSum = 0f; var bucketCount = 0; var lastLeft = 0f; var lastRight = 0f
                                 while (pcm.remaining() >= bytesPerSample) {
-                                    if (pendingCount >= pending.size) {
-                                        pending = pending.copyOf(pending.size * 2)
+                                    if (pendingCount >= pending.size) pending = pending.copyOf(pending.size * 2)
+                                    var mono = 0f; var left = 0f; var right = 0f
+                                    repeat(max(1, channels)) { channel ->
+                                        val value = readSample(pcm, pcmEncoding); mono += value
+                                        if (channel == 0) left = value
+                                        if (channel == 1) right = value
                                     }
-                                    var mono = 0f
-                                    repeat(max(1, channels)) {
-                                        mono += readSample(pcm, pcmEncoding)
-                                    }
+                                    if (channels == 1) right = left
                                     pending[pendingCount++] = mono / max(1, channels)
-
+                                    if (rawStereo != null) {
+                                        val target = rawIndex.toLong() * 22050L / sampleRate
+                                        if (rawBucket == -1L) rawBucket = target
+                                        if (target != rawBucket) {
+                                            if (bucketCount > 0 && rawCount * 2 + 1 < rawStereo.size) {
+                                                lastLeft = leftSum / bucketCount; lastRight = rightSum / bucketCount
+                                                rawStereo[rawCount * 2] = lastLeft; rawStereo[rawCount * 2 + 1] = lastRight; rawCount++
+                                            }
+                                            while (rawBucket + 1 < target && rawCount * 2 + 1 < rawStereo.size) {
+                                                rawStereo[rawCount * 2] = lastLeft; rawStereo[rawCount * 2 + 1] = lastRight; rawCount++; rawBucket++
+                                            }
+                                            rawBucket = target; leftSum = 0f; rightSum = 0f; bucketCount = 0
+                                        }
+                                        leftSum += left.coerceIn(-1f, 1f); rightSum += right.coerceIn(-1f, 1f); bucketCount++
+                                    }
+                                    rawIndex++
                                     while (pendingCount >= windowSize) {
                                         val frame = computeSpectrum(
                                             pending,
@@ -194,6 +224,18 @@ class PcmSpectrumAnalyzer(
                                         }
                                     }
                                 }
+                                if (rawIndex > 0 && rawStereo != null && bucketCount > 0) {
+                                    lastLeft = leftSum / bucketCount; lastRight = rightSum / bucketCount
+                                    if (rawCount * 2 + 1 < rawStereo.size) { rawStereo[rawCount * 2] = lastLeft; rawStereo[rawCount * 2 + 1] = lastRight; rawCount++ }
+                                    val startSample = bufferInfo.presentationTimeUs.coerceAtLeast(0L) * 22050L / 1_000_000L
+                                    val bytes = ByteArray(rawCount * 4)
+                                    for (frame in 0 until rawCount) {
+                                        val l = (rawStereo[frame * 2] * 32767f).toInt().coerceIn(-32768,32767)
+                                        val r = (rawStereo[frame * 2 + 1] * 32767f).toInt().coerceIn(-32768,32767)
+                                        val o = frame * 4; bytes[o]=(l and 255).toByte(); bytes[o+1]=((l shr 8) and 255).toByte(); bytes[o+2]=(r and 255).toByte(); bytes[o+3]=((r shr 8) and 255).toByte()
+                                    }
+                                    pcmStore?.seek(startSample * 4L); pcmStore?.write(bytes)
+                                }
                             }
                         }
                         outputDone =
@@ -211,10 +253,13 @@ class PcmSpectrumAnalyzer(
                 frameDurationMs = (hopSize * 1000L / max(1, sampleRate)),
                 sampleRate = sampleRate,
                 channels = channels,
+                pcmFile = pcmOutputFile,
+                pcmSampleRate = 22050,
             )
         } catch (_: Throwable) {
             return null
         } finally {
+            runCatching { pcmStore?.close() }
             try {
                 codec?.stop()
             } catch (_: Throwable) {

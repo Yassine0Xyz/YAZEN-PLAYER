@@ -69,7 +69,7 @@ class AudioEnergy {
 
 abstract interface class PcmSpectrumSource {
   Future<bool> start(String sourceUri);
-  Future<PcmSpectrumReadResult> read(int positionMs);
+  Future<PcmSpectrumReadResult> read(int positionMs, {double speed = 1.0});
   Future<void> stop();
 }
 
@@ -109,12 +109,16 @@ class PlatformPcmSpectrumSource implements PcmSpectrumSource {
   }
 
   @override
-  Future<PcmSpectrumReadResult> read(int positionMs) async {
+  Future<PcmSpectrumReadResult> read(
+    int positionMs, {
+    double speed = 1.0,
+  }) async {
     final response =
         Platform.isLinux
             ? LinuxPcmSpectrumService.instance.read(positionMs)
             : await _channel.invokeMethod<dynamic>('readPcm', <String, Object?>{
               'positionMs': positionMs,
+              'speed': speed,
             });
     if (response is! Map<dynamic, dynamic>) {
       return const PcmSpectrumReadResult.unavailable();
@@ -453,7 +457,7 @@ class PlaybackEnergyService extends WidgetsBindingObserver {
     final readSpeed = consumer.speed;
     _readInFlightEpoch = readEpoch;
     try {
-      final result = await _source.read(requestedPositionMs);
+      final result = await _source.read(requestedPositionMs, speed: readSpeed);
       if (!_readIsCurrent(readEpoch, uri, consumerId)) return;
       switch (result.state) {
         case PcmSpectrumReadState.live:

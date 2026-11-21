@@ -1,0 +1,1 @@
+Lactea v0.2.2 is dual-licensed MIT OR Apache-2.0 and includes BSD-3-Clause MilkDrop-derived portions. Build scripts copy upstream LICENSE-MIT, LICENSE-APACHE and THIRD_PARTY_NOTICES.md. The curated preset pack is MIT-licensed; its LICENSE is copied beside the presets. Six fallback `.milk` files are YAZEN-authored.

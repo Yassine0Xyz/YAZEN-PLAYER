@@ -5,7 +5,7 @@ enum VisualizerResponse { smooth, balanced, fast }
 
 enum VisualizerStyle { bars, wave, columns, mirror }
 
-enum VisualizerEngineKind { legacy, advanced }
+enum VisualizerEngineKind { legacy, advanced, lactea }
 
 enum AdvancedVisualizerStyle { aurora, particles, fluid }
 
@@ -30,6 +30,7 @@ class VisualizerSettings extends ChangeNotifier {
   static const _styleKey = 'yazen.visualizer.style.v2';
   static const _legacyStyleKey = 'yazen.visualizer.style';
   static const _engineKey = 'yazen.visualizer.engine.v1';
+  static const _lacteaFirstRunKey = 'yazen.visualizer.lactea_first_run.v1';
   static const _advancedStyleKey = 'yazen.visualizer.advanced_style.v1';
 
   double _sensitivity = 1.0;
@@ -37,7 +38,7 @@ class VisualizerSettings extends ChangeNotifier {
   double _noiseGate = 0.005;
   bool _enabled = true;
   VisualizerStyle _style = VisualizerStyle.bars;
-  VisualizerEngineKind _engine = VisualizerEngineKind.legacy;
+  VisualizerEngineKind _engine = VisualizerEngineKind.lactea;
   AdvancedVisualizerStyle _advancedStyle = AdvancedVisualizerStyle.aurora;
   bool _loaded = false;
 
@@ -66,11 +67,18 @@ class VisualizerSettings extends ChangeNotifier {
       0.08,
     );
     _enabled = preferences.getBool(_enabledKey) ?? true;
-    _engine =
-        VisualizerEngineKind.values
-            .where((value) => value.name == preferences.getString(_engineKey))
-            .firstOrNull ??
-        VisualizerEngineKind.legacy;
+    final firstLacteaRun = preferences.getBool(_lacteaFirstRunKey) ?? false;
+    if (!firstLacteaRun) {
+      _engine = VisualizerEngineKind.lactea;
+      await preferences.setString(_engineKey, _engine.name);
+      await preferences.setBool(_lacteaFirstRunKey, true);
+    } else {
+      _engine =
+          VisualizerEngineKind.values
+              .where((value) => value.name == preferences.getString(_engineKey))
+              .firstOrNull ??
+          VisualizerEngineKind.lactea;
+    }
     _advancedStyle =
         AdvancedVisualizerStyle.values
             .where(

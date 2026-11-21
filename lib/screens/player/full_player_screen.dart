@@ -503,11 +503,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         children: VisualizerEngineKind.values
                             .map(
                               (engine) => ChoiceChip(
-                                label: Text(
-                                  engine == VisualizerEngineKind.legacy
-                                      ? 'Classic'
-                                      : 'Advanced',
-                                ),
+                                label: Text(switch (engine) {
+                                  VisualizerEngineKind.legacy => 'Classic',
+                                  VisualizerEngineKind.advanced => 'Advanced',
+                                  VisualizerEngineKind.lactea => 'Lactea',
+                                }),
                                 selected: settings.engine == engine,
                                 onSelected:
                                     settings.loaded
@@ -520,7 +520,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       Text(
                         settings.engine == VisualizerEngineKind.legacy
                             ? 'Classic style'
-                            : 'Advanced style',
+                            : settings.engine == VisualizerEngineKind.advanced
+                            ? 'Advanced style'
+                            : 'MilkDrop presets',
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontWeight: FontWeight.w700,
@@ -549,7 +551,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               )
                               .toList(growable: false),
                         )
-                      else
+                      else if (settings.engine == VisualizerEngineKind.advanced)
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -678,6 +680,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ),
                             ),
                           ],
+                        ),
+                      if (settings.engine == VisualizerEngineKind.lactea)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'MilkDrop presets rotate automatically. Tap NEXT PRESET to switch immediately.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.white70,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -961,7 +974,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                             (position) => unawaited(
                                               _seekTo(handler, position),
                                             ),
-                                        height: 62,
+                                        height: 112,
                                         barCount: 36,
                                         profile: AudioVisualizerProfile.full,
                                         seed: item.id,

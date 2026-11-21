@@ -23,7 +23,10 @@ class _FakePcmSource implements PcmSpectrumSource {
   }
 
   @override
-  Future<PcmSpectrumReadResult> read(int positionMs) async {
+  Future<PcmSpectrumReadResult> read(
+    int positionMs, {
+    double speed = 1.0,
+  }) async {
     readCount++;
     requestedPositions.add(positionMs);
     if (!started) return const PcmSpectrumReadResult.unavailable();

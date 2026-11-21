@@ -331,12 +331,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'Visualizer engine',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      subtitle: Text(
-                        settings.engine == VisualizerEngineKind.legacy
-                            ? 'Classic Flutter'
-                            : 'Advanced Flutter',
-                        style: TextStyle(color: tokens.textSecondary),
-                      ),
+                      subtitle: Text(switch (settings.engine) {
+                        VisualizerEngineKind.legacy => 'Classic Flutter',
+                        VisualizerEngineKind.advanced => 'Advanced Flutter',
+                        VisualizerEngineKind.lactea =>
+                          'Lactea / MilkDrop native',
+                      }, style: TextStyle(color: tokens.textSecondary)),
                       trailing: DropdownButton<VisualizerEngineKind>(
                         value: settings.engine,
                         items: const <DropdownMenuItem<VisualizerEngineKind>>[
@@ -347,6 +347,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           DropdownMenuItem(
                             value: VisualizerEngineKind.advanced,
                             child: Text('Advanced'),
+                          ),
+                          DropdownMenuItem(
+                            value: VisualizerEngineKind.lactea,
+                            child: Text('Lactea'),
                           ),
                         ],
                         onChanged:
@@ -401,7 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : null,
                         ),
                       )
-                    else
+                    else if (settings.engine == VisualizerEngineKind.advanced)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.auto_awesome, color: tokens.accent),
@@ -438,6 +442,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     }
                                   }
                                   : null,
+                        ),
+                      ),
+                    if (settings.engine == VisualizerEngineKind.lactea)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.blur_on_rounded,
+                          color: tokens.accent,
+                        ),
+                        title: const Text('MilkDrop preset library'),
+                        subtitle: Text(
+                          'Curated MilkDrop 2/3 presets with YAZEN fallback scenes. If the native build is missing, Advanced is shown instead.',
+                          style: TextStyle(color: tokens.textSecondary),
                         ),
                       ),
                     ListTile(

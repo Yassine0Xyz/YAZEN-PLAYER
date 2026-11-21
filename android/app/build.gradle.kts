@@ -49,6 +49,20 @@ gradle.taskGraph.whenReady {
     }
 }
 
+val buildLacteaNative = providers.gradleProperty("yazenBuildLacteaNative").map { it.toBoolean() }.getOrElse(false)
+val lacteaCapiLibrary = file("src/main/jniLibs/arm64-v8a/liblactea_capi.so")
+val lacteaNativeReady = buildLacteaNative || lacteaCapiLibrary.exists()
+if (buildLacteaNative) {
+    val lacteaBuild = tasks.register<Exec>("buildLacteaNative") {
+        val windows = System.getProperty("os.name").lowercase().contains("windows")
+        workingDir(rootProject.projectDir.parentFile)
+        if (windows) commandLine("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", rootProject.file("../scripts/build_lactea_android.ps1").absolutePath)
+        else commandLine("bash", rootProject.file("../scripts/build_lactea_android.sh").absolutePath)
+    }
+    tasks.named("preBuild").configure { dependsOn(lacteaBuild) }
+    tasks.configureEach { if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) dependsOn(lacteaBuild) }
+}
+
 android {
     namespace = "com.yassine.yazen"
     compileSdk = flutter.compileSdkVersion
@@ -68,9 +82,8 @@ android {
         // adds the ABI suffix automatically.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        ndk {
-            abiFilters += setOf("arm64-v8a")
-        }
+        ndk { abiFilters += setOf("arm64-v8a") }
+        if (lacteaNativeReady) externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }
 
     buildTypes {
@@ -93,6 +106,8 @@ android {
             applicationIdSuffix = ".profile"
         }
     }
+
+    if (lacteaNativeReady) externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
 
     packaging {
         jniLibs {
