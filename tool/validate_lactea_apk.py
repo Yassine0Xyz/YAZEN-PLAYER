@@ -38,6 +38,10 @@ def needed(elf: Path) -> set[str]:
     return set(re.findall(r"Shared library: \[([^]]+)\]", readelf(elf, "-d")))
 
 
+def sonames(elf: Path) -> set[str]:
+    return set(re.findall(r"Library soname: \[([^]]+)\]", readelf(elf, "-d")))
+
+
 def validate_elf_payload(z: ZipFile) -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -54,6 +58,8 @@ def validate_elf_payload(z: ZipFile) -> None:
             raise SystemExit(f"JNI library has an absolute DT_NEEDED path: {sorted(jni_needed)}")
         if "liblactea_capi.so" not in jni_needed:
             raise SystemExit(f"JNI library does not depend on packaged liblactea_capi.so: {sorted(jni_needed)}")
+        if sonames(capi) != {"liblactea_capi.so"}:
+            raise SystemExit(f"C API SONAME is missing or unexpected: {sorted(sonames(capi))}")
         exports = readelf(capi, "--dyn-syms")
         for symbol in ("lactea_config_default", "lactea_create", "lactea_destroy", "lactea_load_preset", "lactea_render_to_buffer"):
             if not re.search(rf"\b{re.escape(symbol)}$", exports, re.MULTILINE):
