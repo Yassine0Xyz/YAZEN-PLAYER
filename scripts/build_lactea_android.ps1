@@ -8,9 +8,11 @@ $Licenses = Join-Path $Root 'android/app/src/main/assets/lactea/licenses'
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required.' }
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue) -or -not (Get-Command rustup -ErrorAction SilentlyContinue)) { throw 'Rust/rustup is required.' }
 cargo ndk --version | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Install cargo-ndk: cargo install cargo-ndk' }
+if ($LASTEXITCODE -ne 0) { throw 'Install cargo-ndk: cargo install cargo-ndk --locked' }
 
 & (Join-Path $PSScriptRoot 'prepare_lactea_presets.ps1')
+$PresetIndex = Join-Path $Root 'android/app/src/main/assets/lactea/curated/PRESET_INDEX.txt'
+if (-not (Test-Path $PresetIndex)) { throw 'Real MilkDrop preset index missing; refusing to build fallback-only Lactea.' }
 rustup target add aarch64-linux-android
 if ($LASTEXITCODE -ne 0) { throw 'Could not install the Android Rust target.' }
 
@@ -38,5 +40,8 @@ Copy-Item -LiteralPath (Join-Path $Source 'crates/lactea-capi/include/lactea.h')
 Copy-Item -LiteralPath (Join-Path $Source 'THIRD_PARTY_NOTICES.md') -Destination $Licenses -Force
 Copy-Item -LiteralPath (Join-Path $Source 'LICENSE-MIT') -Destination $Licenses -Force
 Copy-Item -LiteralPath (Join-Path $Source 'LICENSE-APACHE') -Destination $Licenses -Force
-if (-not (Test-Path (Join-Path $Jni 'arm64-v8a/liblactea_capi.so'))) { throw 'liblactea_capi.so missing after build.' }
-Write-Host 'Lactea C API 0.2.2 built. Now run flutter build apk --profile.'
+$NativeLibrary = Join-Path $Jni 'arm64-v8a/liblactea_capi.so'
+$Header = Join-Path $Include 'lactea.h'
+if (-not (Test-Path $NativeLibrary) -or (Get-Item $NativeLibrary).Length -lt 1024) { throw 'liblactea_capi.so missing or empty after build.' }
+if (-not (Test-Path $Header) -or (Get-Item $Header).Length -lt 100) { throw 'Generated lactea.h missing or empty.' }
+Write-Host 'Verified Lactea C API arm64-v8a library and real MilkDrop preset index. Now run flutter build apk --profile.'

@@ -1,10 +1,12 @@
 package com.yassine.yazen
 
 internal object LacteaNative {
+    @Volatile var loadFailure: String? = null
+        private set
     val available: Boolean by lazy {
         try { System.loadLibrary("yazen_lactea_jni"); true }
-        catch (_: UnsatisfiedLinkError) { false }
-        catch (_: SecurityException) { false }
+        catch (error: UnsatisfiedLinkError) { loadFailure = error.message ?: "UnsatisfiedLinkError"; false }
+        catch (error: SecurityException) { loadFailure = error.message ?: "SecurityException"; false }
     }
     @JvmStatic external fun nativeCreate(width: Int, height: Int, preset: ByteArray, name: String, textureDirectory: String): Long
     @JvmStatic external fun nativeLoadPreset(handle: Long, preset: ByteArray, name: String, blendSeconds: Float): Int

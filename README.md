@@ -1,3 +1,7 @@
+## Recent Activity — 2026-11-21: Lactea Clean V3 integration
+
+CI now builds the real arm64 Lactea C API and licensed MilkDrop 2/3 preset payload before Flutter APK builds. It validates the generated native library, header, provenance index, licenses, presets, and both APKs; native load/render failures expose a diagnostic reason and Advanced remains a clearly labelled fallback. See `LACTEA_YAZEN_INTEGRATION_HANDOFF_AR.md`.
+
 # YAZEN Player
 
 YAZEN is a local-first Flutter music and video player for Android and Linux.

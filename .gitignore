@@ -28,3 +28,14 @@ android/app/*.keystore
 # Keep the platform setup snippets and raw resource committed.
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
+
+# Lactea generated Android artifacts
+third_party/lactea-v0.2.2/
+android/app/src/main/jniLibs/arm64-v8a/liblactea_capi.so
+android/app/src/main/cpp/include/lactea.h
+android/app/src/main/assets/lactea/curated/
+android/app/src/main/assets/lactea/textures/
+android/app/src/main/assets/lactea/licenses/
+
+# Machine-specific Android SDK path
+android/local.properties

@@ -43,6 +43,7 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
   static const _availability = MethodChannel('yazen/lactea');
   final _hub = VisualizerDataHub.instance;
   bool _available = false, _ready = false;
+  String? _failureReason;
   MethodChannel? _view;
   PlaybackEnergyConsumer? _consumer;
   StreamSubscription<Duration>? _positionSub;
@@ -58,14 +59,28 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
   }
 
   Future<void> _checkNative() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      if (mounted) setState(() => _failureReason = 'Android only');
+      return;
+    }
     var ok = false;
+    String? reason;
     try {
-      ok = await _availability.invokeMethod<bool>('isAvailable') ?? false;
+      final status = await _availability.invokeMapMethod<String, Object?>(
+        'getStatus',
+      );
+      ok = status?['available'] == true;
+      reason = status?['loadError']?.toString();
     } on MissingPluginException {
-    } on PlatformException {}
+      reason = 'Native diagnostic channel missing';
+    } on PlatformException catch (e) {
+      reason = e.message;
+    }
     if (!mounted) return;
-    setState(() => _available = ok);
+    setState(() {
+      _available = ok;
+      _failureReason = ok ? null : (reason ?? 'Native library is not packaged');
+    });
     if (ok) {
       await _setEnabled(true);
       if (!mounted) return;
@@ -135,8 +150,12 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
       if (!mounted) return;
       if (call.method == 'engineReady') {
         setState(() => _ready = true);
+        _failureReason = null;
       } else if (call.method == 'engineError') {
-        _fallback();
+        _fallback(
+          (call.arguments as Map?)?['reason']?.toString() ??
+              'Native engine initialization failed',
+        );
       }
     });
     _sendPlaying();
@@ -144,7 +163,7 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
   }
 
   Future<void> _waitReady(MethodChannel channel) async {
-    for (var i = 0; i < 16; i++) {
+    for (var i = 0; i < 60; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 500));
       if (!mounted || _view != channel) return;
       try {
@@ -158,7 +177,8 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
         break;
       }
     }
-    if (mounted && _view == channel) _fallback();
+    if (mounted && _view == channel)
+      _fallback('Engine did not become ready within 30 seconds');
   }
 
   Future<void> _setEnabled(bool enabled) async {
@@ -170,7 +190,8 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
     } on MissingPluginException {}
   }
 
-  void _fallback() {
+  void _fallback([String reason = 'Native engine unavailable']) {
+    _failureReason = reason;
     unawaited(_setEnabled(false));
     _consumer?.dispose();
     _consumer = null;
@@ -245,15 +266,20 @@ class _LacteaVisualizerState extends State<LacteaVisualizer> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0x66E0A34A)),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   child: Text(
-                    'LACTEA UNAVAILABLE · ADVANCED FALLBACK',
-                    style: TextStyle(
+                    'LACTEA UNAVAILABLE · ${_failureReason ?? "NATIVE ERROR"}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
                       color: Color(0xFFFFD69A),
                       fontSize: 8,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: .35,
+                      letterSpacing: .25,
                     ),
                   ),
                 ),

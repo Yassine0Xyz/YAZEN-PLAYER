@@ -131,6 +131,7 @@ class MainActivity : AudioServiceActivity() {
         MethodChannel(messenger, "yazen/lactea").setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAvailable" -> result.success(LacteaNative.available)
+                "getStatus" -> result.success(mapOf("available" to LacteaNative.available, "loadError" to LacteaNative.loadFailure, "nativeVersion" to if (LacteaNative.available) runCatching { LacteaNative.nativeVersion() }.getOrNull() else null))
                 "setEnabled" -> { lacteaEnabled = call.argument<Boolean>("enabled") == true; result.success(null) }
                 else -> result.notImplemented()
             }

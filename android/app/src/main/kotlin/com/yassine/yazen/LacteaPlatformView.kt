@@ -39,7 +39,7 @@ internal class LacteaPlatformViewFactory(private val messenger:BinaryMessenger):
     }
 }
 private class LacteaPlatformView(private val context:Context,private val viewId:Int,initiallyPlaying:Boolean,messenger:BinaryMessenger):PlatformView,MethodChannel.MethodCallHandler{
-    companion object { private const val TAG="YAZENLactea";private const val W=900;private const val H=280;private const val AUTO_MS=40_000L }
+    companion object { private const val TAG="YAZENLactea";private const val W=720;private const val H=224;private const val AUTO_MS=40_000L }
     private val root=FrameLayout(context).apply{setBackgroundColor(Color.rgb(5,8,16))}
     private val image=ImageView(context).apply{scaleType=ImageView.ScaleType.FIT_XY;setBackgroundColor(Color.rgb(5,8,16))}
     private val title=TextView(context).apply{setTextColor(Color.WHITE);textSize=9f;letterSpacing=.08f;setPadding(dp(8),dp(5),dp(8),dp(5));setBackgroundColor(0x88070B16.toInt());text="LACTEA / INITIALIZING"}
@@ -53,12 +53,14 @@ private class LacteaPlatformView(private val context:Context,private val viewId:
         channel.setMethodCallHandler(this);bitmap=Bitmap.createBitmap(W,H,Bitmap.Config.ARGB_8888);image.setImageBitmap(bitmap)
         if(LacteaNative.available) renderer.execute {
             val first=presets.firstOrNull();val bytes=first?.let(::readPreset)
-            val created=if(first==null||bytes==null)0L else runCatching{LacteaNative.nativeCreate(W,H,bytes,first.title,textureDirectory())}.getOrElse{Log.e(TAG,"Lactea initialization failed",it);0L}
+            val creation = if(first==null) Result.failure(IllegalStateException("No MilkDrop presets were packaged")) else if(bytes==null) Result.failure(IllegalStateException("Could not read the first MilkDrop preset asset")) else runCatching{LacteaNative.nativeCreate(W,H,bytes,first.title,textureDirectory())}
+            val created = creation.getOrDefault(0L)
+            val failure = creation.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName }
             main.post {
                 if(disposed){if(created!=0L)runCatching{LacteaNative.nativeDestroy(created)};return@post}
                 handle=created
                 if(created!=0L){LacteaSessionRegistry.register(viewId,created);title.text="LACTEA / ${first!!.title.uppercase()}";channel.invokeMethod("engineReady",mapOf("presetCount" to presets.size));renderer.execute{render()};if(playing)start()}
-                else title.text="LACTEA / INITIALIZATION FAILED"
+                else { val reason=failure ?: "Native engine returned a null handle";Log.e(TAG,"Lactea initialization failed: $reason");title.text="LACTEA / INITIALIZATION FAILED";channel.invokeMethod("engineError",mapOf("reason" to reason)) }
             }
         } else title.text="LACTEA / NATIVE LIBRARY MISSING"
     }
@@ -69,13 +71,12 @@ private class LacteaPlatformView(private val context:Context,private val viewId:
             val label=when(stem){"aurora-cathedral"->"Aurora Cathedral";"tramonto-sul-golfo"->"Tramonto sul Golfo";"liquid-chrome-kaleidoscope"->"Liquid Chrome Kaleidoscope";"nebula-forge"->"Nebula Forge";"bioluminescent-abyss"->"Bioluminescent Abyss";"neon-sacred-geometry"->"Neon Sacred Geometry";"event-horizon"->"Event Horizon";"fractal-sanctum"->"Fractal Sanctum";"crystal-cathedral"->"Crystal Cathedral";"liquid-silk"->"Liquid Silk";"hyperspace"->"Hyperspace";"cymatic-prism"->"Cymatic Prism";else->stem.replace('-',' ').split(' ').joinToString(" "){it.replaceFirstChar{c->c.uppercase()}}}
             LacteaPreset(label,"lactea/curated/$f")
         }}.getOrDefault(emptyList())
-        if(list.isNotEmpty())return list
-        return listOf("01_first_light.milk","02_celestial_orbit.milk","03_chromatic_tide.milk","04_neon_cathedral.milk","05_violet_helix.milk","06_ember_field.milk").mapIndexed{i,f->LacteaPreset(listOf("First Light","Celestial Orbit","Chromatic Tide","Neon Cathedral","Violet Helix","Ember Field")[i],"lactea/presets/$f")}
+        return list
     }
     private fun readPreset(p:LacteaPreset)=runCatching{context.assets.open(p.assetPath).use{it.readBytes()}}.getOrNull()
     private fun textureDirectory():String{
         val dir=File(context.cacheDir,"lactea_textures");val marker=File(context.cacheDir,".lactea_textures_version")
-        val version=runCatching{context.assets.open("lactea/curated/UPSTREAM_COMMIT.txt").bufferedReader().use{it.readText().trim()}}.getOrDefault("yazen-fallback-v1")
+        val version=runCatching{context.assets.open("lactea/curated/UPSTREAM_COMMIT.txt").bufferedReader().use{it.readText().trim()}}.getOrDefault("missing-upstream-marker")
         if(!dir.exists()||runCatching{marker.readText().trim()}.getOrDefault("")!=version){dir.deleteRecursively();dir.mkdirs();copyAssets("lactea/textures",dir);marker.writeText(version)}
         return if(dir.listFiles().isNullOrEmpty())"" else dir.absolutePath
     }

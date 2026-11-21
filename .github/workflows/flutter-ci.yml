@@ -15,7 +15,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -31,6 +31,28 @@ jobs:
         run: |
           flutter --version
           dart --version
+
+      - name: Set up Android NDK and CMake
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android native build dependencies
+        run: |
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Set up Rust for Lactea
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Lactea C API and fetch real MilkDrop presets
+        run: scripts/build_lactea_android.sh
+
+      - name: Verify Lactea native payload
+        run: python tool/validate_lactea_payload.py
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -59,6 +81,11 @@ jobs:
 
       - name: Build Android profile APK
         run: flutter build apk --profile --target-platform android-arm64
+
+      - name: Verify Lactea payload inside both APKs
+        run: |
+          python tool/validate_lactea_apk.py build/app/outputs/flutter-apk/app-debug.apk
+          python tool/validate_lactea_apk.py build/app/outputs/flutter-apk/app-profile.apk
 
       - name: Upload Android APKs
         uses: actions/upload-artifact@v4
