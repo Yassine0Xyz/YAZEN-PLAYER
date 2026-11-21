@@ -32,11 +32,9 @@ jobs:
           flutter --version
           dart --version
 
-      - name: Set up Android NDK and CMake
-        uses: android-actions/setup-android@v3
-
       - name: Install Android native build dependencies
         run: |
+          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
