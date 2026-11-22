@@ -4,11 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:voice_anim_kit/voice_anim_kit.dart';
 
 import '../services/playback_energy_service.dart';
 import '../services/artwork_palette_service.dart';
 import '../services/dynamic_color_settings.dart';
 import '../services/visualizer_settings.dart';
+import '../visualizer/yazen_fft_adapter.dart';
 
 enum AudioVisualizerProfile { compact, full }
 
@@ -68,6 +70,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   ]);
   final _visualizerSettings = VisualizerSettings.instance;
   final PlaybackEnergyService _energyService = PlaybackEnergyService.instance;
+  final YazenFftAdapter _fftAdapter = YazenFftAdapter();
   PlaybackEnergyConsumer? _energyConsumer;
   bool _energyVisible = true;
 
@@ -248,7 +251,8 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     if (!_visualizerSettings.enabled) return;
     final energy = _energyService.energy.value;
     if (energy.available && energy.bands.isNotEmpty) {
-      _setRealFrame(energy.bands);
+      final frame = _fftAdapter.adapt(energy);
+      _setRealFrame(frame.bands);
       return;
     }
     if (!_hasRealSignal) return;
@@ -418,6 +422,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   void _resetBands() {
+    _fftAdapter.reset();
     final count = math.max(1, widget.barCount);
     _targetLevels = List<double>.filled(count, 0.0);
     _lastRawBands = const <double>[];
@@ -1033,7 +1038,10 @@ class SourceSpectrumPainter extends CustomPainter {
         final glowRect = rect.inflate(math.min(3.0, barWidth * 0.42));
         canvas.drawRRect(
           RRect.fromRectAndRadius(glowRect, radius),
-          Paint()..color = barColor.withValues(alpha: 0.10 + level * 0.08),
+          PaintUtils.filledPaint(
+            color: barColor,
+            alpha: 0.10 + level * 0.08,
+          ),
         );
       }
       canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), barPaint);

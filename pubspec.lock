@@ -819,6 +819,13 @@ packages:
       relative: true
     source: path
     version: "0.5.6"
+  voice_anim_kit:
+    dependency: "direct main"
+    description:
+      path: "third_party/voice_anim_kit"
+      relative: true
+    source: path
+    version: "0.3.0"
   vm_service:
     dependency: transitive
     description:
