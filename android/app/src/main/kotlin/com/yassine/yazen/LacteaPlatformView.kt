@@ -45,8 +45,9 @@ private class LacteaPlatformView(private val context:Context,private val viewId:
     companion object {
         private const val TAG="YAZENLactea";private const val AUTO_MS=40_000L
         private fun selectQuality(context:Context):Quality {
-            val memory= (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
-                ?.memoryInfo?.totalMem?.div(1024L*1024L) ?: 4096L
+            val memoryInfo=ActivityManager.MemoryInfo()
+            val manager=context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memory=if(manager!=null){manager.getMemoryInfo(memoryInfo);memoryInfo.totalMem/(1024L*1024L)}else 4096L
             val cores=Runtime.getRuntime().availableProcessors()
             return when {
                 memory<4096L || cores<=4 -> Quality("Saver",400,124,18)
